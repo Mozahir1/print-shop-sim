@@ -37,6 +37,7 @@ export const FINISHING_STATION: Vec = { x: 18.6, y: 3.5 };
 export const SHIPPING_SCALE: Vec = { x: 16.2, y: 4.1 }; // right end of the counter, staff side
 export const PACKAGE_ROOM: Vec = { x: 19.4, y: 7.0 }; // by the door to the truck
 export const STOCKROOM: Vec = { x: 18.6, y: 10.2 };
+export const PICKUP_SHELF: Vec = { x: 7.5, y: 3.3 }; // where you stand at the shelf
 
 // Self-serve copiers along the left wall of the self-service area; the customer stands to the right of each.
 export const COPIER_SPOTS: Vec[] = [

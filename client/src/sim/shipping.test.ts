@@ -6,9 +6,8 @@ import { generateDay } from "./schedule";
 import { createRng } from "./rng";
 import { spawnShippingCustomer, truckNow } from "./dev";
 import { shipQuote } from "./shipping";
-import { fetchSeconds } from "./inventory";
-import { SHIPPING_SCALE } from "./layout";
-import type { Customer, ShipService } from "./types";
+import { doTask, fetch } from "./testkit";
+import type { Customer, ShipService, StockItem } from "./types";
 
 function runUntil(sim: Sim, cond: () => boolean, limit = 3 * 3600) {
   for (let i = 0; i < limit && !cond(); i++) tick(sim, 1);
@@ -31,21 +30,30 @@ function serve(sim: Sim, c: Customer, type: "ship_package" | "accept_dropoff" | 
   runUntil(sim, () => c.outcome !== null);
 }
 
-function ship(sim: Sim, service: ShipService, packed: boolean, weightLb = 10): Customer {
+// Phase 8: packing needs a box you fetched, and the finished package ends up in your hands until you stage it.
+function ship(sim: Sim, service: ShipService, packed: boolean, weightLb = 10, stage = true): Customer {
   const c = spawnShippingCustomer(sim.state, "ship", { service, packed, weightLb });
+  if (!packed) {
+    runUntil(sim, () => counterCustomer(sim.state)?.id === c.id);
+    fetch(sim, `box_${c.ship!.box}` as StockItem);
+  }
   serve(sim, c, "ship_package");
+  if (stage) doTask(sim, { type: "stage_packages" });
   return c;
 }
 
 describe("shipping a package", () => {
   it("charges the rate and books the carrier's cut as cost (already packed)", () => {
     const sim = emptyStore();
-    const c = ship(sim, "two_day", true, 10);
+    const c = ship(sim, "two_day", true, 10, false);
     // two-day: 2400 + 220/lb x 10 lb = 4600; carrier gets 70%
     expect(sim.state.revenueCents).toBe(4600);
     expect(Math.round(sim.state.costCents)).toBe(3220);
     expect(c.outcome).toBe("shipped");
     expect(sim.state.packages).toHaveLength(1);
+    expect(sim.state.packages[0].status).toBe("unstaged"); // in your hands
+    expect(sim.state.employee.hands).toEqual({ kind: "packages", packageIds: [sim.state.packages[0].id] });
+    doTask(sim, { type: "stage_packages" });
     expect(sim.state.packages[0].status).toBe("staged");
     expect(sim.state.stats.shipments).toBe(1);
   });
@@ -67,8 +75,9 @@ describe("shipping a package", () => {
     packed.ship!.packed = false;
     sim.state.employee.task = null;
     packed.waitStart = sim.state.time;
+    sim.state.employee.hands = { kind: "box", size: "large" }; // as if you'd just fetched it
     startTask(sim.state, { type: "ship_package" });
-    expect(sim.state.employee.task!.duration).toBe(quick + 300 + fetchSeconds(SHIPPING_SCALE)); // large box, fetched from the stockroom
+    expect(sim.state.employee.task!.duration).toBe(quick + 300); // large box
   });
 
   it("you can turn a shipper away", () => {
@@ -84,6 +93,8 @@ describe("shipping a package", () => {
     const c = spawnShippingCustomer(sim.state, "dropoff");
     serve(sim, c, "accept_dropoff");
     expect(sim.state.revenueCents).toBe(0);
+    expect(sim.state.packages.filter((p) => p.status === "unstaged")).toHaveLength(c.dropoffCount);
+    doTask(sim, { type: "stage_packages" });
     expect(sim.state.packages.filter((p) => p.status === "staged")).toHaveLength(c.dropoffCount);
     expect(sim.state.stats.dropoffPackages).toBe(c.dropoffCount);
   });

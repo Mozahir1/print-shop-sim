@@ -1,5 +1,5 @@
 // End-of-shift numbers. summarize() is what the server stores; report() is what the player sees.
-import type { GameState, Job } from "./types";
+import type { GameState, Job, Mistake } from "./types";
 import { averageRating, profitCents, satisfaction, score } from "./sim";
 
 export interface JobRecord {
@@ -79,6 +79,8 @@ export interface ShiftReport {
   breakdowns: number;
   recalls: number;
   wastedSheets: number;
+  checks: number;
+  mistakes: Mistake[];
   onTimePct: number | null; // orders finished by their due time, of those that were due today or finished
   avgLineWaitMin: number | null;
   avgRating: number | null;
@@ -124,6 +126,8 @@ export function report(state: GameState): ShiftReport {
     breakdowns: s.breakdowns,
     recalls: s.recalls,
     wastedSheets: s.wastedSheets,
+    checks: s.checks,
+    mistakes: state.mistakes.slice(),
     onTimePct: due.length ? Math.round((onTime.length / due.length) * 100) : null,
     avgLineWaitMin: served.length ? served.reduce((a, c) => a + c.lineWaitTotal, 0) / served.length / 60 : null,
     avgRating: averageRating(state),

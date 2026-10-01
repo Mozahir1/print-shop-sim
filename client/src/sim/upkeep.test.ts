@@ -3,6 +3,7 @@ import { canStart, counterCustomer, createSim, startTask, tick, type Sim } from 
 import { botAct, createBot } from "./bot";
 import { breakPrinter, spawnCustomer } from "./dev";
 import { UPKEEP } from "./config";
+import { collectAll, doTask, fetch } from "./testkit";
 import type { Customer, Job, JobSpec } from "./types";
 
 function runUntil(sim: Sim, cond: () => boolean, limit = 6 * 3600) {
@@ -62,7 +63,9 @@ describe("self-serve copiers", () => {
     const left = s.copiers[0].work!.sidesLeft;
     for (let i = 0; i < 300; i++) tick(sim, 1);
     expect(s.copiers[0].work!.sidesLeft).toBe(left); // nothing happens while it's jammed
-    expect(c.state).toBe("self_serve");
+    // Phase 9: after a minute they come up to the counter and tell you, instead of an alert.
+    expect(c.state).toBe("line");
+    expect(c.purpose).toBe("copier_help");
 
     expect(startTask(s, { type: "fix_copier", copierId: 1 })).toBeNull();
     runUntil(sim, () => c.outcome !== null);
@@ -90,10 +93,13 @@ describe("self-serve copiers", () => {
     s.stockroom.letter = 5000;
     const c = selfServeCustomer(sim, 40);
     runUntil(sim, () => s.copiers[0].status === "out_of_paper");
+    // Phase 8: you carry a case of letter out to it, fill it, and put the rest back.
+    fetch(sim, "letter");
     expect(startTask(s, { type: "refill_copier", copierId: 1 })).toBeNull();
     runUntil(sim, () => c.outcome !== null);
     expect(c.outcome).toBe("self_served");
-    expect(s.stockroom.letter).toBe(5000 - (UPKEEP.copierCapacity - 0));
+    doTask(sim, { type: "put_back" });
+    expect(s.stockroom.letter).toBe(5000 - UPKEEP.copierCapacity);
   });
 });
 
@@ -111,7 +117,7 @@ describe("printer breakdowns", () => {
     expect(canStart(s, { type: "clear_jam", printerId: "bw" })).not.toBeNull(); // you can't clear it yourself
 
     runUntil(sim, () => s.printers[0].breakdown!.phase === "fixed");
-    runUntil(sim, () => job.status === "printed");
+    collectAll(sim, job); // a 2,000-sheet job fills the output tray a few times on the way
   });
 
   it("breaks on about 6% of printer-days", () => {
@@ -143,7 +149,8 @@ describe("printer breakdowns", () => {
 
     const colorLetterBefore = s.printers[1].trays[0].level;
     expect(startTask(s, { type: "send_job", jobId: job.id, printerId: "color" })).toBeNull();
-    runUntil(sim, () => job.status === "printed");
+    runUntil(sim, () => !s.employee.task);
+    collectAll(sim, job); // including what it printed on the B&W printer before it broke
     expect(job.sheetsPrinted).toBe(1000);
     expect(Math.round(colorLetterBefore - s.printers[1].trays[0].level)).toBe(Math.round(1000 - done)); // only the rest
   });

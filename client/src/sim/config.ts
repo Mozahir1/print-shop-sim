@@ -55,6 +55,51 @@ export const PHONE = {
   leadDelayMinutes: [10, 90] as [number, number],
 };
 
+// Carrying things and looking at things.
+export const MISTAKES = {
+  refusalPenalty: 1.5, // stars, when a customer refuses a wrong job at pickup
+  redoPatience: 45 * 60, // how long they'll wait (or how long until they come back) for the reprint
+  searchSeconds: 180, // hunting for an order that isn't where it should be
+  searchPenalty: 1,
+  copierComplaintAfter: 60, // a self-serve customer comes to tell you their copier stopped after this long
+  acknowledgeSeconds: 10,
+  outputLeftAfter: 10 * 60, // finished output sitting in a tray this long when it fills up counts as forgotten
+};
+
+export const HANDS = {
+  takeStockSeconds: 15,
+  putBackSeconds: 10,
+  setDownSeconds: 5,
+  collectOutputSeconds: 10,
+  collectPer100Sheets: 1,
+  dropOutputSeconds: 5,
+  shelveSeconds: 10,
+  stageBase: 5,
+  stagePerPackage: 2,
+  checkTraySecondsPerTray: 5,
+  checkPanelSeconds: 5,
+  checkCopierSeconds: 5,
+  glanceStockSeconds: 10,
+  countStockSeconds: { paper: 45, other: 20 },
+  checkShelfSeconds: 10,
+  scanPackageRoomBase: 5,
+  scanPackageRoomPerPackage: 2,
+  checkFinishingSeconds: 5,
+  outputCapacity: { narrow: 500, wide: 20 },
+};
+
+// The computer at the register. Everything on it is a task: you're standing there, busy.
+export const COMPUTER = {
+  openAppSeconds: 4,
+  refreshSeconds: 2,
+  openMessageSeconds: 15,
+  replyEmailSeconds: 45,
+  moveJobSeconds: 3,
+  cancelJobSeconds: 5,
+  statusEmailBeforeDue: 45 * MIN, // online customers email to check on their order this long before pickup
+  unansweredLatePenalty: 0.5, // stars, if that order is then late and nobody answered them
+};
+
 // Machine upkeep: self-serve copier paper and jams, production printer breakdowns, jam waste.
 export const UPKEEP = {
   copierCapacity: 1500, // letter sheets
@@ -210,6 +255,7 @@ export function createPrinters(): Printer[] {
     jamsToday: 0,
     toner: 100,
     breakdown: null,
+    output: [] as { jobId: number; sheets: number }[],
   });
   return [
     {
@@ -226,12 +272,13 @@ export function createPrinters(): Printer[] {
       wideSecondsPerSqFt: null,
       warmup: 20,
       trays: [
-        { stock: "letter", capacity: 2000, level: 2000 },
-        { stock: "legal", capacity: 500, level: 500 },
-        { stock: "tabloid", capacity: 500, level: 500 },
+        { stock: "letter", loaded: "letter", capacity: 2000, level: 2000 },
+        { stock: "legal", loaded: "legal", capacity: 500, level: 500 },
+        { stock: "tabloid", loaded: "tabloid", capacity: 500, level: 500 },
       ],
       tonerUse: { bw: 100 / 40000, color: 0 },
       meanSheetsBetweenJams: 3000,
+      outputCapacity: HANDS.outputCapacity.narrow,
     },
     {
       ...base(),
@@ -247,12 +294,13 @@ export function createPrinters(): Printer[] {
       wideSecondsPerSqFt: null,
       warmup: 30,
       trays: [
-        { stock: "letter", capacity: 1000, level: 1000 },
-        { stock: "tabloid", capacity: 500, level: 500 },
-        { stock: "cardstock", capacity: 250, level: 250 },
+        { stock: "letter", loaded: "letter", capacity: 1000, level: 1000 },
+        { stock: "tabloid", loaded: "tabloid", capacity: 500, level: 500 },
+        { stock: "cardstock", loaded: "cardstock", capacity: 250, level: 250 },
       ],
       tonerUse: { bw: 100 / 30000, color: 100 / 12000 },
       meanSheetsBetweenJams: 1500,
+      outputCapacity: HANDS.outputCapacity.narrow,
     },
     {
       ...base(),
@@ -267,9 +315,10 @@ export function createPrinters(): Printer[] {
       ppm: 0,
       wideSecondsPerSqFt: { bw: 6, color: 25 },
       warmup: 45,
-      trays: [{ stock: "roll", capacity: 300, level: 300 }], // feet
+      trays: [{ stock: "roll", loaded: "roll", capacity: 300, level: 300 }], // feet
       tonerUse: { bw: 0.04, color: 0.25 }, // ink, % per sq ft
       meanSheetsBetweenJams: 250,
+      outputCapacity: HANDS.outputCapacity.wide,
     },
   ];
 }

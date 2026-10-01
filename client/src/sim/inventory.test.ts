@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { canStart, counterCustomer, createSim, startTask, tick, type Sim } from "./sim";
 import { DURATIONS, STOCK } from "./config";
-import { canOrder, fetchSeconds, generateStockroom, paperShortfall, placeSupplyOrder } from "./inventory";
+import { generateStockroom, paperShortfall } from "./inventory";
+import { doTask, fetch, loadPaper, replaceToner } from "./testkit";
+import { STOCKROOM } from "./layout";
 import { spawnShippingCustomer } from "./dev";
 import { createRng } from "./rng";
 
@@ -30,16 +32,21 @@ describe("stockroom", () => {
     expect(generateStockroom(createRng(5))).toEqual(generateStockroom(createRng(5)));
   });
 
-  it("loading paper takes sheets out of the stockroom", () => {
+  // Phase 8: supplies are carried by hand now, so these go through the stockroom on purpose (take, carry, load, put back).
+  it("loading paper takes sheets out of the stockroom, and you put back what's left", () => {
     const sim = quiet();
     const s = sim.state;
     const tray = s.printers[0].trays[0]; // B&W letter
     tray.level = 500;
     s.stockroom.letter = 10000;
-    startTask(s, { type: "load_paper", printerId: "bw", stock: "letter" });
-    runUntil(sim, () => !s.employee.task);
+    fetch(sim, "letter");
+    expect(s.employee.hands).toEqual({ kind: "paper", stock: "letter", sheets: 5000 }); // a case
+    expect(s.stockroom.letter).toBe(5000);
+    doTask(sim, { type: "load_paper", printerId: "bw", stock: "letter" });
     expect(tray.level).toBe(2000);
+    doTask(sim, { type: "put_back" });
     expect(s.stockroom.letter).toBe(8500);
+    expect(s.employee.hands).toBeNull();
   });
 
   it("fills partially when the stockroom has some but not enough", () => {
@@ -48,17 +55,17 @@ describe("stockroom", () => {
     const tray = s.printers[0].trays[0];
     tray.level = 0;
     s.stockroom.letter = 300;
-    startTask(s, { type: "load_paper", printerId: "bw", stock: "letter" });
-    runUntil(sim, () => !s.employee.task);
+    loadPaper(sim, "bw", "letter");
     expect(tray.level).toBe(300);
     expect(s.stockroom.letter).toBe(0);
   });
 
-  it("can't load paper the stockroom doesn't have", () => {
+  it("can't get paper the stockroom doesn't have, or load paper you aren't holding", () => {
     const s = quiet().state;
     s.printers[0].trays[0].level = 0;
     s.stockroom.letter = 0;
-    expect(canStart(s, { type: "load_paper", printerId: "bw", stock: "letter" })).toMatch(/no letter paper left/);
+    expect(canStart(s, { type: "take_stock", item: "letter" })).toMatch(/no letter paper on the shelf/);
+    expect(canStart(s, { type: "load_paper", printerId: "bw", stock: "letter" })).toMatch(/need letter paper in your hands/);
   });
 
   it("toner uses one cartridge, and none in stock means you can't", () => {
@@ -66,49 +73,56 @@ describe("stockroom", () => {
     const s = sim.state;
     s.printers[1].toner = 3;
     s.stockroom.color_toner = 1;
-    startTask(s, { type: "replace_toner", printerId: "color" });
-    runUntil(sim, () => !s.employee.task);
+    replaceToner(sim, "color");
     expect(s.printers[1].toner).toBe(100);
     expect(s.stockroom.color_toner).toBe(0);
 
     s.printers[1].toner = 3;
-    expect(canStart(s, { type: "replace_toner", printerId: "color" })).toMatch(/no spare color toner/);
+    expect(canStart(s, { type: "take_stock", item: "color_toner" })).toMatch(/no color toner on the shelf/);
+    expect(canStart(s, { type: "replace_toner", printerId: "color" })).toMatch(/need a color toner/);
   });
 
   it("rolls get changed when they run out, not before", () => {
-    const s = quiet().state;
+    const sim = quiet();
+    const s = sim.state;
     s.stockroom.wide_roll = 2;
+    fetch(sim, "wide_roll");
     s.printers[2].trays[0].level = 120;
     expect(canStart(s, { type: "load_paper", printerId: "wide", stock: "roll" })).toMatch(/still has 120 ft/);
     s.printers[2].trays[0].level = 4;
     expect(canStart(s, { type: "load_paper", printerId: "wide", stock: "roll" })).toBeNull();
   });
 
-  it("packing uses a box; with none you can only take packages that come packed", () => {
+  it("boxing a shipment needs the right box in hand; with none left you can only take packed ones", () => {
     const sim = quiet();
     const s = sim.state;
     s.stockroom.box_medium = 1;
     const boxed = spawnShippingCustomer(s, "ship", { packed: false, weightLb: 10 });
     runUntil(sim, () => counterCustomer(s)?.id === boxed.id);
-    startTask(s, { type: "ship_package" });
-    runUntil(sim, () => boxed.outcome !== null);
+    expect(canStart(s, { type: "ship_package" })).toMatch(/needs a medium box/);
+    fetch(sim, "box_medium");
+    doTask(sim, { type: "ship_package" });
     expect(s.stockroom.box_medium).toBe(0);
+    doTask(sim, { type: "stage_packages" });
 
     const another = spawnShippingCustomer(s, "ship", { packed: false, weightLb: 12 });
     runUntil(sim, () => counterCustomer(s)?.id === another.id);
-    expect(canStart(s, { type: "ship_package" })).toMatch(/out of medium boxes/);
+    expect(canStart(s, { type: "take_stock", item: "box_medium" })).toMatch(/no medium boxes on the shelf/);
     expect(canStart(s, { type: "turn_away" })).toBeNull();
     another.ship!.packed = true;
     expect(canStart(s, { type: "ship_package" })).toBeNull();
   });
 
-  it("the walk to the stockroom is part of the task", () => {
-    const s = quiet().state;
+  it("the trip to the stockroom is real walking now, not a hidden extra in the task", () => {
+    const sim = quiet();
+    const s = sim.state;
     s.printers[0].trays[0].level = 0;
     s.stockroom.letter = 5000;
+    startTask(s, { type: "take_stock", item: "letter" });
+    expect(s.employee.task!.station).toEqual(STOCKROOM);
+    runUntil(sim, () => !s.employee.task);
     startTask(s, { type: "load_paper", printerId: "bw", stock: "letter" });
-    expect(s.employee.task!.duration).toBe(DURATIONS.loadPaper + fetchSeconds(s.printers[0].station));
-    expect(fetchSeconds(s.printers[0].station)).toBeGreaterThan(10);
+    expect(s.employee.task!.duration).toBe(DURATIONS.loadPaper);
   });
 
   it("warns when an order needs more paper than is on hand", () => {
@@ -120,10 +134,4 @@ describe("stockroom", () => {
     expect(paperShortfall(s, { ...spec, copies: 50 })).toBeNull();
   });
 
-  it("supply ordering is hidden in a single shift", () => {
-    const s = quiet().state;
-    expect(canOrder(s)).toMatch(/career mode/);
-    expect(placeSupplyOrder(s, "letter")).not.toBeNull();
-    expect(s.supplyOrders).toHaveLength(0);
-  });
 });

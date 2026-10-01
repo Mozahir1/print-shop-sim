@@ -117,6 +117,11 @@ export function finishSeconds(spec: JobSpec): number {
   return Math.round(work + DURATIONS.bag + DURATIONS.bagPer500Sheets * Math.floor(sheets / 500));
 }
 
+// Finishing follows the ticket (it travels with the job); everything printed follows what the printer was told.
+export function finishingSpec(job: { spec: JobSpec; ticket: JobSpec }): JobSpec {
+  return { ...job.spec, finishing: job.ticket.finishing };
+}
+
 export function takeOrderSeconds(spec: JobSpec): number {
   let s = DURATIONS.takeOrderBase;
   if (spec.media !== "letter") s += DURATIONS.takeOrderPerOption;
@@ -187,7 +192,9 @@ export function plural(n: number, one: string, many = one + "s"): string {
 export function describeQuantity(spec: JobSpec): string {
   if (isWide(spec.media)) {
     const sheets = plural(spec.originals, spec.item);
-    return spec.copies === 1 ? sheets : `${plural(spec.copies, "copy", "copies")} each of ${sheets}`;
+    if (spec.copies === 1) return sheets;
+    if (spec.originals === 1) return `${plural(spec.copies, "copy", "copies")} of a ${spec.item}`;
+    return `${plural(spec.copies, "copy", "copies")} each of ${sheets}`;
   }
   return `${plural(spec.copies, "copy", "copies")} of a ${spec.originals}-page ${spec.item}`;
 }

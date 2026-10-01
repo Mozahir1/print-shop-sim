@@ -1,29 +1,12 @@
 // Draws the store floor on a canvas. It's an overview; everything you do happens in the panels.
 import type { GameState, Printer } from "../sim/types";
-import { MAP_H, MAP_W, REGISTER, TRUCK_BAY, zones } from "../sim/layout";
+import { DOOR, MAP_H, MAP_W, REGISTER, TRUCK_BAY, zones } from "../sim/layout";
+import { printerStopped } from "../sim/upkeep";
 import { servingCustomerId } from "../sim/sim";
+import { ringingCalls } from "../sim/phone";
+import { PHONE_RECT, type Rect } from "./floor";
 
-const TILE = 32; // pixels per meter
-
-const PRINTER_FILL: Record<Printer["status"], string> = {
-  idle: "#8c96a3",
-  warming_up: "#5d84ad",
-  printing: "#2f5d8a",
-  jammed: "#b3261e",
-  out_of_paper: "#b3261e",
-  out_of_toner: "#b3261e",
-  needs_service: "#6d1b16",
-};
-
-const PRINTER_TEXT: Record<Printer["status"], string> = {
-  idle: "idle",
-  warming_up: "warming up",
-  printing: "printing",
-  jammed: "JAM",
-  out_of_paper: "NO PAPER",
-  out_of_toner: "NO TONER",
-  needs_service: "SERVICE",
-};
+const TILE = 40; // pixels per meter (the canvas is scaled to fit its container)
 
 export function setupCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const dpr = window.devicePixelRatio || 1;
@@ -34,7 +17,7 @@ export function setupCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D
   return ctx;
 }
 
-export function render(ctx: CanvasRenderingContext2D, state: GameState): void {
+export function render(ctx: CanvasRenderingContext2D, state: GameState, selected?: Rect): void {
   ctx.fillStyle = "#f8f6f1";
   ctx.fillRect(0, 0, MAP_W * TILE, MAP_H * TILE);
   ctx.textBaseline = "top";
@@ -54,13 +37,34 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState): void {
   ctx.font = "9px system-ui";
   ctx.fillText("register", (REGISTER.x - 0.37) * TILE, 4.78 * TILE);
 
-  for (const p of state.printers) drawPrinter(ctx, p);
+  // phone on the counter; it shakes a little ring around it while it rings
+  const ph = PHONE_RECT;
+  ctx.fillStyle = "#3b3f45";
+  ctx.fillRect(ph.x * TILE, ph.y * TILE, ph.w * TILE, ph.h * TILE);
+  ctx.fillStyle = "#fff";
+  ctx.font = "9px system-ui";
+  ctx.fillText("phone", ph.x * TILE + 2, ph.y * TILE + 5);
+  if (ringingCalls(state).length && Math.floor(state.time) % 2 === 0) {
+    ring(ctx, ph.x + ph.w / 2, ph.y + ph.h / 2, 0.55, "#b3261e");
+  }
+
+  for (const p of state.printers) drawPrinter(ctx, p, state.time);
   for (const cp of state.copiers) {
-    ctx.fillStyle = cp.status !== "ok" ? "#b3261e" : cp.userId !== null ? "#6b5a8e" : "#8c96a3";
-    ctx.fillRect((cp.spot.x - 1.7) * TILE, (cp.spot.y - 0.55) * TILE, 1.2 * TILE, 1.1 * TILE);
+    const cx = (cp.spot.x - 1.7) * TILE;
+    const cy = (cp.spot.y - 0.55) * TILE;
+    ctx.fillStyle = cp.userId !== null ? "#6b5a8e" : "#8c96a3";
+    ctx.fillRect(cx, cy, 1.2 * TILE, 1.1 * TILE);
     ctx.fillStyle = "#fff";
     ctx.font = "bold 10px system-ui";
-    ctx.fillText(`Copier ${cp.id}`, (cp.spot.x - 1.65) * TILE, (cp.spot.y - 0.45) * TILE);
+    ctx.fillText(`Copier ${cp.id}`, cx + 2, cy + 4);
+    statusLight(ctx, cx + 1.2 * TILE - 8, cy + 1.1 * TILE - 8, cp.status !== "ok" ? "stopped" : cp.work ? "running" : "off", state.time);
+  }
+
+  // The door chime: someone just walked in.
+  if (state.customers.some((c) => c.state === "line" && Math.hypot(c.pos.x - DOOR.x, c.pos.y - DOOR.y) < 1.5)) {
+    ctx.fillStyle = "#c9a227";
+    ctx.font = "bold 14px system-ui";
+    ctx.fillText("🔔", (DOOR.x + 1.1) * TILE, (DOOR.y - 0.9) * TILE);
   }
 
   if (state.truck.status === "waiting") {
@@ -89,6 +93,15 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState): void {
     ctx.textAlign = "left";
   }
 
+  if (selected) {
+    ctx.strokeStyle = "#2f5d8a";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(selected.x * TILE - 2, selected.y * TILE - 2, selected.w * TILE + 4, selected.h * TILE + 4);
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+  }
+
   const e = state.employee;
   dot(ctx, e.pos.x, e.pos.y, 0.36, "#1f2328", 1);
   ctx.fillStyle = "#fff";
@@ -98,18 +111,26 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState): void {
   ctx.textAlign = "left";
 }
 
-function drawPrinter(ctx: CanvasRenderingContext2D, p: Printer): void {
+// A printer looks like a printer. All it tells you from across the room is its light: green while it's running,
+// blinking red when it has stopped for any reason. What's wrong, you find out at the machine.
+function drawPrinter(ctx: CanvasRenderingContext2D, p: Printer, time: number): void {
   const x = p.tile.x * TILE;
   const y = p.tile.y * TILE;
   const size = TILE * 2;
-  ctx.fillStyle = PRINTER_FILL[p.status];
+  ctx.fillStyle = "#8c96a3";
   ctx.fillRect(x, y, size, size);
   ctx.fillStyle = "#fff";
   ctx.font = "bold 12px system-ui";
   ctx.fillText(p.short, x + 5, y + 6);
-  ctx.font = "10px system-ui";
-  ctx.fillText(PRINTER_TEXT[p.status], x + 5, y + 24);
-  if (p.queue.length) ctx.fillText(`+${p.queue.length} queued`, x + 5, y + 38);
+  statusLight(ctx, x + size - 10, y + 10, printerStopped(p) ? "stopped" : p.status === "printing" || p.status === "warming_up" ? "running" : "off", time);
+}
+
+function statusLight(ctx: CanvasRenderingContext2D, px: number, py: number, kind: "running" | "stopped" | "off", time: number): void {
+  if (kind === "stopped" && Math.floor(time) % 2 === 1) kind = "off"; // blink
+  ctx.fillStyle = kind === "running" ? "#3fb950" : kind === "stopped" ? "#ff4d4f" : "#59606a";
+  ctx.beginPath();
+  ctx.arc(px, py, 5, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function dot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, alpha: number): void {

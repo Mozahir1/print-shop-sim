@@ -13,7 +13,7 @@ import { isShiftOver, jobById, printerById, tick, type Sim } from "./sim";
 
 function devLog(state: GameState, text: string): void {
   state.devUsed = true;
-  state.log.push({ time: state.time, text: `[dev] ${text}` });
+  state.log.push({ time: state.time, text: `[dev] ${text}`, you: true });
 }
 
 // Sends a customer through the door right now. Its order is random within the profile unless you force the timing.

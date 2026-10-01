@@ -65,7 +65,10 @@ function setHtml(id: string, html: string): void {
 
 export const ui = { ordersTab: "active" as "active" | "done" };
 
-export function updatePanels(state: GameState): void {
+// The full true-state dashboard. Only shown in dev mode; normal play happens on the floor.
+export function updatePanels(state: GameState, showTrueState: boolean): void {
+  renderLog(state, showTrueState);
+  if (!showTrueState) return;
   updateHeader(state);
   setHtml("you", renderYou(state));
   setHtml("counter", renderCounter(state));
@@ -73,24 +76,16 @@ export function updatePanels(state: GameState): void {
   setHtml("orders", renderOrders(state));
   setHtml("machines", renderMachines(state));
   setHtml("stockroom", renderStockroom(state));
-  renderLog(state);
 }
 
 // ---------- header ----------
 
 function updateHeader(state: GameState): void {
-  $("clock").textContent = formatClock(state.time);
-  ($("dayfill") as HTMLElement).style.width = `${Math.min(100, (state.time / state.closeAt) * 100)}%`;
   const left = state.closeAt - state.time;
-  $("closes").textContent = left > 0 ? `Closes at ${formatClock(state.closeAt)} (${formatDuration(left)})` : "Closed. Finishing up.";
-
   const s = state.stats;
   const lost = s.walkouts + s.balks + s.turnedAway + s.canceled + s.copierGaveUp;
   const t = state.truck;
-  const chip = $("truckChip");
-  chip.hidden = t.status !== "waiting";
-  $("phoneChip").hidden = !ringingCalls(state).some((c) => state.employee.task?.callId !== c.id); // not for the one you're on
-  if (t.status === "waiting") chip.textContent = `Truck here, leaves ${formatClock(t.leavesAt)}`;
+  const phone = ringingCalls(state).some((c) => state.employee.task?.callId !== c.id); // not the one you're on
   const avg = averageRating(state);
   setHtml(
     "kpis",
@@ -102,6 +97,9 @@ function updateHeader(state: GameState): void {
       kpi(String(s.shipments), "Shipped"),
       kpi(avg === null ? "–" : `${avg.toFixed(1)}★`, "Avg rating"),
       kpi(String(lost), "Lost customers"),
+      kpi(left > 0 ? formatDuration(left) : "closed", "Until close"),
+      kpi(t.status === "waiting" ? `until ${formatClock(t.leavesAt)}` : t.status, "Truck"),
+      kpi(phone ? "ringing" : "quiet", "Phone"),
     ].join(""),
   );
 }
@@ -373,7 +371,7 @@ function waitClass(state: GameState, c: Customer): string {
 
 // ---------- orders ----------
 
-const ACTIVE: Job["status"][] = ["unsent", "queued", "printing", "printed", "ready"];
+const ACTIVE: Job["status"][] = ["unsent", "queued", "printing", "printed", "bagged", "ready"];
 
 function renderOrders(state: GameState): string {
   const active = state.jobs.filter((j) => ACTIVE.includes(j.status)).sort((a, b) => a.dueAt - b.dueAt || a.id - b.id);
@@ -453,10 +451,12 @@ function statusText(state: GameState, j: Job): string {
       return `${label}<div class="bar ${blocked ? "bad" : ""}"><div style="width:${(frac * 100).toFixed(1)}%"></div></div><span class="muted small">${Math.floor(j.sheetsPrinted)}/${j.sheets} sheets${blocked ? "" : ` · ${formatDuration(left)} left`}</span>`;
     }
     case "printed": {
-      const verb = FINISHING_VERB[j.spec.finishing].toLowerCase();
-      const started = j.finishWorkDone > 0 ? ` (${Math.round((j.finishWorkDone / finishSeconds(j.spec)) * 100)}% done)` : "";
+      const verb = FINISHING_VERB[j.ticket.finishing].toLowerCase();
+      const started = j.finishWorkDone > 0 ? ` (${Math.round((j.finishWorkDone / finishSeconds({ ...j.spec, finishing: j.ticket.finishing })) * 100)}% done)` : "";
       return `<span class="tag warn">Printed, needs: ${verb}</span><span class="muted small">${started}</span>`;
     }
+    case "bagged":
+      return `<span class="tag warn">Bagged, not on the shelf yet</span>`;
     case "ready":
       return `<span class="tag ok">On pickup shelf</span>`;
     case "picked_up":
@@ -482,7 +482,7 @@ function nextStep(state: GameState, j: Job): string {
       .join("")}</div>`;
   }
   if (j.status === "printed") {
-    const verb = FINISHING_VERB[j.spec.finishing];
+    const verb = FINISHING_VERB[j.ticket.finishing];
     return actionButton(state, { type: "finish_job", jobId: j.id }, j.finishWorkDone > 0 ? `Resume: ${verb.toLowerCase()}` : verb, true);
   }
   if (j.status === "ready") return `<span class="muted small">Waiting for customer</span>`;
@@ -504,6 +504,7 @@ export const PRINTER_STATUS: Record<Printer["status"], string> = {
   jammed: "Paper jam",
   out_of_paper: "Out of paper",
   out_of_toner: "Out of toner",
+  output_full: "Output tray full",
   needs_service: "Needs service",
 };
 
@@ -637,17 +638,19 @@ function renderStockroom(state: GameState): string {
 // ---------- log ----------
 
 let lastLogKey = "";
-function renderLog(state: GameState): void {
-  const last = state.log[state.log.length - 1];
-  const key = `${state.log.length}:${last?.time}:${last?.text}`;
+// Your own actions only. In dev mode (true state), everything that happened in the store.
+function renderLog(state: GameState, everything: boolean): void {
+  const entries = everything ? state.log : state.log.filter((e) => e.you);
+  const last = entries[entries.length - 1];
+  const key = `${everything}:${entries.length}:${last?.time}:${last?.text}`;
   if (key === lastLogKey) return;
   lastLogKey = key;
   const box = $("log");
   const list = box.querySelector("ol");
   const atBottom = !list || list.scrollHeight - list.scrollTop - list.clientHeight < 30;
-  box.innerHTML = `<h2>Activity</h2><ol>${state.log
+  box.innerHTML = `<h2>${everything ? "Everything that happened (dev)" : "What you've done"}</h2><ol>${entries
     .slice(-120)
-    .map((e) => `<li><time>${formatClock(e.time)}</time><span>${esc(e.text)}</span></li>`)
+    .map((e) => `<li><time>${formatClock(e.time)}</time><span${!e.you ? ' class="muted"' : ""}>${esc(e.text)}</span></li>`)
     .join("")}</ol>`;
   const ol = box.querySelector("ol")!;
   if (atBottom) ol.scrollTop = ol.scrollHeight;
@@ -656,7 +659,8 @@ function renderLog(state: GameState): void {
 // ---------- buttons ----------
 
 // A task button. If you can't do it right now it still renders (greyed out) with the reason as its tooltip.
-function actionButton(state: GameState, req: TaskRequest, text: string, primary = false, title?: string, compact = false): string {
+// htmlLabel: the label is trusted markup (e.g. a badge), not text to escape.
+export function actionButton(state: GameState, req: TaskRequest, text: string, primary = false, title?: string, compact = false, htmlLabel = false): string {
   const reason = canStart(state, req);
   const dur = reason ? null : previewTask(state, req).duration;
   const durText = dur !== null && !compact ? ` <span class="dur">· ${formatDuration(dur)}</span>` : "";
@@ -669,10 +673,17 @@ function actionButton(state: GameState, req: TaskRequest, text: string, primary 
     req.stock ? `data-stock="${req.stock}"` : "",
     req.callId !== undefined ? `data-call="${req.callId}"` : "",
     req.copierId !== undefined ? `data-copier="${req.copierId}"` : "",
+    req.app ? `data-app="${req.app}"` : "",
+    req.messageId !== undefined ? `data-message="${req.messageId}"` : "",
+    req.voicemailId !== undefined ? `data-voicemail="${req.voicemailId}"` : "",
+    req.dir ? `data-dir="${req.dir}"` : "",
+    req.item ? `data-item="${req.item}"` : "",
+    req.index !== undefined ? `data-index="${req.index}"` : "",
+    req.filedUnder !== undefined ? `data-filed="${req.filedUnder}"` : "",
     tip ? `title="${esc(tip)}"` : "",
     reason ? `aria-disabled="true"` : "",
   ].join(" ");
-  return `<button class="btn ${primary && !reason ? "primary" : ""} ${reason ? "off" : ""}" ${attrs}>${esc(text)}${durText}</button>`;
+  return `<button class="btn ${primary && !reason ? "primary" : ""} ${reason ? "off" : ""}" ${attrs}>${htmlLabel ? text : esc(text)}${durText}</button>`;
 }
 
 // ---------- end screen ----------
@@ -708,9 +719,16 @@ export function showEndScreen(r: ShiftReport): void {
     ${row("Sheets printed", r.sheets.toLocaleString("en-US"))}
     ${row("Paper jams", String(r.jams))}
     ${row("Time you were busy", `${r.busyPct}%`)}
+    ${row("Times you checked on something", String(r.checks))}
     ${row("<b>Score</b>", `<b>${r.score.toLocaleString("en-US")}</b>`)}
   </table>
-  <p class="muted small">Score is gross profit, weighted by customer satisfaction.</p>`;
+  <h2>Mistakes${r.mistakes.length ? ` (${r.mistakes.length})` : ""}</h2>
+  ${
+    r.mistakes.length
+      ? `<ul class="small">${r.mistakes.map((m) => `<li><span class="muted">${formatClock(m.time)}</span> ${esc(m.text)}</li>`).join("")}</ul>`
+      : `<p class="small muted">None. Nice work.</p>`
+  }
+  <p class="muted small">Score is gross profit times customer satisfaction squared, so unhappy customers cost you a lot.</p>`;
 }
 
 export function showLeaderboard(rows: LeaderboardRow[] | null): void {
@@ -722,6 +740,6 @@ export function showLeaderboard(rows: LeaderboardRow[] | null): void {
         : `<ol>${rows.map((r) => `<li>${esc(r.playerName)}: ${r.score.toLocaleString("en-US")} (${money(r.cashCents)} sales)</li>`).join("")}</ol>`;
 }
 
-function esc(s: string): string {
+export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 }

@@ -1,13 +1,14 @@
 // Shipping: customers sending packages, prepaid drop-offs, held packages from the morning delivery,
 // and the carrier truck that comes once a day. sim.ts routes the tasks here and calls runTruck() every tick.
 import type { BoxSize, Customer, GameState, Package, ShipRequest, ShipService, Task, TaskRequest, Truck } from "./types";
-import { CARRIER_SHARE, DURATIONS, PACKING_FEE, PACKING_MATERIAL_CENTS, SHIPPING, SHIP_RATE } from "./config";
+import { CARRIER_SHARE, DURATIONS, PACKING_FEE, PACKING_MATERIAL_CENTS, SHIPPING, SHIP_RATE, TUNING } from "./config";
 import { DOOR, PACKAGE_ROOM, REGISTER, SHIPPING_SCALE } from "./layout";
 import { randInt, type Rng } from "./rng";
 import { poisson, randomName, weighted } from "./schedule";
 import { formatClock } from "./time";
-import { clampRating, counterCustomer, customerById, log, money, near, sendAway } from "./util";
+import { clampRating, counterCustomer, customerById, log, mistake, money, near, sendAway } from "./util";
 import { boxItem, boxUnitCents, fetchSeconds, take } from "./inventory";
+import { countStock, observePackageRoom } from "./knowledge";
 
 const MIN = 60;
 const HOUR = 3600;
@@ -195,8 +196,9 @@ export function canStartShipping(state: GameState, req: TaskRequest): string | n
       if (!c) return "Nobody is at the counter.";
       const wants = { ship_package: "ship", accept_dropoff: "dropoff", release_package: "package" }[req.type];
       if (c.purpose !== wants) return `${c.name} isn't here for that (${purposeText(c)}).`;
-      if (req.type === "ship_package" && !c.ship!.packed && state.stockroom[boxItem(c.ship!.box)] < 1) {
-        return `The stockroom is out of ${c.ship!.box} boxes. You can turn them away (or ship it if they bring it packed).`;
+      if (req.type === "ship_package" && !c.ship!.packed) {
+        const h = state.employee.hands;
+        if (!(h?.kind === "box" && h.size === c.ship!.box)) return `It needs a ${c.ship!.box} box. Get one from the stockroom first (or turn them away).`;
       }
       if (req.type === "release_package") {
         const pkg = packageById(state, c.packageId!)!;
@@ -223,8 +225,7 @@ export function buildShippingTask(state: GameState, req: TaskRequest): Task {
   switch (req.type) {
     case "ship_package": {
       const c = counterCustomer(state)!;
-      const fetch = c.ship!.packed ? 0 : fetchSeconds(SHIPPING_SCALE); // grab a box
-      return { ...base, label: `Shipping ${c.name}'s package`, station: SHIPPING_SCALE, duration: shipSeconds(c.ship!) + fetch, customerId: c.id };
+      return { ...base, label: `Shipping ${c.name}'s package`, station: SHIPPING_SCALE, duration: shipSeconds(c.ship!), customerId: c.id };
     }
     case "accept_dropoff": {
       const c = counterCustomer(state)!;
@@ -233,7 +234,8 @@ export function buildShippingTask(state: GameState, req: TaskRequest): Task {
     }
     case "release_package": {
       const c = counterCustomer(state)!;
-      return { ...base, label: `Getting ${c.name}'s package from the hold shelf`, station: REGISTER, duration: DURATIONS.releasePackage, customerId: c.id };
+      const fetch = Math.round((2 * Math.hypot(REGISTER.x - PACKAGE_ROOM.x, REGISTER.y - PACKAGE_ROOM.y)) / TUNING.walkSpeed); // to the hold shelf and back
+      return { ...base, label: `Getting ${c.name}'s package from the hold shelf`, station: REGISTER, duration: DURATIONS.releasePackage + fetch, customerId: c.id };
     }
     case "check_in_packages": {
       const n = unsortedPackages(state).length;
@@ -259,10 +261,13 @@ export function completeShippingTask(state: GameState, task: Task): void {
       state.costCents += q.carrierCents + q.materialCents;
       state.stats.carrierCostCents += q.carrierCents;
       if (!r.packed) {
-        take(state, boxItem(r.box), 1);
+        state.employee.hands = null; // the box you brought is now the package
         state.costCents += boxUnitCents(r.box);
       }
+      pkg.status = "unstaged";
+      state.employee.hands = { kind: "packages", packageIds: [pkg.id] };
       state.stats.shipments++;
+      state.computer.labels.push({ packageId: pkg.id, at: state.time, name: c!.name, service: r.service, weightLb: r.weightLb });
       state.stats.shippingRevenueCents += q.totalCents;
       const late = state.truck.status === "gone" && isExpress(r.service);
       if (late) c!.penalty += 1; // it won't leave until tomorrow
@@ -274,13 +279,19 @@ export function completeShippingTask(state: GameState, task: Task): void {
       return;
     }
     case "accept_dropoff": {
-      for (let i = 0; i < c!.dropoffCount; i++) newPackage(state, c!.id, "dropoff", null, 1 + (i % 3), 0);
+      const ids: number[] = [];
+      for (let i = 0; i < c!.dropoffCount; i++) {
+        const pkg = newPackage(state, c!.id, "dropoff", null, 1 + (i % 3), 0);
+        pkg.status = "unstaged";
+        ids.push(pkg.id);
+      }
+      state.employee.hands = { kind: "packages", packageIds: ids };
       state.stats.dropoffs++;
       state.stats.dropoffPackages += c!.dropoffCount;
       c!.outcome = "dropped_off";
       c!.rating = clampRating(5 - c!.penalty);
       sendAway(c!, null);
-      log(state, `Took ${c!.dropoffCount} prepaid return${c!.dropoffCount === 1 ? "" : "s"} from ${c!.name}.`);
+      log(state, `${c!.name} dropped off ${c!.dropoffCount} prepaid return${c!.dropoffCount === 1 ? "" : "s"}.`);
       return;
     }
     case "release_package": {
@@ -297,6 +308,7 @@ export function completeShippingTask(state: GameState, task: Task): void {
     case "check_in_packages": {
       const list = unsortedPackages(state);
       for (const p of list) p.status = "on_hold";
+      observePackageRoom(state);
       log(state, `Checked in ${list.length} package${list.length === 1 ? "" : "s"} from the morning delivery. They're on the hold shelf.`);
       return;
     }
@@ -310,6 +322,10 @@ export function completeShippingTask(state: GameState, task: Task): void {
       t.status = "gone";
       t.handedOff = true;
       t.departedAt = state.time;
+      // Anything still in your hands or on the counter didn't make it.
+      const left = state.packages.filter((p) => p.status === "unstaged");
+      if (left.length) missTruck(state, left);
+      observePackageRoom(state);
       log(state, `Handed ${list.length} package${list.length === 1 ? "" : "s"} to the driver. The truck is gone for the day.`);
       return;
     }
@@ -359,15 +375,29 @@ function departWithoutHandoff(state: GameState): void {
   const t = state.truck;
   t.status = "gone";
   t.departedAt = state.time;
-  const missed = stagedPackages(state);
+  // Anything not in the outbound bin misses it too: in your hands, or set down on the counter.
+  const missed = state.packages.filter((p) => p.status === "staged" || p.status === "unstaged");
   if (!missed.length) {
     log(state, "The driver left. There was nothing to pick up.");
     return;
   }
+  const refunds = missTruck(state, missed);
+  const unstaged = missed.filter((p) => p.status === "unstaged").length;
+  if (missed.length > unstaged) mistake(state, "missed_truck", `Missed the carrier truck: ${missed.length - unstaged} staged package${missed.length - unstaged === 1 ? "" : "s"} went out a day late.`);
+  log(
+    state,
+    `The driver left without a hand-off. ${missed.length === 1 ? "1 package missed the truck and goes" : `${missed.length} packages missed the truck and go`} out tomorrow` +
+      (refunds ? `; express packages were refunded (${money(refunds)}).` : "."),
+  );
+}
+
+// Packages that miss today's truck: they go tomorrow, and express ones are refunded.
+function missTruck(state: GameState, packages: Package[]): number {
   let refunds = 0;
-  for (const p of missed) {
+  for (const p of packages) {
     p.missedTrucks++;
     state.stats.missedTruckPackages++;
+    if (p.status === "unstaged") mistake(state, "not_staged", `Package P${p.id} never made it into the outbound bin, so it missed the truck.`, p.id);
     if (isExpress(p.service)) {
       // The delivery date is blown, so the customer gets their money back. It still ships tomorrow.
       state.revenueCents -= p.pricePaidCents;
@@ -375,11 +405,7 @@ function departWithoutHandoff(state: GameState): void {
       refunds += p.pricePaidCents;
     }
   }
-  log(
-    state,
-    `The driver left without a hand-off. ${missed.length === 1 ? "1 package missed the truck and goes" : `${missed.length} packages missed the truck and go`} out tomorrow` +
-      (refunds ? `; express packages were refunded (${money(refunds)}).` : "."),
-  );
+  return refunds;
 }
 
 // ---------- words ----------
@@ -396,6 +422,8 @@ export function purposeText(c: Customer): string {
       return "drop-off";
     case "package":
       return "package pickup";
+    case "copier_help":
+      return "copier trouble";
   }
 }
 

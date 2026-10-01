@@ -1,13 +1,37 @@
 // Small helpers shared by sim.ts and the systems it calls (shipping.ts, ...), kept here to avoid circular imports.
-import type { Customer, GameState, Job, Printer, Vec } from "./types";
+import type { Customer, GameState, Job, Mistake, Printer, Vec } from "./types";
 import { TUNING } from "./config";
 import { lineSlot } from "./layout";
 
 const MIN = 60;
 
+// Who's acting. Completing one of your tasks runs inside asYou(), so whatever it logs is your own action;
+// everything else (customers arriving, machines, the truck) is the world, which the player only sees in dev mode.
+let actorIsYou = false;
+
+export function asYou<T>(fn: () => T): T {
+  const was = actorIsYou;
+  actorIsYou = true;
+  try {
+    return fn();
+  } finally {
+    actorIsYou = was;
+  }
+}
+
 export function log(state: GameState, text: string): void {
-  state.log.push({ time: state.time, text });
-  if (state.log.length > 300) state.log.shift();
+  state.log.push({ time: state.time, text, you: actorIsYou });
+  if (state.log.length > 400) state.log.shift();
+}
+
+export function mistake(state: GameState, kind: Mistake["kind"], text: string, jobId?: number): void {
+  if (jobId !== undefined && state.mistakes.some((m) => m.kind === kind && m.jobId === jobId)) return; // once per job
+  state.mistakes.push({ time: state.time, kind, text, jobId });
+}
+
+// Ends a sentence without doubling up when it already ends in a period (names like "Dana R." do).
+export function sentence(text: string): string {
+  return text.endsWith(".") ? text : `${text}.`;
 }
 
 export function money(cents: number): string {

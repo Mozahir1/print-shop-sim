@@ -7,6 +7,7 @@ import { randInt, type Rng } from "./rng";
 import { fetchSeconds, take } from "./inventory";
 import { formatClock } from "./time";
 import { jobById, log, printerById } from "./util";
+import { countStock, observeCopier } from "./knowledge";
 
 const MIN = 60;
 const HOUR = 3600;
@@ -25,6 +26,7 @@ export function createCopiers(rng: Rng): Copier[] {
     sheetsUntilJam: rollCopierJam(rng),
     fixSeconds: 0,
     stoppedSince: null,
+    complained: false,
     sheetsToday: 0,
     jamsToday: 0,
   }));
@@ -55,7 +57,7 @@ export function rollBreakdowns(rng: Rng, printers: Printer[], closeAt: number): 
 }
 
 export function printerStopped(p: Printer): boolean {
-  return p.status === "jammed" || p.status === "out_of_paper" || p.status === "out_of_toner" || p.status === "needs_service";
+  return p.status === "jammed" || p.status === "out_of_paper" || p.status === "out_of_toner" || p.status === "output_full" || p.status === "needs_service";
 }
 
 export function runBreakdowns(state: GameState): void {
@@ -94,7 +96,8 @@ export function canStartUpkeep(state: GameState, req: TaskRequest): string | nul
       const cp = copierById(state, req.copierId ?? -1);
       if (!cp) return "No such copier.";
       if (cp.paper >= cp.capacity - 0.5) return `Self-serve copier ${cp.id} is full.`;
-      if (state.stockroom.letter < 1) return "There's no letter paper left in the stockroom.";
+      const h = state.employee.hands;
+      if (!(h?.kind === "paper" && h.stock === "letter")) return "You need letter paper from the stockroom in your hands.";
       return null;
     }
     case "recall_job": {
@@ -120,7 +123,7 @@ export function buildUpkeepTask(state: GameState, req: TaskRequest): Task {
     }
     case "refill_copier": {
       const cp = copierById(state, req.copierId!)!;
-      return { ...base, label: `Refilling self-serve copier ${cp.id}`, station: cp.station, duration: UPKEEP.refillCopierSeconds + fetchSeconds(cp.station) };
+      return { ...base, label: `Refilling self-serve copier ${cp.id}`, station: cp.station, duration: UPKEEP.refillCopierSeconds };
     }
     case "recall_job": {
       const job = jobById(state, req.jobId!)!;
@@ -138,20 +141,24 @@ export function completeUpkeepTask(state: GameState, task: Task): void {
       const cp = copierById(state, task.copierId!)!;
       cp.status = cp.paper > 0 ? "ok" : "out_of_paper";
       if (cp.status === "ok") cp.stoppedSince = null;
+      observeCopier(state, cp.id);
       log(state, `Cleared the jam in self-serve copier ${cp.id}.`);
       return;
     }
     case "refill_copier": {
       const cp = copierById(state, task.copierId!)!;
-      const amount = Math.min(Math.floor(cp.capacity - cp.paper), state.stockroom.letter);
-      if (amount <= 0) return;
+      const h = state.employee.hands;
+      if (!(h?.kind === "paper" && h.stock === "letter")) return;
+      const amount = Math.min(Math.floor(cp.capacity - cp.paper), h.sheets);
       cp.paper += amount;
-      take(state, "letter", amount);
+      h.sheets -= amount;
+      if (h.sheets <= 0) state.employee.hands = null;
       state.stats.copierRefills++;
       if (cp.status === "out_of_paper") {
         cp.status = "ok";
         cp.stoppedSince = null;
       }
+      observeCopier(state, cp.id);
       log(state, `Refilled self-serve copier ${cp.id} with ${amount.toLocaleString("en-US")} sheets of ${STOCK.letter.label.toLowerCase()}.`);
       return;
     }
@@ -162,11 +169,12 @@ export function completeUpkeepTask(state: GameState, task: Task): void {
       p.queue = p.queue.filter((id) => id !== job.id);
       if (p.currentJobId === job.id) {
         p.currentJobId = null;
-        // A jam or a broken printer stays that way; an empty tray or toner was only a problem for this job.
+        // A jam, a full output tray or a broken printer stays that way; an empty tray or toner was only a problem for this job.
         if (p.status === "out_of_paper" || p.status === "out_of_toner") p.status = "idle";
       }
       job.status = "unsent";
       job.printerId = null;
+      job.location = "none";
       state.stats.recalls++;
       log(state, `Pulled order #${job.id} off the ${p.short} printer (${Math.floor(job.sheetsPrinted)} of ${job.sheets} sheets already done). It can go to another printer.`);
       return;

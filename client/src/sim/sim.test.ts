@@ -12,6 +12,7 @@ import {
   type Sim,
 } from "./sim";
 import { botAct, createBot } from "./bot";
+import { collectAll, finishAndShelve, loadPaper } from "./testkit";
 import { report, summarize } from "./summary";
 import { priceCents, totalSheets, finishSeconds } from "./orders";
 import type { Customer, JobSpec } from "./types";
@@ -108,8 +109,10 @@ describe("a whole order, start to finish", () => {
     expect(s.time - started).toBeGreaterThanOrEqual(expected - 2);
     expect(s.time - started).toBeLessThanOrEqual(expected + 2);
 
-    expect(startTask(s, { type: "finish_job", jobId: job.id })).toBeNull();
-    runUntil(sim, () => job.status === "ready");
+    // Phase 8: the sheets go output tray -> hands -> finishing table -> bag -> pickup shelf.
+    expect(job.location).toBe("output");
+    finishAndShelve(sim, job);
+    expect(job.status).toBe("ready");
     // The customer was waiting in the store, so they come up to the counter themselves.
     runUntil(sim, () => counterCustomer(s)?.id === c.id);
     expect(startTask(s, { type: "ring_up" })).toBeNull();
@@ -157,6 +160,7 @@ describe("you can only do one thing at a time", () => {
     const job = s.jobs[0];
     startTask(s, { type: "send_job", jobId: job.id, printerId: "bw" });
     runUntil(sim, () => job.status === "printed");
+    collectAll(sim, job);
     startTask(s, { type: "finish_job", jobId: job.id });
     runUntil(sim, () => s.employee.task!.elapsed >= 300);
     stopTask(s);
@@ -181,7 +185,7 @@ describe("machines", () => {
     expect(Math.round(job.sheetsPrinted)).toBe(40);
     run(sim, 120);
     expect(Math.round(job.sheetsPrinted)).toBe(40); // nothing happens until you deal with it
-    startTask(s, { type: "load_paper", printerId: "bw", stock: "letter" });
+    loadPaper(sim, "bw", "letter"); // fetch it from the stockroom, load it, put the rest back
     runUntil(sim, () => job.status === "printed");
   });
 
@@ -226,8 +230,7 @@ describe("customers", () => {
     const job = s.jobs[0];
     startTask(s, { type: "send_job", jobId: job.id, printerId: "bw" });
     runUntil(sim, () => job.status === "printed");
-    startTask(s, { type: "finish_job", jobId: job.id });
-    runUntil(sim, () => job.status === "ready");
+    finishAndShelve(sim, job);
     runUntil(sim, () => counterCustomer(s)?.id === c.id);
     startTask(s, { type: "ring_up" });
     runUntil(sim, () => c.outcome !== null);

@@ -22,6 +22,7 @@
         --info-bg: #e7eef6;
       }
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; } /* classes like .tag set display, which would otherwise beat the hidden attribute */
       body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
       button { font: inherit; }
       h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; display: flex; justify-content: space-between; gap: 8px; }
@@ -124,6 +125,43 @@
       #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--card); padding: 8px 14px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; max-width: 90vw; }
       #toast.show { opacity: 1; }
 
+
+      /* store floor as the main screen */
+      header.hud { gap: 12px 20px; }
+      .wallclock { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .hud-task { min-width: 280px; flex: 1; max-width: 460px; font-size: 13px; }
+      @media (max-width: 700px) { .hud-task { min-width: 100%; } .menu { width: min(310px, 90vw); } }
+      .hud-task .bar { margin: 4px 0 0; }
+      .hud-hands { font-size: 13px; color: var(--muted); }
+      main.store { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+      .floor-wrap { position: relative; width: 100%; max-width: 1240px; margin: 0 auto; }
+      #floor { width: 100%; cursor: pointer; border: 1px solid var(--line); }
+      .menu { position: absolute; z-index: 6; width: 310px; max-height: 70%; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 10px 12px; font-size: 13px; }
+      .menu-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 4px; }
+      .menu-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+      .menu-list .btn, .menu-row .btn { text-align: left; white-space: normal; }
+      .menu-row { border-top: 1px solid var(--line); padding: 6px 0; display: flex; flex-direction: column; gap: 4px; }
+      main.store > .legend, main.store > #log { width: 100%; max-width: 1240px; margin: 0 auto; }
+      #truestate { padding: 0 16px 24px; }
+      #truestate > h2 { margin: 8px 0; }
+      .ts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; margin-top: 12px; align-items: start; }
+      /* station views (the computer) */
+      .station { position: fixed; z-index: 12; top: 5vh; bottom: 5vh; left: 50%; transform: translateX(-50%); width: min(980px, 94vw); overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: 12px 16px; font-size: 13px; }
+      .station-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+      .desktop { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+      .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 11px; text-align: center; }
+      .app-head { display: flex; align-items: center; gap: 10px; margin: 10px 0 6px; }
+      .app-section { margin-top: 10px; }
+      .app-section h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+      .form-title { font-weight: 600; margin: 8px 0 4px; }
+      .spec-form { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+      .spec-form input[type="number"] { width: 64px; }
+      .queue-row { display: flex; align-items: center; gap: 6px; padding: 2px 0 2px 12px; }
+      table.mini td, table.mini th { padding: 3px 8px; font-size: 12px; }
+      .known { background: var(--bg); border-radius: 6px; padding: 6px 8px; margin-top: 4px; }
+      .ticket { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--line); }
+      .ticket.done { opacity: .5; text-decoration: line-through; }
+
       /* dev drawer */
       #dev { position: fixed; top: 0; right: 0; bottom: 0; width: 360px; max-width: 100vw; overflow-y: auto; z-index: 15; background: #1f2328; color: #e6e6e6; padding: 12px 14px 24px; font-size: 12px; box-shadow: -4px 0 16px rgba(0,0,0,.25); }
       #dev[hidden] { display: none; }
@@ -144,51 +182,46 @@
     </style>
   </head>
   <body>
-    <header>
+    <header class="hud">
       <div class="brand">Print Shop <span id="devBadge" class="tag warn" hidden title="Dev tools were used this shift">DEV</span>
-        <span id="botChip" class="tag bad" hidden>Bot is playing <button class="btn" data-act="stopBot" style="padding:0 6px;margin-left:4px;font-size:11px">Stop</button></span>
-        <span id="truckChip" class="tag bad" hidden></span>
-        <span id="phoneChip" class="tag warn" hidden>Phone ringing</span></div>
-      <div class="clock">
-        <span id="clock">9:00 AM</span>
-        <div>
-          <div class="daybar"><div id="dayfill"></div></div>
-          <div id="closes" class="muted small">Open until 5:00 PM</div>
-        </div>
-      </div>
+        <span id="botChip" class="tag bad" hidden>Bot is playing <button class="btn" data-act="stopBot" style="padding:0 6px;margin-left:4px;font-size:11px">Stop</button></span></div>
+      <div id="clock" class="wallclock" title="Wall clock">9:00 AM</div>
+      <div id="hudTask" class="hud-task"></div>
+      <div id="hudHands" class="hud-hands"></div>
+      <button class="btn" data-act="notepad" title="Your notepad (free to look at)">Notepad</button>
       <div class="speed" id="speed"></div>
-      <div>
-        <label class="autopause"><input type="checkbox" id="autopause" /> Pause when someone reaches the counter or the truck arrives</label>
-        <label class="autopause"><input type="checkbox" id="phonepause" checked /> Pause when the phone rings</label>
-      </div>
-      <div id="kpis"></div>
     </header>
 
-    <main>
-      <div class="col">
+    <main class="store">
+      <div class="floor-wrap">
+        <canvas id="floor" title="Click anything to walk there and see what you can do"></canvas>
+        <div id="menu" class="menu" hidden></div>
+        <div id="station" class="station" hidden></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:#2f5d8a"></i>Here to order</span>
+        <span><i style="background:#2e7d4f"></i>Here to pick up</span>
+        <span><i style="background:#9c8a6c"></i>Waiting for an order</span>
+        <span><i style="background:#6b5a8e"></i>At self-serve</span>
+        <span><i style="background:#b0672a"></i>Shipping</span>
+        <span><i style="background:#1f2328"></i>You</span>
+      </div>
+      <section class="card" id="log"></section>
+    </main>
+
+    <!-- Dev mode only: everything the sim knows, for debugging. Shown while the dev drawer is open. -->
+    <section id="truestate" hidden>
+      <h2>True state (dev)</h2>
+      <div id="kpis"></div>
+      <div class="ts-grid">
         <section class="card" id="you"></section>
         <section class="card" id="counter"></section>
         <section class="card" id="shipping"></section>
-        <section class="card">
-          <h2>Store floor</h2>
-          <canvas id="floor"></canvas>
-          <div class="legend">
-            <span><i style="background:#2f5d8a"></i>Here to order</span>
-            <span><i style="background:#2e7d4f"></i>Here to pick up</span>
-            <span><i style="background:#9c8a6c"></i>Waiting for an order</span>
-            <span><i style="background:#6b5a8e"></i>At self-serve</span>
-            <span><i style="background:#b0672a"></i>Shipping</span>
-            <span><i style="background:#1f2328"></i>You</span>
-          </div>
-        </section>
-      </div>
-      <div class="col">
         <section class="card" id="orders"></section>
         <section class="card" id="machines"></section>
         <section class="card" id="stockroom"></section>
-        <section class="card" id="log"></section>
       </div>
-    </main>
+    </section>
 
     <div class="overlay show" id="intro">
       <div>
@@ -203,7 +236,8 @@
           <li><b>Machines:</b> printers run on their own, but they run out of paper and toner and they jam. Only you can fix that, with whatever is in the stockroom. There are no deliveries today, so don't take on work you can't print. A printer can also break down until a technician comes; recall its jobs and send them elsewhere. Keep the self-serve copiers fed and unjammed too, or the customers using them give up.</li>
         </ul>
         <p>Everything takes time and you can only do one thing at once. Finishing work can be put down to help the counter; your progress is kept.</p>
-        <p class="muted small">Space pauses. Keys 1 to 4 set the speed. Hover a greyed-out button to see why it's unavailable.</p>
+        <p><b>How to play:</b> click anything in the store (a printer, the register, a customer at the counter, the phone) to walk there and see what you can do. Your current task is at the top; you can stop it.</p>
+        <p class="muted small">Space pauses. Keys 1 to 4 set the speed. Escape closes a menu. Hover a greyed-out action to see why it's unavailable.</p>
         <button class="btn primary" id="startBtn">Open the store</button>
       </div>
     </div>

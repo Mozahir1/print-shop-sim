@@ -187,9 +187,9 @@ export function setBot(on: boolean): void {
   const state = hooks.sim().state;
   if (on) {
     state.devUsed = true;
-    state.log.push({ time: state.time, text: `[dev] Bot took over (reacts every ${reaction}s).` });
+    state.log.push({ time: state.time, text: `[dev] Bot took over (reacts every ${reaction}s).`, you: true });
   } else if (wasOn) {
-    state.log.push({ time: state.time, text: "[dev] Bot stopped. You're on your own." });
+    state.log.push({ time: state.time, text: "[dev] Bot stopped. You're on your own.", you: true });
   }
   hooks.refresh();
 }

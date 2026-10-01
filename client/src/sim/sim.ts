@@ -2,10 +2,10 @@
 // You are one employee. Everything you do is a task that takes time (walk there, then work).
 // The UI and the bot both act through canStart()/startTask()/stopTask().
 
-import type { Copier, Customer, GameState, Job, Printer, PrinterStatus, Task, TaskRequest, Vec } from "./types";
+import type { Copier, Customer, GameState, Job, JobSpec, Printer, PrinterStatus, Task, TaskRequest, Vec } from "./types";
 import { createRng, type Rng } from "./rng";
-import { DOOR, FINISHING_STATION, REGISTER, SELF_SERVE_HELP_SPOT, lineSlot, seatFor, selfServeQueueSlot } from "./layout";
-import { DURATIONS, DUPLEX_JAM_FACTOR, MEDIA_JAM_FACTOR, MEDIA_SPEED, SELF_SERVE, STOCK, TUNING, createPrinters } from "./config";
+import { DOOR, FINISHING_STATION, PICKUP_SHELF, REGISTER, SELF_SERVE_HELP_SPOT, lineSlot, seatFor, selfServeQueueSlot } from "./layout";
+import { DURATIONS, DUPLEX_JAM_FACTOR, MEDIA_JAM_FACTOR, MEDIA_SPEED, MISTAKES, SELF_SERVE, STOCK, TUNING, createPrinters } from "./config";
 import { generateDay } from "./schedule";
 import {
   buildUpkeepTask,
@@ -19,14 +19,28 @@ import {
   rollJamWaste,
   runBreakdowns,
 } from "./upkeep";
+import {
+  appSwitchSeconds,
+  buildComputerTask,
+  canStartComputer,
+  completeComputerTask,
+  createComputer,
+  deliverWebOrder,
+  emailPenalty,
+  jobMismatches,
+  runInbox,
+} from "./computer";
 import { buildAnswerTask, canAnswer, completeAnswer, generateCalls, runPhone } from "./phone";
-import { fetchSeconds, generateStockroom, itemForTray, paperToLoad, take } from "./inventory";
+import { countStock, observeFinishing, observePanel, observeShelf, observeTray } from "./knowledge";
+import { generateStockroom, itemForTray, paperShortfall } from "./inventory";
+import { buildHandsTask, canStartHands, carryLabel, completeHandsTask, handsBlocker, holdingFits, putOnTable } from "./hands";
 import { buildShippingTask, canStartShipping, completeShippingTask, createTruck, generateShipping, purposeText, runTruck } from "./shipping";
 import {
   FINISHING_VERB,
   describeQuantity,
   finishCostCents,
   finishSeconds,
+  finishingSpec,
   impressions,
   isWide,
   printCostPerSheet,
@@ -56,6 +70,8 @@ import {
   sendAway,
   servingCustomerId,
   walk,
+  asYou,
+  mistake,
 } from "./util";
 
 // Re-exported so existing imports from "./sim" keep working.
@@ -110,9 +126,8 @@ export function createSim(seed: number): Sim {
     truck: createTruck(),
     calls: phone.calls,
     stockroom: generateStockroom(rng.stock),
-    supplyOrders: [],
-    mode: "single",
-    employee: { pos: { ...REGISTER }, task: null, busySeconds: 0 },
+    employee: { pos: { ...REGISTER }, task: null, busySeconds: 0, hands: null },
+    counterItems: [],
     log: [],
     nextJobId: 101,
     nextLineNo: 1,
@@ -140,18 +155,22 @@ export function createSim(seed: number): Sim {
       carrierCostCents: 0,
       serviceFeesCents: 0,
       rushFeesCents: 0,
-      suppliesOrderedCents: 0,
       callsAnswered: 0,
       missedCalls: 0,
       quoteLeads: 0,
+      callbacks: 0,
       copierJams: 0,
       copierRefills: 0,
       copierGaveUp: 0,
       breakdowns: 0,
       recalls: 0,
       wastedSheets: 0,
+      checks: 0,
     },
     over: false,
+    knowledge: {},
+    mistakes: [],
+    computer: createComputer(),
     devUsed: false,
   };
   rollBreakdowns(rng.upkeep, state.printers, state.closeAt);
@@ -175,6 +194,12 @@ export function tick(sim: Sim, dt: number): void {
   }
 
   placeWebOrders(state);
+  runInbox(state);
+  for (const j of state.jobs) {
+    if (j.channel === "web" && !j.opened && !j.dueTomorrow && state.time > j.dueAt && j.status !== "canceled") {
+      mistake(state, "unread_order", `Online order #${j.id} sat unread in the inbox past its pickup time.`, j.id);
+    }
+  }
   arrivals(state);
   updateEmployee(state, dt);
   runTruck(state);
@@ -195,6 +220,8 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
   const cur = state.employee.task;
   if (cur && sameTask(cur, req)) return "You're already doing that.";
   if (cur && !isInterruptible(state, cur)) return `You're busy: ${cur.label.toLowerCase()}.`;
+  const handsFull = handsBlocker(state, req);
+  if (handsFull) return handsFull;
 
   switch (req.type) {
     case "take_order": {
@@ -221,6 +248,39 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
     case "refill_copier":
     case "recall_job":
       return canStartUpkeep(state, req);
+    case "walk_to":
+      return req.to ? null : "Walk where?";
+    case "acknowledge_copier": {
+      const c = counterCustomer(state);
+      if (!c) return "Nobody is at the counter.";
+      if (c.purpose !== "copier_help") return `${c.name} isn't here about a copier.`;
+      return null;
+    }
+    case "take_stock":
+    case "put_back":
+    case "glance_stock":
+    case "count_stock":
+    case "check_trays":
+    case "check_panel":
+    case "check_copier":
+    case "check_shelf":
+    case "scan_package_room":
+    case "check_finishing":
+    case "collect_output":
+    case "drop_output":
+    case "shelve":
+    case "stage_packages":
+    case "set_down":
+    case "pick_up":
+      return canStartHands(state, req);
+    case "open_app":
+    case "refresh_app":
+    case "open_message":
+    case "reply_email":
+    case "call_back":
+    case "move_job":
+    case "cancel_job":
+      return canStartComputer(state, req);
     case "usher_self_serve": {
       const c = counterCustomer(state);
       if (!c) return "Nobody is at the counter.";
@@ -234,7 +294,7 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       if (!c) return "Nobody is at the counter.";
       if (c.purpose !== "pickup") return `${c.name} isn't here for a print pickup (${purposeText(c)}).`;
       const job = jobById(state, c.jobId!)!;
-      if (req.type === "ring_up" && job.status !== "ready") return `Order #${job.id} isn't ready yet.`;
+      if (req.type === "ring_up" && job.status !== "ready") return `Order #${job.id} isn't on the pickup shelf.`;
       if (req.type === "explain_delay" && job.status === "ready") return `Order #${job.id} is ready. Ring them up.`;
       return null;
     }
@@ -243,7 +303,8 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       const p = printerById(state, req.printerId ?? "");
       if (!job || !p) return "No such order or printer.";
       if (job.status !== "unsent") return `Order #${job.id} was already sent.`;
-      if (!printerSupports(p, job)) return `The ${p.short} printer can't print this order.`;
+      if (!job.opened) return `Online order #${job.id} hasn't been opened yet. Read it in the inbox first.`;
+      if (!printerSupports(p, { spec: req.spec ?? job.ticket })) return `The ${p.short} printer can't print with those settings.`;
       if (p.status === "needs_service") return `The ${p.short} printer is down until the technician fixes it (about ${formatClock(p.breakdown!.fixedAt)}).`;
       return null;
     }
@@ -251,6 +312,11 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       const job = jobById(state, req.jobId ?? -1);
       if (!job) return "No such order.";
       if (job.status !== "printed") return `Order #${job.id} isn't printed yet.`;
+      const h = state.employee.hands;
+      const holding = h?.kind === "output" && h.jobId === job.id ? h.sheets : 0;
+      if (h && !holding) return `Your hands are full (${carryLabel(state, h)}).`;
+      const here = job.tableSheets + holding;
+      if (here < job.sheets - 1e-6) return `Only ${Math.floor(here)} of ${job.sheets} sheets are here. Collect the rest from the printer's output tray.`;
       return null;
     }
     case "load_paper": {
@@ -261,14 +327,15 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       if (tray.stock === "roll" && tray.level >= ROLL_CHANGE_FEET) {
         return `The roll still has ${Math.floor(tray.level)} ft on it. Rolls get changed when they run out (under ${ROLL_CHANGE_FEET} ft).`;
       }
-      if (paperToLoad(state, tray) <= 0) return `There's no ${STOCK[itemForTray(tray.stock)].label.toLowerCase()} left in the stockroom.`;
+      if (!holdingFits(state, tray.stock)) return `You need ${tray.stock === "roll" ? "a roll" : `${tray.stock} paper`} in your hands. Get it from the stockroom.`;
       return null;
     }
     case "replace_toner": {
       const p = printerById(state, req.printerId ?? "");
       if (!p) return "No such printer.";
       if (p.toner > 25) return `Still ${Math.round(p.toner)}% left. Cartridges get swapped when they're low (25% or less).`;
-      if (state.stockroom[p.supply] < 1) return `There's no spare ${STOCK[p.supply].label.toLowerCase()} in the stockroom.`;
+      const h = state.employee.hands;
+      if (!(h?.kind === "supply" && h.item === p.supply)) return `You need a ${STOCK[p.supply].label.toLowerCase()} from the stockroom in your hands.`;
       return null;
     }
     case "clear_jam": {
@@ -288,6 +355,11 @@ export function startTask(state: GameState, req: TaskRequest): string | null {
 
   const task = buildTask(state, req);
   if (task.customerId !== undefined) beginServing(state, customerById(state, task.customerId)!);
+  const h = state.employee.hands;
+  if (req.type === "finish_job" && h?.kind === "output" && h.jobId === req.jobId) {
+    putOnTable(state, jobById(state, h.jobId)!, h.sheets); // set the stack down and get to work
+    state.employee.hands = null;
+  }
   state.employee.task = task;
   return null;
 }
@@ -309,7 +381,7 @@ export function stopTask(state: GameState): void {
 
 // Finishing work can be put down to help the counter. Anything you're still walking to can be dropped.
 export function isInterruptible(state: GameState, task: Task): boolean {
-  return task.type === "finish_job" || !near(state.employee.pos, task.station);
+  return task.type === "finish_job" || task.type === "walk_to" || !near(state.employee.pos, task.station);
 }
 
 // What a request would turn into (label, duration), without starting it. Only valid when canStart() is null.
@@ -318,6 +390,7 @@ export function previewTask(state: GameState, req: TaskRequest): Task {
 }
 
 function sameTask(a: TaskRequest, b: TaskRequest): boolean {
+  if (a.type === "walk_to" || b.type === "walk_to") return false; // walking somewhere else is always a new walk
   return a.type === b.type && a.jobId === b.jobId && a.printerId === b.printerId && a.stock === b.stock && a.callId === b.callId && a.copierId === b.copierId;
 }
 
@@ -326,7 +399,8 @@ function buildTask(state: GameState, req: TaskRequest): Task {
   switch (req.type) {
     case "take_order": {
       const c = counterCustomer(state)!;
-      return { ...base, label: `Taking ${c.name}'s order`, station: REGISTER, duration: takeOrderSeconds(c.request!.spec), customerId: c.id };
+      const duration = appSwitchSeconds(state, "pos") + takeOrderSeconds(req.spec ?? c.request!.spec);
+      return { ...base, label: `Entering ${c.name}'s order in the POS`, station: REGISTER, duration, customerId: c.id };
     }
     case "turn_away": {
       const c = counterCustomer(state)!;
@@ -344,10 +418,44 @@ function buildTask(state: GameState, req: TaskRequest): Task {
     case "refill_copier":
     case "recall_job":
       return buildUpkeepTask(state, req);
+    case "walk_to":
+      return { ...base, label: "Walking over", station: { ...req.to! }, duration: 0 };
+    case "acknowledge_copier": {
+      const c = counterCustomer(state)!;
+      return { ...base, label: `Telling ${c.name} you'll fix the copier`, station: REGISTER, duration: MISTAKES.acknowledgeSeconds, customerId: c.id };
+    }
+    case "take_stock":
+    case "put_back":
+    case "glance_stock":
+    case "count_stock":
+    case "check_trays":
+    case "check_panel":
+    case "check_copier":
+    case "check_shelf":
+    case "scan_package_room":
+    case "check_finishing":
+    case "collect_output":
+    case "drop_output":
+    case "shelve":
+    case "stage_packages":
+    case "set_down":
+    case "pick_up":
+      return buildHandsTask(state, req);
+    case "open_app":
+    case "refresh_app":
+    case "open_message":
+    case "reply_email":
+    case "call_back":
+    case "move_job":
+    case "cancel_job":
+      return buildComputerTask(state, req);
     case "ring_up": {
       const c = counterCustomer(state)!;
       const job = jobById(state, c.jobId!)!;
-      const duration = job.prepaid ? DURATIONS.handOver : DURATIONS.ringUp;
+      // Fetching it from the pickup shelf and back is part of it.
+      const fetch = Math.round((2 * Math.hypot(REGISTER.x - PICKUP_SHELF.x, REGISTER.y - PICKUP_SHELF.y)) / TUNING.walkSpeed);
+      const search = job.filedUnder !== job.customerId ? MISTAKES.searchSeconds : 0; // it isn't under their name
+      const duration = appSwitchSeconds(state, "pos") + (job.prepaid ? DURATIONS.handOver : DURATIONS.ringUp) + fetch + search;
       return { ...base, label: `Ringing up ${c.name} for order #${job.id}`, station: REGISTER, duration, customerId: c.id, jobId: job.id };
     }
     case "usher_self_serve": {
@@ -360,24 +468,24 @@ function buildTask(state: GameState, req: TaskRequest): Task {
     }
     case "send_job": {
       const p = printerById(state, req.printerId!)!;
-      return { ...base, label: `Sending order #${req.jobId} to the ${p.short} printer`, station: REGISTER, duration: DURATIONS.sendJob };
+      return { ...base, label: `Sending order #${req.jobId} to the ${p.short} printer`, station: REGISTER, duration: appSwitchSeconds(state, "printserver") + DURATIONS.sendJob };
     }
     case "finish_job": {
       const job = jobById(state, req.jobId!)!;
-      const left = finishSeconds(job.spec) - job.finishWorkDone;
-      return { ...base, label: `${FINISHING_VERB[job.spec.finishing]}: order #${job.id}`, station: FINISHING_STATION, duration: left };
+      const left = finishSeconds(finishingSpec(job)) - job.finishWorkDone;
+      return { ...base, label: `${FINISHING_VERB[job.ticket.finishing]}: order #${job.id}`, station: FINISHING_STATION, duration: left };
     }
     case "load_paper": {
       const p = printerById(state, req.printerId!)!;
       const roll = req.stock === "roll";
       const what = roll ? "a new paper roll" : `${req.stock} paper`;
-      const duration = (roll ? DURATIONS.loadRoll : DURATIONS.loadPaper) + fetchSeconds(p.station);
+      const duration = roll ? DURATIONS.loadRoll : DURATIONS.loadPaper;
       return { ...base, label: `Loading ${what} in the ${p.short} printer`, station: p.station, duration };
     }
     case "replace_toner": {
       const p = printerById(state, req.printerId!)!;
       const what = p.wideSecondsPerSqFt ? "ink" : "toner";
-      const duration = DURATIONS.replaceToner + fetchSeconds(p.station);
+      const duration = DURATIONS.replaceToner;
       return { ...base, label: `Replacing ${what} in the ${p.short} printer`, station: p.station, duration };
     }
     case "clear_jam": {
@@ -391,7 +499,8 @@ function completeTask(state: GameState, task: Task): void {
   const c = task.customerId !== undefined ? customerById(state, task.customerId)! : null;
   switch (task.type) {
     case "take_order": {
-      const job = createJob(state, c!, "counter");
+      state.computer.app = "pos";
+      const job = createJob(state, c!, "counter", task.spec);
       state.stats.ordersTaken++;
       c!.purpose = "pickup";
       c!.lineTicket = null;
@@ -426,7 +535,7 @@ function completeTask(state: GameState, task: Task): void {
       c!.rating = clampRating(3 - c!.penalty);
       state.stats.turnedAway++;
       sendAway(c!, null);
-      log(state, `Turned away ${c!.name}. They'll go somewhere else.`);
+      log(state, `Turned away ${c!.name} (they'll go somewhere else).`);
       return;
     }
     case "ship_package":
@@ -444,9 +553,57 @@ function completeTask(state: GameState, task: Task): void {
     case "recall_job":
       completeUpkeepTask(state, task);
       return;
+    case "walk_to":
+      return;
+    case "acknowledge_copier": {
+      // They go back and wait at their copier; their patience is still running from when it stopped.
+      c!.purpose = "order";
+      c!.state = "self_serve";
+      c!.lineTicket = null;
+      c!.waitStart = null;
+      log(state, `Told ${c!.name} you'd come fix their copier.`);
+      return;
+    }
+    case "take_stock":
+    case "put_back":
+    case "glance_stock":
+    case "count_stock":
+    case "check_trays":
+    case "check_panel":
+    case "check_copier":
+    case "check_shelf":
+    case "scan_package_room":
+    case "check_finishing":
+    case "collect_output":
+    case "drop_output":
+    case "shelve":
+    case "stage_packages":
+    case "set_down":
+    case "pick_up":
+      completeHandsTask(state, task);
+      return;
+    case "open_app":
+    case "refresh_app":
+    case "open_message":
+    case "reply_email":
+    case "call_back":
+    case "move_job":
+    case "cancel_job":
+      completeComputerTask(state, task);
+      return;
     case "ring_up": {
       const job = jobById(state, task.jobId!)!;
+      state.computer.app = "pos";
+      if (job.filedUnder !== job.customerId) {
+        c!.penalty += MISTAKES.searchPenalty;
+        mistake(state, "misfiled", `Order #${job.id} was shelved under the wrong name; ${c!.name} waited while you searched for it.`, job.id);
+      }
+      const wrong = jobMismatches(job);
+      if (wrong.length) return refuseJob(state, c!, job, wrong);
       job.status = "picked_up";
+      job.location = "gone";
+      c!.penalty += emailPenalty(state, job);
+      observeShelf(state); // you were just at the shelf
       job.closedAt = state.time;
       if (!job.prepaid) state.revenueCents += job.priceCents;
       c!.penalty += latePenalty(job);
@@ -476,6 +633,12 @@ function completeTask(state: GameState, task: Task): void {
       const job = jobById(state, task.jobId!)!;
       if (job.status !== "unsent") return; // canceled while you were at it
       const p = printerById(state, task.printerId!)!;
+      state.computer.app = "printserver";
+      // The printer makes what it's told. Sheets already printed (before a recall) still count if they still fit.
+      const settings = { ...(task.spec ?? job.ticket), item: job.ticket.item };
+      job.spec = settings;
+      job.sheets = totalSheets(settings);
+      job.sheetsPrinted = Math.min(job.sheetsPrinted, job.sheets);
       job.status = "queued";
       job.printerId = p.id;
       // The print server runs its queue by due time; the job already printing keeps going.
@@ -488,44 +651,59 @@ function completeTask(state: GameState, task: Task): void {
     }
     case "finish_job": {
       const job = jobById(state, task.jobId!)!;
-      if (job.status !== "printed") return;
-      job.finishWorkDone = finishSeconds(job.spec);
-      job.status = "ready";
-      job.readyAt = state.time;
-      state.costCents += finishCostCents(job.spec);
-      const late = job.dueTomorrow ? "" : state.time > job.dueAt ? ` (${formatDuration(state.time - job.dueAt)} late)` : "";
-      log(state, `Order #${job.id} is bagged and on the pickup shelf${late}.`);
+      if (job.status !== "printed" || state.employee.hands) return;
+      job.finishWorkDone = finishSeconds(finishingSpec(job));
+      job.status = "bagged";
+      job.location = "hands";
+      job.tableSheets = 0;
+      state.employee.hands = { kind: "bag", jobId: job.id };
+      state.costCents += finishCostCents(finishingSpec(job));
+      observeFinishing(state);
+      log(state, `Finished and bagged order #${job.id}. It goes on the pickup shelf next.`);
       return;
     }
     case "load_paper": {
       const p = printerById(state, task.printerId!)!;
       const tray = p.trays.find((t) => t.stock === task.stock)!;
-      const amount = paperToLoad(state, tray);
-      if (amount <= 0) return; // the stockroom ran dry while you were walking
-      if (tray.stock === "roll") tray.level = tray.capacity;
-      else tray.level += amount;
-      take(state, itemForTray(tray.stock), amount);
+      const h = state.employee.hands;
+      if (!holdingFits(state, tray.stock) || !h) return;
+      let amount: number;
+      if (h.kind === "paper") tray.loaded = h.stock; // whatever you put in is what it'll print on
+      if (h.kind === "roll") {
+        amount = tray.capacity;
+        tray.level = tray.capacity;
+        state.employee.hands = null;
+      } else {
+        const paper = h as Extract<typeof h, { kind: "paper" }>;
+        amount = Math.min(Math.floor(tray.capacity - tray.level), paper.sheets);
+        tray.level += amount;
+        paper.sheets -= amount;
+        if (paper.sheets <= 0) state.employee.hands = null;
+      }
+      observeTray(state, p, tray);
       state.stats.paperLoads++;
-      const full = tray.level >= tray.capacity - 0.5;
       const what = tray.stock === "roll" ? "a new roll" : `${amount.toLocaleString("en-US")} sheets of ${tray.stock} paper`;
-      log(state, `Loaded ${what} in the ${p.short} printer${full ? "" : " (all that was left in the stockroom)"}.`);
+      log(state, `Loaded ${what} in the ${p.short} printer.`);
       if (p.status === "out_of_paper") resume(p);
       return;
     }
     case "replace_toner": {
       const p = printerById(state, task.printerId!)!;
-      if (state.stockroom[p.supply] < 1) return;
-      take(state, p.supply, 1);
+      const h = state.employee.hands;
+      if (!(h?.kind === "supply" && h.item === p.supply)) return;
+      state.employee.hands = null;
       p.toner = 100;
       state.stats.tonerChanges++;
       log(state, `Replaced the ${p.wideSecondsPerSqFt ? "ink" : "toner"} in the ${p.short} printer.`);
       if (p.status === "out_of_toner") resume(p);
+      observePanel(state, p);
       return;
     }
     case "clear_jam": {
       const p = printerById(state, task.printerId!)!;
       log(state, `Cleared the jam in the ${p.short} printer.`);
       if (p.status === "jammed") resume(p);
+      observePanel(state, p);
       return;
     }
   }
@@ -537,10 +715,11 @@ function placeWebOrders(state: GameState): void {
   for (const c of state.customers) {
     if (c.webOrderAt === null || c.jobId !== null || state.time < c.webOrderAt || c.webOrderAt >= state.closeAt) continue;
     const job = createJob(state, c, "web");
+    deliverWebOrder(state, job, c);
     state.stats.webOrders++;
     c.visitAt = job.dueTomorrow ? null : Math.max(state.time + 30 * MIN, job.dueAt + c.arrivalJitter);
     const when = job.dueTomorrow ? "pickup tomorrow" : `pickup at ${formatClock(job.dueAt)}`;
-    log(state, `Online order #${job.id} from ${c.name}: ${describeQuantity(job.spec)}, ${when}. Paid online (${money(job.priceCents)}).`);
+    log(state, `Online order #${job.id} came in from ${c.name} (${describeQuantity(job.spec)}, ${when}). It's in the inbox.`);
   }
 }
 
@@ -571,6 +750,7 @@ function arrivals(state: GameState): void {
       ship: "to ship a package",
       dropoff: `to drop off ${c.dropoffCount} prepaid package${c.dropoffCount === 1 ? "" : "s"}`,
       package: "to pick up a held package",
+      copier_help: "",
     }[c.purpose];
     log(state, `${c.name} came in ${why} and got in line.`);
   }
@@ -591,7 +771,7 @@ function updateEmployee(state: GameState, dt: number): void {
   task.elapsed += dt;
   if (task.elapsed >= task.duration) {
     e.task = null;
-    completeTask(state, task);
+    asYou(() => completeTask(state, task));
   }
 }
 
@@ -606,7 +786,9 @@ function runPrinter(sim: Sim, p: Printer, dt: number): void {
       return;
     }
     p.currentJobId = next;
-    jobById(state, next)!.status = "printing";
+    const started = jobById(state, next)!;
+    started.status = "printing";
+    started.location = "printer";
     p.status = "warming_up";
     p.warmupLeft = p.warmup;
   }
@@ -620,13 +802,28 @@ function runPrinter(sim: Sim, p: Printer, dt: number): void {
   }
 
   const tray = p.trays.find((t) => t.stock === stockFor(job.spec.media))!;
+  if (tray.loaded !== tray.stock && tray.level > 1e-6) job.printedOn = tray.loaded; // the wrong paper is in that tray
   const perSheet = stockPerSheet(job.spec.media);
+  if (job.takenShort && (p.toner <= 0 || tray.level < 1e-6) && state.stockroom[p.toner <= 0 ? p.supply : itemForTray(tray.stock)] < 1) {
+    mistake(state, "couldnt_fill", `Took order #${job.id} without enough supplies on hand to finish it.`, job.id);
+  }
   if (p.toner <= 0) return block(state, p, "out_of_toner", `The ${p.short} printer is out of ${p.wideSecondsPerSqFt ? "ink" : "toner"}.`);
   if (tray.level < 1e-6) return block(state, p, "out_of_paper", `The ${p.short} printer is out of ${tray.stock === "roll" ? "roll paper" : `${tray.stock} paper`}.`);
+  const inTray = p.output.reduce((a, o) => a + o.sheets, 0);
+  if (inTray >= p.outputCapacity - 1e-6) {
+    // A big job fills the tray no matter what. Leaving a finished job sitting in there for a while is the mistake.
+    const leftover = p.output.find((o) => {
+      const done = jobById(state, o.jobId)!;
+      return o.jobId !== job.id && done.printedAt !== null && state.time - done.printedAt >= MISTAKES.outputLeftAfter;
+    });
+    if (leftover) mistake(state, "output_left", `Left order #${leftover.jobId}'s printed sheets in the ${p.short} printer's tray until it filled up and stopped the printer.`, leftover.jobId);
+    return block(state, p, "output_full", `The ${p.short} printer's output tray is full.`);
+  }
 
-  let sheets = Math.min(sheetsPerSecond(p, job) * dt, job.sheets - job.sheetsPrinted, tray.level / perSheet);
+  let sheets = Math.min(sheetsPerSecond(p, job) * dt, job.sheets - job.sheetsPrinted, tray.level / perSheet, p.outputCapacity - inTray);
   sheets = Math.max(0, sheets);
   job.sheetsPrinted += sheets;
+  addOutput(p, job.id, sheets);
   tray.level -= sheets * perSheet;
   p.toner = Math.max(0, p.toner - sheets * tonerPerSheet(p, job.spec));
   p.sheetsToday += sheets;
@@ -635,9 +832,11 @@ function runPrinter(sim: Sim, p: Printer, dt: number): void {
   p.sheetsUntilJam -= sheets * jamFactor(job);
 
   if (job.sheetsPrinted >= job.sheets - 1e-6) {
+    addOutput(p, job.id, job.sheets - job.sheetsPrinted); // the same rounding snap for the stack in the tray
     job.sheetsPrinted = job.sheets;
     job.status = "printed";
     job.printedAt = state.time;
+    job.location = p.output.some((o) => o.jobId === job.id) ? "output" : "finishing";
     p.currentJobId = null;
     p.status = "idle";
     log(state, `Order #${job.id} finished printing on the ${p.short} printer.`);
@@ -651,9 +850,16 @@ function runPrinter(sim: Sim, p: Printer, dt: number): void {
     // The sheets caught in the jam are ruined and get printed again (their paper and toner are already spent).
     const waste = Math.min(Math.floor(job.sheetsPrinted), rollJamWaste(rng.upkeep));
     job.sheetsPrinted -= waste;
+    addOutput(p, job.id, -waste); // the ruined ones never made it to the tray
     state.stats.wastedSheets += waste;
     block(state, p, "jammed", `Paper jam in the ${p.short} printer (order #${job.id}, ${Math.floor(job.sheetsPrinted)} of ${job.sheets} sheets good, ${waste} ruined).`);
   }
+}
+
+function addOutput(p: Printer, jobId: number, sheets: number): void {
+  const last = p.output[p.output.length - 1];
+  if (last && last.jobId === jobId) last.sheets = Math.max(0, last.sheets + sheets);
+  else if (sheets > 0) p.output.push({ jobId, sheets });
 }
 
 function block(state: GameState, p: Printer, status: PrinterStatus, msg: string): void {
@@ -752,9 +958,24 @@ function runCopier(sim: Sim, cp: Copier, c: Customer, dt: number): void {
   }
   if (cp.status !== "ok") {
     cp.stoppedSince ??= state.time;
-    if (state.time - cp.stoppedSince > c.linePatience) copierGaveUp(state, cp, c);
+    if (state.time - cp.stoppedSince > c.linePatience) return copierGaveUp(state, cp, c);
+    // After a bit they come and tell you, rather than the store announcing it.
+    if (!cp.complained && c.state === "self_serve" && state.time - cp.stoppedSince >= MISTAKES.copierComplaintAfter) {
+      cp.complained = true;
+      c.purpose = "copier_help";
+      joinLine(state, c);
+      log(state, `${c.name} came up to the counter about self-serve copier ${cp.id}.`);
+    }
     return;
   }
+  if (c.state === "line") {
+    // It got fixed while they were in line: back to it.
+    c.purpose = "order";
+    c.state = "self_serve";
+    c.lineTicket = null;
+    c.waitStart = null;
+  }
+  if (!near(c.pos, cp.spot)) return; // walking back to it
   const spec = c.request!.spec;
   const ppm = SELF_SERVE.ppm[spec.color] * (spec.media === "tabloid" ? 0.5 : 1);
   let sides = Math.min((ppm / 60) * dt, work.sidesLeft);
@@ -812,13 +1033,14 @@ function releaseCopier(cp: Copier): void {
   cp.userId = null;
   cp.work = null;
   cp.stoppedSince = null;
+  cp.complained = false;
 }
 
 function updateCustomers(state: GameState): void {
   const serving = servingCustomerId(state);
   for (const c of state.customers) {
     if (c.state === "line") {
-      if (c.id === serving || c.waitStart === null) continue;
+      if (c.id === serving || c.waitStart === null || c.purpose === "copier_help") continue;
       if (state.time - c.waitStart > c.linePatience) leaveLine(state, c);
     } else if (c.state === "seated") {
       const job = jobById(state, c.jobId!)!;
@@ -871,6 +1093,7 @@ function giveUpWaiting(state: GameState, c: Customer, job: Job): void {
 
 function cancelJob(state: GameState, job: Job): void {
   job.status = "canceled";
+  job.location = "gone"; // whatever was printed is recycled
   job.closedAt = state.time;
   if (job.prepaid) state.revenueCents -= job.priceCents;
   for (const p of state.printers) {
@@ -889,7 +1112,8 @@ function moveCustomers(state: GameState, dt: number): void {
   lineCustomers(state).forEach((c, i) => walk(c.pos, lineSlot(i), step));
   selfServeQueue(state).forEach((c, i) => walk(c.pos, selfServeQueueSlot(i), step));
   for (const cp of state.copiers) {
-    if (cp.userId !== null) walk(customerById(state, cp.userId)!.pos, cp.spot, step);
+    const user = cp.userId !== null ? customerById(state, cp.userId)! : null;
+    if (user && user.state === "self_serve") walk(user.pos, cp.spot, step);
   }
   for (const c of state.customers) {
     if (c.state === "seated") walk(c.pos, seatFor(c.id), step);
@@ -948,9 +1172,11 @@ export function quoteDue(state: GameState, c: Customer, at = state.time): { dueA
   return { dueAt, tomorrow: false };
 }
 
-function createJob(state: GameState, c: Customer, channel: "counter" | "web"): Job {
+// entered: what you put in the POS (defaults to exactly what they asked for). Web orders are typed in by the customer.
+function createJob(state: GameState, c: Customer, channel: "counter" | "web", entered?: JobSpec): Job {
   const { dueAt, tomorrow } = quoteDue(state, c);
-  const spec = c.request!.spec;
+  const requested = c.request!.spec;
+  const spec = { ...(entered ?? requested), item: requested.item };
   const quote = fullServiceQuote(spec, !tomorrow);
   const job: Job = {
     id: state.nextJobId++,
@@ -958,6 +1184,9 @@ function createJob(state: GameState, c: Customer, channel: "counter" | "web"): J
     profileId: c.profileId,
     channel,
     spec,
+    ticket: { ...spec },
+    requested: { ...requested },
+    opened: channel === "counter",
     sheets: totalSheets(spec),
     priceCents: quote.totalCents,
     serviceFeeCents: quote.serviceFeeCents,
@@ -973,6 +1202,12 @@ function createJob(state: GameState, c: Customer, channel: "counter" | "web"): J
     printedAt: null,
     readyAt: null,
     closedAt: null,
+    location: "none",
+    printedOn: null,
+    takenShort: channel === "counter" && paperShortfall(state, spec) !== null,
+    redos: 0,
+    tableSheets: 0,
+    filedUnder: null,
   };
   if (job.prepaid) state.revenueCents += job.priceCents;
   state.stats.serviceFeesCents += quote.serviceFeeCents;
@@ -980,6 +1215,38 @@ function createJob(state: GameState, c: Customer, channel: "counter" | "web"): J
   state.jobs.push(job);
   c.jobId = job.id;
   return job;
+}
+
+// The customer looks it over at pickup and it isn't what they asked for. It's reprinted at your cost; they wait.
+function refuseJob(state: GameState, c: Customer, job: Job, wrong: string[]): void {
+  const paperOnly = wrong.length === 1 && wrong[0].startsWith("printed on");
+  mistake(state, paperOnly ? "wrong_paper" : "wrong_settings", `${c.name} refused order #${job.id}: ${wrong.join(", ")}.`, job.id);
+  log(state, `${c.name} looked at order #${job.id} and refused it (${wrong.join(", ")}). It has to be redone.`);
+  c.penalty += MISTAKES.refusalPenalty;
+  // Start over with exactly what they asked for. They pay the right price, once, when it's right.
+  const right = { ...job.requested };
+  job.spec = { ...right };
+  job.ticket = { ...right };
+  job.sheets = totalSheets(right);
+  job.sheetsPrinted = 0;
+  job.finishWorkDone = 0;
+  job.tableSheets = 0;
+  job.printedOn = null;
+  job.filedUnder = null;
+  job.readyAt = null;
+  job.printedAt = null;
+  job.status = "unsent";
+  job.location = "none";
+  job.redos++;
+  if (!job.prepaid) job.priceCents = fullServiceQuote(right, !job.dueTomorrow).totalCents;
+  job.dueAt = state.time + MISTAKES.redoPatience;
+  c.lineTicket = null;
+  if (c.request?.timing.kind === "wait") {
+    c.state = "seated";
+    c.seatedUntil = job.dueAt + c.lateTolerance;
+  } else {
+    sendAway(c, job.dueAt);
+  }
 }
 
 function latePenalty(job: Job): number {
@@ -1068,7 +1335,7 @@ export function yourBacklog(state: GameState, dueBy = Infinity): number {
     if (j.dueAt > dueBy) continue;
     if (j.status === "unsent") s += DURATIONS.sendJob;
     if (j.status === "unsent" || j.status === "queued" || j.status === "printing" || j.status === "printed") {
-      s += finishSeconds(j.spec) - j.finishWorkDone;
+      s += finishSeconds(finishingSpec(j)) - j.finishWorkDone;
     }
   }
   return s;
@@ -1096,6 +1363,8 @@ export function profitCents(state: GameState): number {
   return state.revenueCents - Math.round(state.costCents);
 }
 
+// Gross profit, weighted by satisfaction squared: a well-run day keeps most of its profit; a sloppy one loses a real share.
 export function score(state: GameState): number {
-  return Math.max(0, Math.round((profitCents(state) / 100) * (0.5 + satisfaction(state) / 100)));
+  const sat = satisfaction(state) / 100;
+  return Math.max(0, Math.round((profitCents(state) / 100) * sat * sat));
 }

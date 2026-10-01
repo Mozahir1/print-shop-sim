@@ -70,8 +70,31 @@ export function runPhone(state: GameState): void {
     if (state.employee.task?.callId === call.id) continue; // you're on your way to it, it keeps ringing
     call.status = "missed";
     state.stats.missedCalls++;
+    leaveVoicemail(state, call);
     log(state, "Missed a call. It went to voicemail.");
   }
+}
+
+// Who's calling. A lead's name is theirs; anyone else gets a name from the call id, so this never touches randomness.
+export function callerName(state: GameState, call: Call): string {
+  const lead = call.leadCustomerId !== null ? customerById(state, call.leadCustomerId) : undefined;
+  if (lead) return lead.name;
+  const first = ["Pat", "Robin", "Jordan", "Casey", "Morgan", "Taylor", "Jamie", "Avery", "Riley", "Drew", "Shawn", "Lee"];
+  return `${first[(call.id * 7) % first.length]} ${"BCDFGHKLMNPRSTW"[(call.id * 11) % 15]}.`;
+}
+
+function leaveVoicemail(state: GameState, call: Call): void {
+  const c = state.computer;
+  c.voicemails.push({
+    id: c.voicemails.length + 1,
+    callId: call.id,
+    at: state.time,
+    from: callerName(state, call),
+    number: `(555) 01${String(call.id % 100).padStart(2, "0")}`,
+    about: call.kind,
+    heard: false,
+    calledBack: false,
+  });
 }
 
 export function canAnswer(state: GameState, req: TaskRequest): string | null {
@@ -99,8 +122,8 @@ export function completeAnswer(state: GameState, task: Task): void {
     rates: "quoted shipping rates over the phone",
   };
   let note = "";
-  if (call.leadCustomerId !== null) {
-    const lead = customerById(state, call.leadCustomerId)!;
+  const lead = call.leadCustomerId !== null ? customerById(state, call.leadCustomerId) : undefined;
+  if (lead) {
     const at = state.time + call.leadDelay;
     if (at < state.closeAt) {
       lead.webOrderAt = at;

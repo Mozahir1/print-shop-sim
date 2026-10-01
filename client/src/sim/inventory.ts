@@ -5,7 +5,7 @@ import { stockFor, stockPerSheet, totalSheets } from "./orders";
 import { STOCK, TUNING } from "./config";
 import { STOCKROOM } from "./layout";
 import { randInt, type Rng } from "./rng";
-import { log, money } from "./util";
+import { log } from "./util";
 
 export const STOCK_ITEMS = Object.keys(STOCK) as StockItem[];
 
@@ -55,11 +55,6 @@ export function isLow(state: GameState, item: StockItem): boolean {
   return state.stockroom[item] <= STOCK[item].low;
 }
 
-// What's already ordered for tomorrow.
-export function onOrder(state: GameState, item: StockItem): number {
-  return state.supplyOrders.filter((o) => o.item === item).reduce((a, o) => a + o.packs * STOCK[item].pack, 0);
-}
-
 // Whether there's enough of the right paper on hand (trays plus stockroom) for a new order on top of open ones.
 // Returns a reason if not. Used for the counter estimate and by the bot.
 export function paperShortfall(state: GameState, spec: JobSpec): string | null {
@@ -68,7 +63,12 @@ export function paperShortfall(state: GameState, spec: JobSpec): string | null {
   const trays = state.printers.flatMap((p) => p.trays.filter((t) => t.stock === stock));
   if (!trays.length) return null;
   const perUnit = stock === "roll" ? trays[0].capacity : 1; // a spare roll is a full roll's worth of feet
-  const available = trays.reduce((a, t) => a + t.level, 0) + state.stockroom[item] * perUnit;
+  // In the trays, on the shelf, and anything you're carrying or set down on the counter.
+  const carried = [state.employee.hands, ...state.counterItems].reduce(
+    (a, c) => a + (c?.kind === "paper" && c.stock === stock ? c.sheets : c?.kind === "roll" && stock === "roll" ? perUnit : 0),
+    0,
+  );
+  const available = trays.reduce((a, t) => a + t.level, 0) + state.stockroom[item] * perUnit + carried;
   const committed = state.jobs
     .filter((j) => (j.status === "unsent" || j.status === "queued" || j.status === "printing") && stockFor(j.spec.media) === stock)
     .reduce((a, j) => a + (j.sheets - j.sheetsPrinted) * stockPerSheet(j.spec.media), 0);
@@ -76,33 +76,4 @@ export function paperShortfall(state: GameState, spec: JobSpec): string | null {
   if (need <= available - committed) return null;
   const unit = stock === "roll" ? "ft of roll paper" : STOCK[item].label.toLowerCase();
   return `Not enough ${unit} on hand: this needs ${Math.ceil(need).toLocaleString("en-US")}, and about ${Math.max(0, Math.floor(available - committed)).toLocaleString("en-US")} is left after open orders.`;
-}
-
-// ---------- supply orders (career mode) ----------
-
-export function canOrder(state: GameState): string | null {
-  if (state.mode !== "career") return "Supply orders only matter in career mode; a single shift ends tonight.";
-  if (state.over) return "The day is over.";
-  return null;
-}
-
-// Not a task: you place it from the stockroom panel. Paid now, delivered at open tomorrow.
-export function placeSupplyOrder(state: GameState, item: StockItem, packs = 1): string | null {
-  const err = canOrder(state);
-  if (err) return err;
-  const def = STOCK[item];
-  const cost = def.packCents * packs;
-  state.supplyOrders.push({ item, packs, costCents: cost, orderedAt: state.time });
-  state.stats.suppliesOrderedCents += cost;
-  log(state, `Ordered ${packs} × ${def.packLabel} of ${def.label.toLowerCase()} for ${money(cost)}. It arrives tomorrow morning.`);
-  return null;
-}
-
-// At open: yesterday's orders go on the shelves.
-export function receiveSupplyOrders(state: GameState, orders: { item: StockItem; packs: number }[]): void {
-  for (const o of orders) state.stockroom[o.item] += o.packs * STOCK[o.item].pack;
-  if (orders.length) {
-    const what = orders.map((o) => `${o.packs} × ${STOCK[o.item].label.toLowerCase()}`).join(", ");
-    log(state, `Supply delivery received: ${what}.`);
-  }
 }
