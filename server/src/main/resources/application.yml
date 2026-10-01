@@ -1,0 +1,11 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/printshop
+    username: printshop
+    password: printshop
+  flyway:
+    locations: classpath:db/migration
+
+# Comma separated list of origins allowed to call the API (the Vite dev server by default).
+app:
+  cors-origins: http://localhost:5173

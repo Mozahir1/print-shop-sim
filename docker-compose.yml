@@ -1,0 +1,31 @@
+# docker compose up --build    -> Postgres + API on http://localhost:8080
+# docker compose up -d db       -> just Postgres (if you run the server from your IDE)
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: printshop
+      POSTGRES_USER: printshop
+      POSTGRES_PASSWORD: printshop
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U printshop -d printshop"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build: ./server
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/printshop
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

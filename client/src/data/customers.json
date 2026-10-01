@@ -1,0 +1,169 @@
+[
+  {
+    "id": "quick_copies",
+    "name": "Quick copies",
+    "item": "document",
+    "walkInWeight": 30,
+    "webWeight": 0,
+    "originals": [1, 12],
+    "copies": [1, 5],
+    "colorChance": 0.15,
+    "media": { "letter": 9, "legal": 1 },
+    "duplexChance": 0.3,
+    "finishing": { "none": 8, "staple": 2 },
+    "timing": { "wait": { "weight": 1, "minutes": [10, 20] } },
+    "linePatience": [8, 15],
+    "lateTolerance": [5, 15]
+  },
+  {
+    "id": "resume",
+    "name": "Resumes and cover letters",
+    "item": "resume",
+    "walkInWeight": 9,
+    "webWeight": 0,
+    "originals": [1, 3],
+    "copies": [5, 25],
+    "colorChance": 0.1,
+    "media": { "letter": 6, "cardstock": 4 },
+    "duplexChance": 0,
+    "finishing": { "none": 1 },
+    "timing": {
+      "wait": { "weight": 0.6, "minutes": [15, 25] },
+      "back": { "weight": 0.4, "minutes": [60, 120] }
+    },
+    "linePatience": [8, 15],
+    "lateTolerance": [5, 15]
+  },
+  {
+    "id": "legal_forms",
+    "name": "Forms and legal documents",
+    "item": "document",
+    "walkInWeight": 7,
+    "webWeight": 0,
+    "originals": [2, 25],
+    "copies": [1, 6],
+    "colorChance": 0,
+    "media": { "legal": 7, "letter": 3 },
+    "duplexChance": 0.2,
+    "finishing": { "staple": 8, "none": 2 },
+    "timing": { "wait": { "weight": 1, "minutes": [15, 25] } },
+    "linePatience": [10, 18],
+    "lateTolerance": [5, 15]
+  },
+  {
+    "id": "flyers",
+    "name": "Flyers and handouts",
+    "item": "flyer",
+    "walkInWeight": 12,
+    "webWeight": 3,
+    "originals": [1, 2],
+    "copies": [50, 500],
+    "copiesRound": 25,
+    "colorChance": 0.9,
+    "media": { "letter": 7, "cardstock": 2, "tabloid": 1 },
+    "duplexChance": 0.3,
+    "finishing": { "none": 6, "cut": 3, "fold": 1 },
+    "timing": {
+      "back": { "weight": 0.6, "minutes": [120, 240] },
+      "tomorrow": { "weight": 0.4 }
+    },
+    "linePatience": [10, 20],
+    "lateTolerance": [10, 20]
+  },
+  {
+    "id": "course_packets",
+    "name": "Course packets and manuals",
+    "item": "packet",
+    "walkInWeight": 5,
+    "webWeight": 3,
+    "originals": [20, 120],
+    "copies": [5, 40],
+    "colorChance": 0.05,
+    "media": { "letter": 1 },
+    "duplexChance": 0.9,
+    "finishing": { "staple": 5, "coil_bind": 4, "none": 1 },
+    "timing": {
+      "back": { "weight": 0.4, "minutes": [180, 300] },
+      "tomorrow": { "weight": 0.6 }
+    },
+    "linePatience": [10, 20],
+    "lateTolerance": [10, 20]
+  },
+  {
+    "id": "reports",
+    "name": "Color reports and presentations",
+    "item": "report",
+    "walkInWeight": 7,
+    "webWeight": 2,
+    "originals": [8, 40],
+    "copies": [1, 10],
+    "colorChance": 1,
+    "media": { "letter": 1 },
+    "duplexChance": 0.6,
+    "finishing": { "coil_bind": 6, "staple": 4 },
+    "timing": {
+      "wait": { "weight": 0.2, "minutes": [30, 45] },
+      "back": { "weight": 0.6, "minutes": [60, 180] },
+      "tomorrow": { "weight": 0.2 }
+    },
+    "linePatience": [8, 15],
+    "lateTolerance": [10, 20]
+  },
+  {
+    "id": "posters",
+    "name": "Posters",
+    "item": "poster",
+    "walkInWeight": 7,
+    "webWeight": 2,
+    "originals": [1, 3],
+    "copies": [1, 2],
+    "colorChance": 1,
+    "media": { "wide_18x24": 5, "wide_24x36": 5 },
+    "duplexChance": 0,
+    "finishing": { "none": 7, "laminate": 3 },
+    "timing": {
+      "wait": { "weight": 0.3, "minutes": [20, 30] },
+      "back": { "weight": 0.7, "minutes": [60, 120] }
+    },
+    "linePatience": [8, 15],
+    "lateTolerance": [10, 20]
+  },
+  {
+    "id": "plans",
+    "name": "Plans and blueprints",
+    "item": "plan sheet",
+    "walkInWeight": 5,
+    "webWeight": 1,
+    "originals": [4, 30],
+    "copies": [1, 4],
+    "colorChance": 0.1,
+    "media": { "wide_24x36": 1 },
+    "duplexChance": 0,
+    "finishing": { "none": 7, "staple": 3 },
+    "timing": {
+      "back": { "weight": 0.6, "minutes": [60, 180] },
+      "tomorrow": { "weight": 0.4 }
+    },
+    "linePatience": [10, 20],
+    "lateTolerance": [10, 20]
+  },
+  {
+    "id": "laminating",
+    "name": "Signs and menus (laminated)",
+    "item": "sign",
+    "walkInWeight": 4,
+    "webWeight": 0,
+    "originals": [1, 5],
+    "copies": [1, 10],
+    "colorChance": 0.6,
+    "media": { "letter": 6, "cardstock": 4 },
+    "duplexChance": 0,
+    "finishing": { "laminate": 1 },
+    "timing": {
+      "wait": { "weight": 0.5, "minutes": [20, 30] },
+      "back": { "weight": 0.5, "minutes": [60, 120] }
+    },
+    "linePatience": [8, 15],
+    "lateTolerance": [5, 15]
+  }
+]
