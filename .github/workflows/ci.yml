@@ -16,7 +16,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run batch -- --shifts 50
+      - run: npm run batch -- --days 20 --style all --games 5
 
   server:
     runs-on: ubuntu-latest

@@ -1,16 +1,19 @@
-// End-of-shift numbers. summarize() is what the server stores; report() is what the player sees.
-import type { GameState, Job, Mistake } from "./types";
-import { averageRating, profitCents, satisfaction, score } from "./sim";
+// End-of-day numbers. report() is the satirical corporate report the player sees; summarize() is what the server
+// stores (its shape is fixed: the server and SQL don't change).
+import type { GameState, Job } from "./types";
+import type { DayResult } from "./game";
+import { POOLS, say } from "./lines";
 
 export interface JobRecord {
   customerType: string;
-  kind: string; // "bw" | "color" | "wide"
+  kind: string; // "bw" | "color"
   pages: number; // sheets
   priceCents: number;
   outcome: "picked_up" | "abandoned" | "ready" | "unfinished";
-  waitSeconds: number; // ordered -> picked up (or end of shift)
+  waitSeconds: number;
 }
 
+// The shape the server's POST /api/shifts accepts. Don't change it without changing the server.
 export interface ShiftSummary {
   playerName: string;
   source: "human" | "bot";
@@ -24,121 +27,68 @@ export interface ShiftSummary {
   jobs: JobRecord[];
 }
 
-export function summarize(state: GameState, playerName: string, source: "human" | "bot"): ShiftSummary {
+// Share of customers who left happy, 0 to 100.
+export function happyPct(state: GameState): number {
   const s = state.stats;
+  const all = s.happy + s.neutral + s.angry;
+  return all ? Math.round((s.happy / all) * 100) : 100;
+}
+
+function badLuckCount(state: GameState): number {
+  return state.event && state.event.status !== "pending" ? 1 : 0;
+}
+
+export function summarize(state: GameState, playerName: string, source: "human" | "bot"): ShiftSummary {
   return {
     playerName,
     source,
     seed: state.seed,
-    score: score(state),
+    score: state.stats.served,
     cashCents: Math.max(0, state.revenueCents),
-    satisfaction: Math.round(satisfaction(state)),
-    customersServed: s.pickups + s.selfServed + s.shipments + s.dropoffs + s.packagePickups,
-    customersLost: s.walkouts + s.balks + s.turnedAway + s.canceled + s.copierGaveUp,
-    jams: s.jams,
+    satisfaction: happyPct(state),
+    customersServed: state.stats.served,
+    customersLost: state.stats.angry,
+    jams: badLuckCount(state),
     jobs: state.jobs.map((j) => ({
-      customerType: j.profileId,
-      kind: j.spec.media.startsWith("wide") ? "wide" : j.spec.color,
+      customerType: j.kind,
+      kind: j.spec.color,
       pages: j.sheets,
       priceCents: j.priceCents,
-      outcome: outcome(j),
+      outcome: jobOutcome(state, j),
       waitSeconds: Math.round(((j.closedAt ?? state.time) - j.orderedAt) * 10) / 10,
     })),
   };
 }
 
-function outcome(j: Job): JobRecord["outcome"] {
+function jobOutcome(state: GameState, j: Job): JobRecord["outcome"] {
   if (j.status === "picked_up") return "picked_up";
-  if (j.status === "canceled") return "abandoned";
-  if (j.status === "ready") return "ready";
+  if (state.customers.find((c) => c.id === j.customerId)?.outcome === "left") return "abandoned";
+  if (j.status === "bagged") return "ready";
   return "unfinished";
 }
 
-export interface ShiftReport {
+export interface DayReport {
+  day: number;
+  served: number;
+  happyPct: number;
+  complaints: number;
+  upsellsMissed: number;
+  teamSpirit: number; // meaningless, on purpose
   revenueCents: number;
-  costCents: number;
-  profitCents: number;
-  ordersTaken: number;
-  webOrders: number;
-  pickups: number;
-  selfServed: number;
-  selfServeRevenueCents: number;
-  shipments: number;
-  shippingRevenueCents: number;
-  dropoffPackages: number;
-  packagePickups: number;
-  missedTruckPackages: number;
-  refundsCents: number;
-  callsAnswered: number;
-  missedCalls: number;
-  quoteLeads: number;
-  serviceFeesCents: number;
-  rushFeesCents: number;
-  copierJams: number;
-  copierGaveUp: number;
-  breakdowns: number;
-  recalls: number;
-  wastedSheets: number;
-  checks: number;
-  mistakes: Mistake[];
-  onTimePct: number | null; // orders finished by their due time, of those that were due today or finished
-  avgLineWaitMin: number | null;
-  avgRating: number | null;
-  walkouts: number;
-  balks: number;
-  turnedAway: number;
-  canceled: number;
-  leftForTomorrow: number; // orders still open at close
   sheets: number;
-  jams: number;
-  busyPct: number;
-  score: number;
+  tone: string; // a line from the manager outcome; never the heat itself
 }
 
-export function report(state: GameState): ShiftReport {
-  const s = state.stats;
-  const due = state.jobs.filter((j) => j.status !== "canceled" && (j.readyAt !== null || (!j.dueTomorrow && j.dueAt <= state.time)));
-  const onTime = due.filter((j) => j.readyAt !== null && (j.dueTomorrow || j.readyAt <= j.dueAt));
-  const served = state.customers.filter((c) => c.lineWaitTotal > 0 || c.outcome !== null && c.outcome !== "balked" && c.outcome !== "pickup_later");
-  const workedSeconds = Math.max(1, state.time);
+export function report(state: GameState, result: DayResult): DayReport {
   return {
+    day: state.day,
+    served: state.stats.served,
+    happyPct: happyPct(state),
+    complaints: state.manager.complaints,
+    upsellsMissed: state.stats.upsellsMissed,
+    teamSpirit: 60 + ((state.seed * 37 + Math.round(state.stats.sheets)) % 39),
     revenueCents: state.revenueCents,
-    costCents: Math.round(state.costCents),
-    profitCents: profitCents(state),
-    ordersTaken: s.ordersTaken,
-    webOrders: s.webOrders,
-    pickups: s.pickups,
-    selfServed: s.selfServed,
-    selfServeRevenueCents: s.selfServeRevenueCents,
-    shipments: s.shipments,
-    shippingRevenueCents: s.shippingRevenueCents,
-    dropoffPackages: s.dropoffPackages,
-    packagePickups: s.packagePickups,
-    missedTruckPackages: s.missedTruckPackages,
-    refundsCents: s.refundsCents,
-    callsAnswered: s.callsAnswered,
-    missedCalls: s.missedCalls,
-    quoteLeads: s.quoteLeads,
-    serviceFeesCents: s.serviceFeesCents,
-    rushFeesCents: s.rushFeesCents,
-    copierJams: s.copierJams,
-    copierGaveUp: s.copierGaveUp,
-    breakdowns: s.breakdowns,
-    recalls: s.recalls,
-    wastedSheets: s.wastedSheets,
-    checks: s.checks,
-    mistakes: state.mistakes.slice(),
-    onTimePct: due.length ? Math.round((onTime.length / due.length) * 100) : null,
-    avgLineWaitMin: served.length ? served.reduce((a, c) => a + c.lineWaitTotal, 0) / served.length / 60 : null,
-    avgRating: averageRating(state),
-    walkouts: s.walkouts,
-    balks: s.balks,
-    turnedAway: s.turnedAway,
-    canceled: s.canceled,
-    leftForTomorrow: state.jobs.filter((j) => j.status !== "picked_up" && j.status !== "canceled" && j.status !== "ready").length,
-    sheets: Math.round(s.sheets),
-    jams: s.jams,
-    busyPct: Math.round((state.employee.busySeconds / workedSeconds) * 100),
-    score: score(state),
+    sheets: Math.round(state.stats.sheets),
+    tone: say(POOLS.messages, "tone", { outcome: result.outcome }),
   };
 }

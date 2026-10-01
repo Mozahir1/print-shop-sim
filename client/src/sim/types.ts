@@ -1,24 +1,18 @@
-import type { Snapshot } from "./knowledge";
+import type { DirectorState } from "./director";
 
 // Core data types for the simulation.
 // RULE: nothing in src/sim/ may touch the DOM. That's what lets batch-sim.ts run it in Node.
-// Time is always in sim seconds since the store opened. 1 tile = 1 meter.
-
-export interface Vec {
-  x: number;
-  y: number;
-}
+// Time is always in sim seconds since the store opened. Money is integer cents.
 
 // ---------- orders ----------
 
 export type ColorMode = "bw" | "color";
-export type Media = "letter" | "legal" | "tabloid" | "cardstock" | "wide_18x24" | "wide_24x36";
-export type PaperStock = "letter" | "legal" | "tabloid" | "cardstock" | "roll"; // what goes in a tray
-export type Finishing = "none" | "staple" | "fold" | "cut" | "laminate" | "coil_bind";
+export type Media = "letter" | "legal" | "tabloid" | "cardstock";
+export type Finishing = "none" | "staple" | "cut" | "laminate";
 
 export interface JobSpec {
   item: string; // what the customer calls it: "flyer", "resume", "poster"
-  originals: number; // pages (sides) in one set; for wide format, number of different sheets
+  originals: number; // pages (sides) in one set
   copies: number; // sets
   color: ColorMode;
   media: Media;
@@ -26,386 +20,258 @@ export interface JobSpec {
   finishing: Finishing;
 }
 
-// When the customer wants it.
-export type Timing =
-  | { kind: "wait"; minutes: number } // waits in the store
-  | { kind: "back"; minutes: number } // leaves and comes back about this much later
-  | { kind: "tomorrow" };
-
-// printed: all sheets printed (in the output tray, your hands, or on the finishing table)
-// bagged: finished and bagged, not on the shelf yet. ready: on the pickup shelf.
-export type JobStatus = "unsent" | "queued" | "printing" | "printed" | "bagged" | "ready" | "picked_up" | "canceled";
-
-// Where the physical job is: nowhere yet, on a printer, in its output tray, in your hands, on the finishing table,
-// on the pickup shelf, set down on the counter, or gone with the customer.
-export type JobLocation = "none" | "printer" | "output" | "hands" | "finishing" | "shelf" | "counter" | "gone";
+// new: taken at the counter, not in the computer yet. unread: a web order nobody has opened.
+// entered: in the computer, not sent. queued/printing: at the printer. printed: waiting in the printer's output.
+// collected: picked up from the printer, waiting for finishing. finished: finishing done, not bagged yet.
+// bagged: ready for the customer. picked_up: gone with the customer.
+export type JobStatus = "new" | "unread" | "entered" | "queued" | "printing" | "printed" | "collected" | "finished" | "bagged" | "picked_up";
 
 export interface Job {
   id: number;
   customerId: number;
-  profileId: string;
+  kind: RequestKind; // the request it came from
   channel: "counter" | "web";
-  spec: JobSpec; // what the printer is told to make: the ticket until it's sent, then the print server settings
-  ticket: JobSpec; // what was entered in the POS (or typed into the web form)
-  requested: JobSpec; // what the customer actually wants
-  opened: boolean; // web orders start unopened in the inbox; you can't print what you haven't read
-  sheets: number; // physical sheets to print
-  priceCents: number; // what the customer pays: printing + service fee + rush fee
-  serviceFeeCents: number;
-  rushCents: number;
-  prepaid: boolean; // web and next-day orders are paid when ordered
+  spec: JobSpec;
+  sheets: number;
+  priceCents: number;
+  prepaid: boolean; // web orders are paid online
   status: JobStatus;
-  printerId: string | null;
   sheetsPrinted: number; // float while printing
-  finishWorkDone: number; // seconds of finishing/bagging already done
   orderedAt: number;
-  dueAt: number;
-  dueTomorrow: boolean; // due at open tomorrow; finishing by close counts as on time
-  printedOn: PaperStock | null; // set if any of it came out of a tray holding the wrong paper
-  takenShort: boolean; // taken while there wasn't enough paper on hand for it
-  redos: number; // times a customer refused it and it had to be reprinted
-  printedAt: number | null;
-  readyAt: number | null;
-  location: JobLocation;
-  tableSheets: number; // sheets of it sitting on the finishing table
-  filedUnder: number | null; // customer id whose name it's shelved under (normally its own customer)
-  closedAt: number | null; // picked up or canceled
+  pickupAt: number; // when an away customer comes back for it, ready or not
+  attempt: number; // prints so far (a reprint starts a new attempt)
+  smudge: "none" | "found" | "accepted"; // smudged copies: found when collected; accepted = handed over anyway
+  closedAt: number | null;
 }
 
 // ---------- customers ----------
 
-// outside: not in the store (not arrived yet, away until visitAt, or gone for the day if visitAt is null)
-// self_serve: at the self-serve copiers, either using one or queued for the next free one
-export type CustomerState = "outside" | "line" | "seated" | "self_serve" | "leaving";
-// order: new print order · pickup: collecting a print order · ship: sending a package
-// dropoff: leaving prepaid return packages · package: collecting a package we're holding for them
-// copier_help: a self-serve customer whose copier stopped, come to tell you about it
-export type Purpose = "order" | "pickup" | "ship" | "dropoff" | "package" | "copier_help";
+export type RequestKind =
+  | "quick_copies"
+  | "large_job"
+  | "poster"
+  | "ship"
+  | "dropoff"
+  | "order_pickup"
+  | "package_pickup"
+  | "self_serve_help"
+  | "complaint"; // back because of something you did (a damaged box, smudged copies)
+
+// line: waiting to be talked to at the counter. talking: at the counter, waiting for your answer.
+// waiting: you took their request, they're waiting in the store.
+// away: not in the store (coming back for an order later). gone: done for the day.
+export type CustomerState = "line" | "talking" | "waiting" | "away" | "gone";
+
+export type Mood = "happy" | "neutral" | "angry";
+
+// How you handled something. Counter choices are proper/minimum/rude/ignore; task choice points are proper/lazy.
+export type ChoiceType = "proper" | "minimum" | "rude" | "ignore" | "lazy";
+export type CounterChoice = "proper" | "minimum" | "rude" | "ignore";
+
+export interface Choice {
+  time: number;
+  type: ChoiceType;
+  what: "counter" | "smudge" | "copier" | "pack" | "inbox" | "truck" | "event";
+  customerId?: number;
+  auto?: boolean; // you didn't answer in time: counts as ignoring them
+}
+
 export type CustomerOutcome =
-  | "picked_up"
-  | "self_served" // made their own copies at self-serve and paid there
-  | "shipped" // sent a package
-  | "dropped_off" // left prepaid packages
-  | "package_picked_up" // collected a held package
-  | "pickup_later" // their order is still on the shelf (or in production) at close
-  | "walked_out" // gave up waiting in line before ordering
-  | "balked" // saw the line and didn't come in
-  | "turned_away"
-  | "canceled" // gave up on an order that wasn't ready
-  | "copier_gave_up"; // a self-serve copier stopped on them and nobody came to fix it
+  | "served" // got what they came for
+  | "left"; // gave up and left
 
 export interface Customer {
   id: number;
   name: string;
-  profileId: string;
+  kind: RequestKind;
   state: CustomerState;
-  pos: Vec;
-  visitAt: number | null;
-  purpose: Purpose;
-  request: { spec: JobSpec; timing: Timing } | null; // print customers only
-  ship: ShipRequest | null; // "ship" customers
-  dropoffCount: number; // "dropoff" customers: how many packages they bring
-  packageId: number | null; // "package" customers: the package we're holding for them
-  webOrderAt: number | null; // web customers place the order online at this time
+  spec: JobSpec | null; // print requests: what they want
+  waits: boolean; // print requests: wait in the store for it, or come back later
+  weightLb: number; // ship: how heavy the box is
   jobId: number | null;
-  // personality, rolled when the day is generated so a seed always plays the same
-  linePatience: number; // seconds they'll stand in line
-  lateTolerance: number; // seconds they'll wait for a late order before leaving
-  balkLineLength: number; // won't come in if this many people are already in line
-  returnDelay: number; // seconds until they try again after leaving unhappy
-  arrivalJitter: number; // seconds early (-) or late (+) they show up for a pickup
-  selfServeRoll: number; // 0..1, decides whether they'd use self-serve on their own, with help, or not at all
-  // bookkeeping
-  lineTicket: number | null; // position in line: lower is further ahead
-  waitStart: number | null; // patience clock for the current stretch in line
-  lineWaitTotal: number;
-  seatedUntil: number | null;
-  selfServeTicket: number | null; // place in the copier queue
-  selfServeDeclined: boolean; // asked to use self-serve and said they want full service
-  returns: number;
-  penalty: number; // stars knocked off a 5-star visit
-  rating: number | null;
+  packageId: number | null;
+  arrivedAt: number;
+  lineTicket: number; // order in line: lower is further ahead
+  mood: number; // happy at 1 or more, angry at -1 or less (see moodOf)
+  choices: number; // counter choices made with them this visit (keys their "usually" rolls)
+  ignored: number; // times you ignored them
+  patience: number; // seconds they'll wait (in line and for their order) before they're fed up
+  waited: number; // seconds waited this visit
+  fedUp: boolean; // waited past their patience and said so
+  answerBy: number | null; // talking: past this, not answering counts as ignoring them
+  about: FlagKind | null; // complaint: what they're back about
+  said: string | null; // the last thing they said
   outcome: CustomerOutcome | null;
+  leftAt: number | null;
 }
 
-// ---------- shipping ----------
+// ---------- packages ----------
 
-export type ShipService = "ground" | "two_day" | "overnight";
-export type BoxSize = "small" | "medium" | "large";
-
-// What a shipping customer walks in with. Rolled when the day is generated.
-export interface ShipRequest {
-  weightLb: number;
-  service: ShipService;
-  packed: boolean; // brought it ready to go, or needs us to box it
-  box: BoxSize; // the box it needs if we pack it
-}
-
-// out: staged in the outbound bins, then shipped on the truck. in: unsorted (morning delivery), on hold, released.
-// unstaged: in your hands or set down on the counter, not in the outbound bin yet (it won't go on the truck)
-export type PackageStatus = "unstaged" | "staged" | "shipped" | "unsorted" | "on_hold" | "released";
+// Outgoing: new (at the counter) -> weighed -> packed -> labeled -> binned -> shipped. Drop-offs: scanned -> binned.
+// Held packages: held -> found -> picked_up.
+export type PackageStatus = "new" | "weighed" | "packed" | "labeled" | "scanned" | "binned" | "shipped" | "held" | "found" | "picked_up";
 
 export interface Package {
   id: number;
   customerId: number;
-  direction: "out" | "in";
-  kind: "shipment" | "dropoff" | "held";
-  service: ShipService | null; // null for prepaid drop-offs and held packages: not ours to guarantee
+  kind: "ship" | "dropoff" | "held";
   weightLb: number;
-  pricePaidCents: number;
+  priceCents: number;
   status: PackageStatus;
-  createdAt: number;
-  shippedAt: number | null;
-  releasedAt: number | null;
-  missedTrucks: number;
+  taped: boolean; // just taped shut instead of packed properly
 }
 
-// The carrier's daily pickup at the package room door.
+// The carrier's one pickup a day. It comes at arrivesAt, or once there's room for it (see director.ts).
 export interface Truck {
   arrivesAt: number;
-  leavesAt: number;
+  leavesAt: number; // set when it arrives
   status: "coming" | "waiting" | "gone";
   handedOff: boolean;
-  departedAt: number | null;
-  warned: boolean; // "leaving in 5 minutes" has been logged
 }
-
-// ---------- phone ----------
-
-export type CallKind = "quote" | "status" | "hours" | "rates";
-
-export interface Call {
-  id: number;
-  kind: CallKind;
-  ringsAt: number;
-  talkSeconds: number; // rolled in advance: how long the conversation takes if you pick up
-  status: "scheduled" | "ringing" | "answered" | "missed";
-  leadCustomerId: number | null; // quote calls that would turn into a web order if answered
-  leadDelay: number; // seconds after the call ends that the web order comes in
-  answeredAt: number | null;
-}
-
-// ---------- stockroom ----------
-
-export type StockItem =
-  | "letter"
-  | "legal"
-  | "tabloid"
-  | "cardstock"
-  | "wide_roll"
-  | "bw_toner"
-  | "color_toner"
-  | "wide_ink"
-  | "box_small"
-  | "box_medium"
-  | "box_large";
 
 // ---------- machines ----------
 
-export type PrinterStatus = "idle" | "warming_up" | "printing" | "jammed" | "out_of_paper" | "out_of_toner" | "output_full" | "needs_service";
+export type PrinterStatus = "idle" | "printing" | "jammed" | "tray_empty";
 
-export interface Tray {
-  stock: PaperStock; // what the tray is for
-  loaded: PaperStock; // what's actually in it (last paper loaded); can be wrong
-  capacity: number; // sheets, or feet for a roll
-  level: number;
-}
-
+// The one production printer. It does color and B&W on every paper size we stock.
 export interface Printer {
-  id: string;
-  name: string;
-  short: string;
-  tile: Vec; // top-left, drawn 2x2
-  station: Vec; // where you stand to work on it
-  colors: ColorMode[];
-  media: Media[];
-  ppm: number; // letter-size impressions per minute
-  wideSecondsPerSqFt: Record<ColorMode, number> | null; // wide format only
-  warmup: number; // seconds before the first sheet of each job
-  trays: Tray[];
-  toner: number; // 0..100
-  supply: StockItem; // the cartridge or ink set it takes
-  tonerUse: Record<ColorMode, number>; // % per letter impression (wide: per sq ft)
-  meanSheetsBetweenJams: number;
   status: PrinterStatus;
+  queue: number[]; // job ids, first is next
   currentJobId: number | null;
-  queue: number[];
   warmupLeft: number;
-  sheetsUntilJam: number;
-  jamClearSeconds: number;
   sheetsToday: number;
-  jamsToday: number;
-  breakdown: Breakdown | null;
-  output: { jobId: number; sheets: number }[]; // finished sheets waiting in the output tray
-  outputCapacity: number; // sheets; a full tray stops the printer
+  paperOutAt: number; // the tray runs out when sheetsToday reaches this (Infinity on most days)
 }
 
-// A production printer error you can't clear yourself. Rolled at the start of the day.
-export interface Breakdown {
-  at: number;
-  techArrivesAt: number;
-  fixedAt: number;
-  phase: "pending" | "down" | "tech" | "fixed";
-}
-
-// A self-serve copier on the shop floor. Customers run it themselves and pay at the machine.
 export interface Copier {
-  id: number;
-  spot: Vec; // where the customer stands
-  station: Vec; // where you stand to fix or refill it
-  userId: number | null;
-  work: CopierWork | null; // set once the customer reaches it and starts
-  status: CopierStatus;
-  paper: number; // letter sheets
-  capacity: number;
-  sheetsUntilJam: number;
-  fixSeconds: number; // rolled when it jams
-  stoppedSince: number | null; // when it stopped on the current customer
-  complained: boolean; // the customer at it has already come to the counter about it
-  sheetsToday: number;
-  jamsToday: number;
+  status: "ok" | "broken";
+  sign: boolean; // an "out of order" sign is taped on it
 }
 
-export type CopierStatus = "ok" | "jammed" | "out_of_paper";
+// ---------- bad luck ----------
 
-export interface CopierWork {
-  setupLeft: number; // seconds of paying and picking settings before the first copy
-  sidesLeft: number;
-  sheetsPerSide: number;
+export type EventKind = "printer_jam" | "copier_dies" | "card_reader_down" | "box_rips" | "wifi_drop";
+
+// The day's one piece of bad luck (if any). pending: rolled, not happened yet. active: happening, needs you.
+// fixed / worked_around: handled. ignored: left alone until it ran its course (or the day ended).
+export interface BadLuck {
+  kind: EventKind;
+  at: number; // earliest time it can happen
+  status: "pending" | "active" | "fixed" | "worked_around" | "ignored";
+  firedAt: number | null;
+}
+
+// ---------- the computer ----------
+
+export type MessageKind = "web_order" | "note" | "complaint" | "review" | "warning" | "write_up" | "reward" | "fired";
+
+export interface Message {
+  id: number;
+  kind: MessageKind;
+  at: number;
+  subject: string;
+  body: string;
+  jobId: number | null;
+  read: boolean;
+  snoozed: boolean; // left unread on purpose
+}
+
+// ---------- consequences ----------
+
+// Why the manager is unhappy. Heat is tallied by cause so getting fired can say why.
+export type HeatCause = "complaints" | "ignoring" | "rude";
+
+// Something you did that comes back later (see consequences.ts).
+export type FlagKind = "damaged_box" | "bad_review" | "smudged_return" | "packages_left";
+
+export interface Flag {
+  kind: FlagKind;
+  dueDay: number;
+  dueAt: number; // sim seconds into that day
+  name: string; // the customer it's about
+}
+
+// A message that hasn't arrived yet.
+export interface MessageDraft {
+  kind: MessageKind;
+  subject: string;
+  body: string;
+  at: number; // when it arrives (same day), or 0 for the next morning
+  heat: number; // what it adds when it arrives
+  cause: HeatCause;
+}
+
+export interface ManagerState {
+  heat: number; // 0..100, never shown as a number
+  heatBy: Record<HeatCause, number>; // added today, by cause
+  complaints: number; // complaints today's customers made (whenever they arrive)
+  flags: Flag[]; // everything still to come back, today or later
+  scheduled: MessageDraft[]; // arriving later today
+  morning: MessageDraft[]; // arriving tomorrow morning
+  visitsDue: { name: string; about: FlagKind }[]; // people coming back to complain, when there's room
 }
 
 // ---------- you ----------
 
 export type TaskType =
-  | "take_order"
-  | "turn_away"
+  // counter
+  | "talk"
+  | "respond"
+  | "hand_over"
   | "ring_up"
-  | "explain_delay"
-  | "usher_self_serve"
-  | "ship_package"
-  | "accept_dropoff"
-  | "check_in_packages"
-  | "release_package"
-  | "hand_off_truck"
-  | "answer_phone"
-  | "fix_copier"
-  | "refill_copier"
-  | "recall_job"
-  | "walk_to"
-  | "acknowledge_copier"
-  | "take_stock"
-  | "put_back"
-  | "glance_stock"
-  | "count_stock"
-  | "check_trays"
-  | "check_panel"
-  | "check_copier"
-  | "check_shelf"
-  | "scan_package_room"
-  | "check_finishing"
-  | "collect_output"
-  | "drop_output"
-  | "shelve"
-  | "stage_packages"
-  | "set_down"
-  | "pick_up"
-  | "open_app"
-  | "refresh_app"
-  | "open_message"
-  | "reply_email"
-  | "call_back"
-  | "move_job"
-  | "cancel_job"
+  // computer
+  | "enter_order"
   | "send_job"
-  | "finish_job"
+  | "open_message"
+  | "leave_unread"
+  // printer
+  | "collect"
+  | "reprint"
+  | "use_anyway"
+  | "clear_jam"
   | "load_paper"
-  | "replace_toner"
-  | "clear_jam";
+  | "fix_card_reader"
+  | "manual_ring_up"
+  | "restart_router"
+  // finishing table
+  | "finish"
+  | "bag"
+  // self-serve
+  | "help_self_serve"
+  | "fix_copier"
+  | "out_of_order_sign"
+  // shipping
+  | "weigh"
+  | "pack"
+  | "tape_shut"
+  | "label"
+  | "bin"
+  | "scan_dropoff"
+  | "find_package"
+  | "hand_off"
+  | "let_truck_go";
+
+export type Station = "counter" | "computer" | "printer" | "finishing" | "self_serve" | "shipping";
 
 export interface TaskRequest {
   type: TaskType;
+  customerId?: number;
   jobId?: number;
-  printerId?: string;
-  stock?: PaperStock;
-  callId?: number;
-  copierId?: number;
-  to?: Vec; // walk_to: where to go
-  spec?: JobSpec; // take_order: what you enter in the POS; send_job: the print settings (both default to the right thing)
-  app?: AppId;
+  packageId?: number;
   messageId?: number;
-  voicemailId?: number;
-  dir?: "up" | "down";
-  item?: StockItem; // take_stock / count_stock
-  index?: number; // pick_up: which item on the counter
-  filedUnder?: number; // shelve: whose name it goes under (defaults to the right one)
-}
-
-// ---------- the computer at the register ----------
-
-export type AppId = "pos" | "inbox" | "printserver" | "shipping" | "voicemail";
-
-export interface Message {
-  id: number;
-  kind: "web_order" | "email";
-  at: number;
-  customerId: number;
-  jobId: number | null;
-  subject: string;
-  body: string;
-  read: boolean;
-  replied: boolean;
-}
-
-export interface Voicemail {
-  id: number;
-  callId: number;
-  at: number;
-  from: string;
-  number: string;
-  about: CallKind;
-  heard: boolean;
-  calledBack: boolean;
-}
-
-export interface ShippingLabel {
-  packageId: number;
-  at: number;
-  name: string;
-  service: ShipService;
-  weightLb: number;
-}
-
-export interface Computer {
-  app: AppId | null; // what's on screen
-  messages: Message[];
-  voicemails: Voicemail[];
-  labels: ShippingLabel[];
-  nextMessageId: number;
+  choice?: CounterChoice; // respond
 }
 
 export interface Task extends TaskRequest {
   label: string;
-  station: Vec;
-  duration: number; // seconds of work once you're there
+  station: Station;
+  duration: number; // seconds of work
   elapsed: number;
-  customerId?: number;
 }
 
-// What you can carry: one thing at a time.
-export type Carry =
-  | { kind: "paper"; stock: Exclude<PaperStock, "roll">; sheets: number }
-  | { kind: "roll" }
-  | { kind: "supply"; item: StockItem } // a toner cartridge or ink set
-  | { kind: "box"; size: BoxSize }
-  | { kind: "output"; jobId: number; sheets: number } // a stack of printed sheets from one job
-  | { kind: "bag"; jobId: number } // a finished, bagged order
-  | { kind: "packages"; packageIds: number[] };
-
 export interface Employee {
-  pos: Vec;
   task: Task | null;
   busySeconds: number;
-  hands: Carry | null;
 }
 
 // ---------- the day ----------
@@ -413,87 +279,53 @@ export interface Employee {
 export interface LogEntry {
   time: number;
   text: string;
-  you: boolean; // something you did (the player's log shows only these; dev mode shows everything)
 }
 
-export type MistakeKind =
-  | "wrong_settings"
-  | "wrong_paper"
-  | "output_left"
-  | "misfiled"
-  | "not_staged"
-  | "missed_truck"
-  | "unread_order"
-  | "couldnt_fill";
-
-export interface Mistake {
-  time: number;
-  kind: MistakeKind;
-  text: string;
-  jobId?: number;
-}
-
-export interface ShiftStats {
+export interface DayStats {
+  served: number;
+  left: number; // gave up and walked out
+  happy: number; // how customers felt when they left
+  neutral: number;
+  angry: number;
+  upsellsMissed: number;
   ordersTaken: number;
   webOrders: number;
-  pickups: number;
-  selfServed: number;
-  selfServeRevenueCents: number;
-  walkouts: number;
-  balks: number;
-  turnedAway: number;
-  canceled: number;
   sheets: number;
-  jams: number;
-  paperLoads: number;
-  tonerChanges: number;
   shipments: number;
-  shippingRevenueCents: number; // shipping + packing fees charged (before refunds)
-  dropoffs: number; // customers
-  dropoffPackages: number;
+  dropoffs: number;
   packagePickups: number;
-  missedTruckPackages: number;
-  refundsCents: number; // express packages refunded for missing the truck
-  carrierCostCents: number;
-  serviceFeesCents: number; // charged on full-service orders (included in revenue)
-  rushFeesCents: number;
-  callsAnswered: number;
-  missedCalls: number;
-  quoteLeads: number; // web orders that came from answered quote calls
-  callbacks: number;
-  copierJams: number;
-  copierRefills: number;
-  copierGaveUp: number;
-  breakdowns: number;
-  recalls: number;
-  wastedSheets: number;
-  checks: number;
+  jams: number;
+  idleSeconds: number; // open seconds with nothing that needs you
+  activeSeconds: number; // sum over open seconds of how many things needed you (for the average)
+  maxActive: number;
 }
 
 export interface GameState {
   seed: number;
+  day: number; // 1 for the first day of a game
   time: number;
   closeAt: number;
   revenueCents: number;
-  costCents: number; // materials actually used (float, round for display)
   customers: Customer[];
   jobs: Job[];
-  printers: Printer[];
-  copiers: Copier[];
   packages: Package[];
-  nextPackageId: number;
+  printer: Printer;
+  copier: Copier;
   truck: Truck;
-  calls: Call[];
-  computer: Computer;
-  stockroom: Record<StockItem, number>;
+  messages: Message[];
+  heldMessages: Message[]; // web orders stuck behind a Wi-Fi outage
+  event: BadLuck | null;
+  cardReader: "ok" | "down";
+  wifi: { down: boolean; backAt: number };
+  choices: Choice[];
+  captions: { time: number; moment: string; text: string }[]; // the MC's monologue
+  manager: ManagerState;
+  director: DirectorState;
   employee: Employee;
-  counterItems: Carry[]; // things you set down on the counter
-  mistakes: Mistake[];
   log: LogEntry[];
-  nextJobId: number;
+  nextId: number; // shared by customers, jobs, packages, and messages
   nextLineNo: number;
-  stats: ShiftStats;
+  stats: DayStats;
   over: boolean;
-  knowledge: Record<string, Snapshot>; // what the player has seen, and when (see knowledge.ts)
-  devUsed: boolean; // dev tools changed this shift, so it doesn't count for the leaderboard
+  devUsed: boolean; // dev tools changed this day, so it doesn't count for the leaderboard
 }

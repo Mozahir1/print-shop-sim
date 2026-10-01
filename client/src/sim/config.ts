@@ -1,144 +1,221 @@
-// Tuning numbers. Balance the game by editing this file and src/data/customers.json.
-// Rates and prices are meant to be roughly what a real copy shop sees, not game-y.
-import customerData from "../data/customers.json";
-import type { BoxSize, ColorMode, Finishing, Media, Printer, ShipService, StockItem } from "./types";
-
-const MIN = 60;
-const HOUR = 3600;
+// Tuning numbers. Balance the game by editing this file.
+import type { ColorMode, CounterChoice, EventKind, Finishing, Media, RequestKind, TaskType } from "./types";
 
 export const TUNING = {
-  openHour: 9, // 9:00 AM
-  shiftLength: 8 * HOUR, // closes at 5:00 PM
-  overtimeLimit: 1 * HOUR, // shift ends at the latest this long after close
-  walkSpeed: 1.3, // meters per second, for you and customers
-  // Walk-in customers per hour, starting at open. Lunch is the rush.
-  walkInsPerHour: [3, 4, 5, 7, 6, 4, 4, 4],
-  webOrdersPerHour: 1,
-  backOrderCutoff: 30 * MIN, // a "come back later" time this close to closing becomes "tomorrow"
-  lineWaitGrace: 3 * MIN, // standing in line longer than this starts to cost stars
-  lateGrace: 5 * MIN, // picking up later than promised by more than this costs stars
+  openHour: 9, // the wall clock reads 9:00 AM at open...
+  closeHour: 17, // ...and 5:00 PM at close
+  dayLength: 300, // sim seconds from open to close: about 5 real minutes at 1x
+  wrapUp: 60, // after close, customers still inside get this long before they leave
 };
 
-// Shipping counter. Pays less than printing, takes your time, and the truck doesn't wait.
+// The flow director keeps the number of things that need you in a band, instead of a fixed arrival schedule.
+export type Arrival = RequestKind | "web_order";
+
+export const DIRECTOR = {
+  floor: 1, // below this many active things, bring in the next one quickly...
+  ceiling: 3, // ...and at this many, hold everything back
+  floorGap: [0, 1] as [number, number], // seconds, once below the floor
+  pace: [14, 24] as [number, number], // seconds between arrivals otherwise
+  firstArrival: [1, 2] as [number, number],
+  maxPerDay: 15, // new customers (web orders count; people coming back for an order don't)
+  mix: {
+    quick_copies: 5,
+    large_job: 3,
+    poster: 2,
+    ship: 3,
+    dropoff: 2,
+    order_pickup: 5, // only when someone has a finished order to come back for
+    package_pickup: 2,
+    self_serve_help: 2,
+    complaint: 0,
+    web_order: 2,
+  } as Record<Arrival, number>,
+  // Later days lean toward requests with more steps: their weight grows by this much per day, up to the cap.
+  multiStep: ["large_job", "poster", "ship"] as Arrival[],
+  multiStepPerDay: 0.05,
+  multiStepMax: 1,
+  truckHold: 20, // seconds before the truck is due: hold arrivals so there's room for it
+};
+
+// How long each task takes, in sim seconds. Short and fixed.
+// Finishing goes by FINISH_SECONDS and answering a customer by RESPOND_SECONDS instead.
+// Lazy options are faster than doing it properly: that's the temptation.
+export const DURATIONS: Record<Exclude<TaskType, "finish" | "respond">, number> = {
+  talk: 3,
+  hand_over: 3,
+  ring_up: 4,
+  enter_order: 4,
+  send_job: 2,
+  open_message: 3,
+  leave_unread: 1,
+  collect: 3,
+  reprint: 2,
+  use_anyway: 1,
+  clear_jam: 6,
+  load_paper: 5,
+  bag: 3,
+  help_self_serve: 8,
+  fix_copier: 10,
+  out_of_order_sign: 2,
+  weigh: 3,
+  pack: 8,
+  tape_shut: 2,
+  label: 4,
+  bin: 2,
+  scan_dropoff: 5,
+  find_package: 6,
+  hand_off: 4,
+  let_truck_go: 1,
+  fix_card_reader: 10,
+  manual_ring_up: 8, // writing the card number down by hand
+  restart_router: 6,
+};
+
+// Bad luck: about one thing a day, never two at once, from its own stream.
+export const EVENTS = {
+  chance: 0.85, // days with one
+  window: [0.15, 0.7] as [number, number], // share of the day: earliest time it can happen
+  weights: { printer_jam: 3, copier_dies: 2, card_reader_down: 2, box_rips: 2, wifi_drop: 2 } as Record<EventKind, number>,
+  wifiOutage: 60, // seconds until the Wi-Fi comes back on its own
+  unhandledHeat: 8, // still broken at close
+};
+
+export const RESPOND_SECONDS: Record<CounterChoice, number> = { proper: 5, minimum: 2, rude: 2, ignore: 1 };
+
+// Customer mood is a running score: happy at 1 or more, neutral at 0, angry at -1 or less.
+export const MOOD = {
+  proper: 1,
+  minimum: 0, // usually...
+  minimumSour: -1, // ...but sometimes they wanted a person
+  minimumSourChance: 0.1,
+  rude: -2, // usually...
+  rudeShrug: 0, // ...but some people don't care
+  rudeShrugChance: 0.2,
+  ignore: -1,
+  lazyNoticed: -1, // smudged copies, a taped-shut box, being pointed at a sign
+  fedUp: -1, // waited past their patience
+};
+
+// How long you have to answer someone at the counter before it counts as ignoring them.
+export const ANSWER_WITHIN = 12;
+
+// Seconds a customer will wait, in line and for their order, before they're fed up. Generous on purpose: an
+// attentive player never hits it. Past patience x leaveAfter they walk out angry.
+export const PATIENCE: Record<RequestKind, number> = {
+  quick_copies: 150,
+  large_job: 210,
+  poster: 180,
+  ship: 120,
+  dropoff: 90,
+  order_pickup: 120,
+  package_pickup: 100,
+  self_serve_help: 100,
+  complaint: 90,
+};
+export const PATIENCE_RAMP = { perDay: 0.01, min: 0.8 }; // shorter by this share per day, down to the floor
+export const LEAVE_AFTER = 1.5;
+
+// Customers who leave an order (and web customers) come back about this long after ordering, ready or not.
+export const PICKUP_AFTER: [number, number] = [100, 160];
+
+export const SMUDGE_CHANCE = 0.12; // a print run comes out smudged
+
+// Manager heat (0..100, hidden) and what moves it. Checked at close: warning, write-up, and 3 write-ups is fired.
+export const HEAT = {
+  complaint: 5, // when a complaint (or bad review) arrives
+  angryLeft: 4, // an angry customer left
+  rude: 4, // each rude answer
+  ignore: 3, // each time you ignore someone
+  walkout: 6, // someone waited until they gave up
+  flag: 10, // something you did came back (damaged box, smudged copies, packages left behind)
+  overnightCool: 0.6, // share of heat that's gone by the next morning
+  cleanDayCool: 10, // extra, after a day with no complaints
+  warnAt: 30,
+  writeUpAt: 70,
+  writeUpRelief: 25, // a write-up clears the air a bit
+  writeUpsToFire: 3,
+};
+
+// Who complains, by mood when they leave ("usually" and "sometimes" are keyed rolls).
+export const COMPLAINT_CHANCE = { happy: 0, neutral: 0.08, angry: 0.85 };
+export const COMPLAINT_SAME_DAY = 0.5; // share that arrive later the same day; the rest come in the next morning
+export const COMPLAINT_DELAY: [number, number] = [20, 60]; // seconds, same day
+
+// Delayed consequences: when each kind comes back.
+export const FLAGS = {
+  rudeReviewChance: 0.6, // a rude answer usually turns into a bad online review next morning
+  damagedBoxDays: [1, 2] as [number, number], // a taped-shut box comes back damaged
+  smudgeSameDay: 0.5, // smudged copies come back the same day (or else the next)
+  smudgeDelay: [40, 90] as [number, number], // seconds, same day
+  morningAt: [10, 60] as [number, number], // seconds after open, for visits due on a later day
+};
+
+export const FINISH_SECONDS: Record<Exclude<Finishing, "none">, number> = { staple: 4, cut: 6, laminate: 8 };
+
+export const PRINTER = {
+  warmup: 2, // seconds before the first sheet of each job
+  sheetsPerSecond: 8,
+  paperOutChance: 0.35, // days the tray runs out once
+  paperOutSheets: [40, 400] as [number, number], // ...after this many sheets that day
+};
+
 export const SHIPPING = {
-  shippersPerHour: [1, 1.5, 1.5, 2, 2, 1.5, 1.5, 1.5], // customers sending a package, starting at open
-  dropoffsPerHour: [1, 1, 1, 1.5, 1.5, 1, 1, 1], // customers with prepaid returns
-  dropoffPackages: [1, 3] as [number, number],
-  inboundMean: 6, // held packages in the morning delivery
-  ownersComeToday: 0.75, // share of held-package owners who come in today
-  truckArrives: 7.25 * HOUR, // 4:15 PM
-  truckWaits: 10 * MIN,
-  serviceWeights: { ground: 6, two_day: 3, overnight: 1 } as Record<ShipService, number>,
-  packedChance: 0.6, // brought it already packed
-  maxWeightLb: 40,
-  boxMaxLb: { small: 5, medium: 20 }, // anything heavier goes in a large box
-  linePatience: [8, 15] as [number, number], // minutes
+  truckArrives: 0.8, // share of the day
+  truckWaits: 30, // seconds
+  weightLb: [1, 30] as [number, number],
 };
 
-// Retail rate = base + per lb (rounded up to the next pound).
-export const SHIP_RATE: Record<ShipService, { base: number; perLb: number }> = {
-  ground: { base: 1100, perLb: 90 },
-  two_day: { base: 2400, perLb: 220 },
-  overnight: { base: 4200, perLb: 380 },
-};
-export const CARRIER_SHARE = 0.7; // what the carrier charges us, as a share of the retail rate
-export const PACKING_FEE: Record<BoxSize, number> = { small: 600, medium: 1000, large: 1600 };
-export const PACKING_MATERIAL_CENTS = 40; // tape, fill, label pouch (the box itself is costed in the stockroom phase)
+// Retail rate = base + per lb (rounded up to the next pound). Everything goes ground for now.
+export const SHIP_RATE = { base: 1100, perLb: 90 };
+export const PACKING_FEE_CENTS = 600;
 
-// The phone. Each call rings for a while, then goes to voicemail.
-export const PHONE = {
-  callsPerHour: [1.5, 1.8, 2.2, 2.5, 2.3, 1.8, 1.6, 1.5], // busiest at lunch
-  kindWeights: { quote: 4, status: 3, hours: 2, rates: 2 },
-  ringSeconds: 30,
-  talkSeconds: { quote: [120, 300], status: [45, 120], hours: [20, 45], rates: [60, 180] } as Record<string, [number, number]>,
-  quoteConversion: 0.55, // answered quote calls that turn into a web order
-  leadDelayMinutes: [10, 90] as [number, number],
-};
-
-// Carrying things and looking at things.
-export const MISTAKES = {
-  refusalPenalty: 1.5, // stars, when a customer refuses a wrong job at pickup
-  redoPatience: 45 * 60, // how long they'll wait (or how long until they come back) for the reprint
-  searchSeconds: 180, // hunting for an order that isn't where it should be
-  searchPenalty: 1,
-  copierComplaintAfter: 60, // a self-serve customer comes to tell you their copier stopped after this long
-  acknowledgeSeconds: 10,
-  outputLeftAfter: 10 * 60, // finished output sitting in a tray this long when it fills up counts as forgotten
-};
-
-export const HANDS = {
-  takeStockSeconds: 15,
-  putBackSeconds: 10,
-  setDownSeconds: 5,
-  collectOutputSeconds: 10,
-  collectPer100Sheets: 1,
-  dropOutputSeconds: 5,
-  shelveSeconds: 10,
-  stageBase: 5,
-  stagePerPackage: 2,
-  checkTraySecondsPerTray: 5,
-  checkPanelSeconds: 5,
-  checkCopierSeconds: 5,
-  glanceStockSeconds: 10,
-  countStockSeconds: { paper: 45, other: 20 },
-  checkShelfSeconds: 10,
-  scanPackageRoomBase: 5,
-  scanPackageRoomPerPackage: 2,
-  checkFinishingSeconds: 5,
-  outputCapacity: { narrow: 500, wide: 20 },
-};
-
-// The computer at the register. Everything on it is a task: you're standing there, busy.
-export const COMPUTER = {
-  openAppSeconds: 4,
-  refreshSeconds: 2,
-  openMessageSeconds: 15,
-  replyEmailSeconds: 45,
-  moveJobSeconds: 3,
-  cancelJobSeconds: 5,
-  statusEmailBeforeDue: 45 * MIN, // online customers email to check on their order this long before pickup
-  unansweredLatePenalty: 0.5, // stars, if that order is then late and nobody answered them
-};
-
-// Machine upkeep: self-serve copier paper and jams, production printer breakdowns, jam waste.
-export const UPKEEP = {
-  copierCapacity: 1500, // letter sheets
-  copierMeanSheetsBetweenJams: 1800,
-  fixCopierSeconds: [45, 150] as [number, number],
-  refillCopierSeconds: 60,
-  recallSeconds: 20,
-  breakdownChance: 0.06, // per production printer, per day
-  techDelayHours: [2, 4] as [number, number],
-  techWorkMinutes: [30, 90] as [number, number],
-  jamWasteSheets: [1, 5] as [number, number],
-};
-
-// Stockroom: back stock for every machine and the shipping counter. Start is a random range for a single shift.
-export interface StockDef {
-  label: string;
-  unit: string;
-  start: [number, number];
-  pack: number; // units per order
-  packLabel: string;
-  packCents: number;
-  low: number; // warn at or below this
+// What each kind of print request asks for. Ranges are inclusive.
+export interface PrintRequestDef {
+  item: string;
+  originals: [number, number];
+  copies: [number, number];
+  colorChance: number;
+  media: Partial<Record<Media, number>>; // weights
+  duplexChance: number;
+  finishing: Partial<Record<Finishing, number>>; // weights
+  waitChance: number; // waits in the store; otherwise comes back later
 }
 
-export const STOCK: Record<StockItem, StockDef> = {
-  letter: { label: "Letter paper", unit: "sheets", start: [4000, 15000], pack: 5000, packLabel: "case of 5,000", packCents: 4500, low: 2000 },
-  legal: { label: "Legal paper", unit: "sheets", start: [1000, 3000], pack: 5000, packLabel: "case of 5,000", packCents: 5500, low: 500 },
-  tabloid: { label: "Tabloid paper", unit: "sheets", start: [1000, 2500], pack: 2500, packLabel: "case of 2,500", packCents: 6000, low: 500 },
-  cardstock: { label: "Cardstock", unit: "sheets", start: [250, 1250], pack: 1250, packLabel: "case of 1,250", packCents: 6500, low: 250 },
-  wide_roll: { label: "Wide format rolls", unit: "rolls", start: [0, 2], pack: 1, packLabel: "1 roll", packCents: 7500, low: 0 },
-  bw_toner: { label: "B&W toner", unit: "cartridges", start: [0, 2], pack: 1, packLabel: "1 cartridge", packCents: 9000, low: 0 },
-  color_toner: { label: "Color toner", unit: "sets", start: [0, 2], pack: 1, packLabel: "1 set", packCents: 22000, low: 0 },
-  wide_ink: { label: "Wide format ink", unit: "sets", start: [0, 2], pack: 1, packLabel: "1 set", packCents: 18000, low: 0 },
-  box_small: { label: "Small boxes", unit: "boxes", start: [5, 20], pack: 25, packLabel: "bundle of 25", packCents: 1500, low: 5 },
-  box_medium: { label: "Medium boxes", unit: "boxes", start: [4, 15], pack: 25, packLabel: "bundle of 25", packCents: 2500, low: 4 },
-  box_large: { label: "Large boxes", unit: "boxes", start: [2, 8], pack: 10, packLabel: "bundle of 10", packCents: 2000, low: 2 },
+export const PRINT_REQUESTS: Record<"quick_copies" | "large_job" | "poster", PrintRequestDef> = {
+  quick_copies: {
+    item: "document",
+    originals: [1, 5],
+    copies: [1, 10],
+    colorChance: 0.2,
+    media: { letter: 9, legal: 1 },
+    duplexChance: 0.3,
+    finishing: { none: 7, staple: 3 },
+    waitChance: 1,
+  },
+  large_job: {
+    item: "handout",
+    originals: [2, 6],
+    copies: [15, 40],
+    colorChance: 0.3,
+    media: { letter: 6, cardstock: 2, tabloid: 2 },
+    duplexChance: 0.5,
+    finishing: { none: 3, staple: 4, cut: 3 },
+    waitChance: 0.4,
+  },
+  poster: {
+    item: "poster",
+    originals: [1, 1],
+    copies: [1, 4],
+    colorChance: 0.9,
+    media: { tabloid: 1 },
+    duplexChance: 0,
+    finishing: { laminate: 1 },
+    waitChance: 1,
+  },
 };
 
-// Self-serve copiers out on the floor. Customers whose job qualifies mostly use them on their own.
+// ---------- prices (cents) ----------
+
 // Full service charges on top of the printing price list.
 export const FULL_SERVICE = {
   serviceFeeCents: 200, // every full-service order...
@@ -146,232 +223,14 @@ export const FULL_SERVICE = {
   rushRate: 0.1, // orders over $50 that are due the same day
 };
 
-export const SELF_SERVE = {
-  // Of customers whose job qualifies: some need to be shown over, some insist on full service, the rest go alone.
-  needsHelp: 0.2,
-  // Who insists on full service depends on what it costs them over doing it themselves (fees included),
-  // less what their time at the copier is worth. Share = maxRefuse * e^(-extra cost / refuseScale), at least minRefuse.
-  maxRefuse: 0.35,
-  minRefuse: 0.02,
-  refuseScaleCents: 200,
-  timeValueCentsPerMinute: 25,
-  ppm: { bw: 30, color: 20 } as Record<ColorMode, number>, // slower than the production machines
-  setupSeconds: 120, // pay at the machine, pull the file off a USB or email, pick settings
-  queueGrace: 3 * MIN, // waiting for a copier longer than this starts to cost stars
-};
-
-// How long things take you, in seconds, once you're standing at the right spot.
-export const DURATIONS = {
-  takeOrderBase: 90, // greet, get the file off their email/USB, confirm specs
-  takeOrderPerOption: 20, // each extra (special paper, duplex, finishing)
-  takeOrderBigRun: 30, // proof copy for runs over 100 sheets
-  turnAway: 30,
-  ringUp: 75, // find it on the shelf, show them, take payment
-  handOver: 40, // already paid
-  explainDelay: 30,
-  usherSelfServe: 45, // walk them over, show them the machine and the card reader
-  shipBase: 150, // weigh, enter the address, pick the service, print and stick the label, take payment
-  pack: { small: 120, medium: 180, large: 300 } as Record<BoxSize, number>,
-  dropoffBase: 25,
-  dropoffPerPackage: 10, // scan each prepaid label
-  checkInBase: 30,
-  checkInPerPackage: 15, // scan, write the notice, shelve
-  releasePackage: 60, // check ID, find it on the hold shelf, scan it out
-  handOffBase: 30,
-  handOffPerPackage: 5,
-  sendJob: 45, // open the file, set paper/duplex/copies, send
-  bag: 45, // count, box or bag, write the ticket
-  bagPer500Sheets: 15,
-  loadPaper: 60,
-  loadRoll: 180,
-  replaceToner: 120,
-  jamClear: [60, 240] as [number, number],
-};
-
-// Finishing work, in seconds. Sheets = physical sheets in the whole job.
-export function finishingWork(f: Finishing, copies: number, sheets: number, sheetsPerCopy: number, wide: boolean): number {
-  switch (f) {
-    case "none":
-      return 0;
-    case "staple":
-      return 20 + 6 * copies;
-    case "fold":
-      return 120 + 0.3 * sheets; // set up the folder, then it runs
-    case "cut":
-      return 60 + 40 * Math.ceil(sheets / 250); // guillotine, one stack at a time
-    case "laminate":
-      return 120 + (wide ? 90 : 25) * sheets; // warm up, then one sheet at a time
-    case "coil_bind":
-      return 60 + copies * (90 + 1.5 * sheetsPerCopy); // punch, coil, crimp
-  }
-}
-
-// ---------- prices and material costs (cents) ----------
-
-// Full service price list: per impression (one printed side), by size. Staff runs the job for you.
+// Per impression (one printed side), by size.
 export const PRICE_PER_SIDE: Record<ColorMode, Record<"letter" | "legal" | "tabloid", number>> = {
   bw: { letter: 15, legal: 18, tabloid: 30 },
   color: { letter: 59, legal: 69, tabloid: 118 },
 };
-// Self-serve price list: same paper, you run it yourself, so it's cheaper per side.
-export const SELF_SERVE_PER_SIDE: Record<ColorMode, Record<"letter" | "legal" | "tabloid", number>> = {
-  bw: { letter: 10, legal: 12, tabloid: 20 },
-  color: { letter: 45, legal: 52, tabloid: 90 },
-};
 export const CARDSTOCK_UPCHARGE = 20; // per sheet
-export const WIDE_PRICE: Record<ColorMode, Record<"wide_18x24" | "wide_24x36", number>> = {
-  bw: { wide_18x24: 400, wide_24x36: 600 },
-  color: { wide_18x24: 2500, wide_24x36: 4000 },
-};
 export const FINISHING_PRICE = {
   staple: 0,
-  foldPerSheet: 5,
   cutPer250Sheets: 150,
-  laminateLetter: 200,
-  laminateWide: 1200,
-  coilBindPerBook: 450,
+  laminateSheet: 200,
 };
-
-export const COST = {
-  sidePerColor: { bw: 1.2, color: 6 } as Record<ColorMode, number>, // toner/click charge
-  sheet: { letter: 1, legal: 1.3, tabloid: 2.5, cardstock: 6 } as Record<string, number>,
-  wideSqFt: { bw: 35, color: 120 } as Record<ColorMode, number>,
-  laminatePouchLetter: 40,
-  laminateWide: 300,
-  coilPerBook: 90,
-};
-
-// ---------- machines ----------
-
-export function createPrinters(): Printer[] {
-  const base = () => ({
-    status: "idle" as const,
-    currentJobId: null,
-    queue: [] as number[],
-    warmupLeft: 0,
-    sheetsUntilJam: 0,
-    jamClearSeconds: 0,
-    sheetsToday: 0,
-    jamsToday: 0,
-    toner: 100,
-    breakdown: null,
-    output: [] as { jobId: number; sheets: number }[],
-  });
-  return [
-    {
-      ...base(),
-      id: "bw",
-      supply: "bw_toner",
-      name: "B&W production printer",
-      short: "B&W",
-      tile: { x: 7, y: 1 },
-      station: { x: 8, y: 3.3 },
-      colors: ["bw"],
-      media: ["letter", "legal", "tabloid"],
-      ppm: 65,
-      wideSecondsPerSqFt: null,
-      warmup: 20,
-      trays: [
-        { stock: "letter", loaded: "letter", capacity: 2000, level: 2000 },
-        { stock: "legal", loaded: "legal", capacity: 500, level: 500 },
-        { stock: "tabloid", loaded: "tabloid", capacity: 500, level: 500 },
-      ],
-      tonerUse: { bw: 100 / 40000, color: 0 },
-      meanSheetsBetweenJams: 3000,
-      outputCapacity: HANDS.outputCapacity.narrow,
-    },
-    {
-      ...base(),
-      id: "color",
-      supply: "color_toner",
-      name: "Color production printer",
-      short: "Color",
-      tile: { x: 10.5, y: 1 },
-      station: { x: 11.5, y: 3.3 },
-      colors: ["bw", "color"],
-      media: ["letter", "tabloid", "cardstock"],
-      ppm: 45,
-      wideSecondsPerSqFt: null,
-      warmup: 30,
-      trays: [
-        { stock: "letter", loaded: "letter", capacity: 1000, level: 1000 },
-        { stock: "tabloid", loaded: "tabloid", capacity: 500, level: 500 },
-        { stock: "cardstock", loaded: "cardstock", capacity: 250, level: 250 },
-      ],
-      tonerUse: { bw: 100 / 30000, color: 100 / 12000 },
-      meanSheetsBetweenJams: 1500,
-      outputCapacity: HANDS.outputCapacity.narrow,
-    },
-    {
-      ...base(),
-      id: "wide",
-      supply: "wide_ink",
-      name: "Wide format printer",
-      short: "Wide",
-      tile: { x: 14, y: 1 },
-      station: { x: 15, y: 3.3 },
-      colors: ["bw", "color"],
-      media: ["wide_18x24", "wide_24x36"],
-      ppm: 0,
-      wideSecondsPerSqFt: { bw: 6, color: 25 },
-      warmup: 45,
-      trays: [{ stock: "roll", loaded: "roll", capacity: 300, level: 300 }], // feet
-      tonerUse: { bw: 0.04, color: 0.25 }, // ink, % per sq ft
-      meanSheetsBetweenJams: 250,
-      outputCapacity: HANDS.outputCapacity.wide,
-    },
-  ];
-}
-
-// Printing speed relative to plain letter paper.
-export const MEDIA_SPEED: Record<Media, number> = {
-  letter: 1,
-  legal: 0.9,
-  tabloid: 0.5,
-  cardstock: 0.6,
-  wide_18x24: 1,
-  wide_24x36: 1,
-};
-
-// How much more likely a sheet is to jam.
-export const MEDIA_JAM_FACTOR: Record<Media, number> = {
-  letter: 1,
-  legal: 1.2,
-  tabloid: 1.3,
-  cardstock: 3,
-  wide_18x24: 1,
-  wide_24x36: 1,
-};
-export const DUPLEX_JAM_FACTOR = 1.5;
-
-// ---------- customers ----------
-
-type Range = [number, number];
-
-export interface CustomerProfile {
-  id: string;
-  name: string; // shown in stats
-  item: string; // singular noun the customer uses
-  walkInWeight: number;
-  webWeight: number;
-  originals: Range;
-  copies: Range;
-  copiesRound?: number; // big runs come in round numbers
-  colorChance: number;
-  media: Partial<Record<Media, number>>; // weights
-  duplexChance: number;
-  finishing: Partial<Record<Finishing, number>>; // weights
-  timing: {
-    wait?: { weight: number; minutes: Range };
-    back?: { weight: number; minutes: Range };
-    tomorrow?: { weight: number };
-  };
-  linePatience: Range; // minutes
-  lateTolerance: Range; // minutes
-}
-
-export const PROFILES = customerData as CustomerProfile[];
-
-export function profileById(id: string): CustomerProfile {
-  return PROFILES.find((p) => p.id === id)!;
-}

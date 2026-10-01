@@ -1,109 +1,96 @@
-// Runs many shifts headless in Node with a bot playing. No browser needed.
-// By default it plays every seed twice, once with a careful bot and once with a careless one, and compares them.
-//
-//   npm run batch -- --shifts 50
-//   npm run batch -- --shifts 200 --reaction 30 --style careful
-//   npm run batch -- --shifts 200 --post http://localhost:8080   (stores results in Postgres)
-
-import { createSim, isShiftOver, tick } from "../src/sim/sim";
-import { botAct, createBot, type BotStyle } from "../src/sim/bot";
-import { report, summarize, type ShiftReport } from "../src/sim/summary";
+// Plays whole games headless in Node with a bot, for balancing. No browser needed.
+//   npm run batch -- --days 20 --style proper
+//   npm run batch -- --days 20 --style all --games 20
+//   npm run batch -- --days 20 --style all --post http://localhost:8080   (stores each day in Postgres)
+import { isDayOver, tick } from "../src/sim/sim";
+import { BOT_STYLES, botAct, createBot, type BotStyle } from "../src/sim/bot";
+import { endDay, newGame, startDay } from "../src/sim/game";
+import { summarize } from "../src/sim/summary";
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : fallback;
 }
 
-const shifts = Number(arg("shifts", "100"));
+const days = Number(arg("days", "20"));
+const games = Number(arg("games", "10"));
 const seed = Number(arg("seed", "1"));
-const reaction = Number(arg("reaction", "10"));
-const styleArg = arg("style", "both");
+const styleArg = arg("style", "all");
 const postUrl = arg("post", "");
-const DT = 1; // same fixed step as the game
+const styles: BotStyle[] = styleArg === "all" ? BOT_STYLES : [styleArg as BotStyle];
 
-const styles: BotStyle[] = styleArg === "both" ? ["careful", "careless"] : [styleArg as BotStyle];
-
-async function play(style: BotStyle): Promise<ShiftReport[]> {
-  const reports: ShiftReport[] = [];
-  for (let i = 0; i < shifts; i++) {
-    const sim = createSim(seed + i);
-    const bot = createBot(reaction, style);
-    while (!isShiftOver(sim.state)) {
-      botAct(bot, sim.state, DT);
-      tick(sim, DT);
-    }
-    reports.push(report(sim.state));
-    if (postUrl) {
-      const name = `bot-r${reaction}${style === "careless" ? "-careless" : ""}`;
-      const res = await fetch(`${postUrl}/api/shifts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(summarize(sim.state, name, "bot")),
-      });
-      if (!res.ok) throw new Error(`POST failed: ${res.status} ${await res.text()}`);
-    }
-  }
-  return reports;
+interface Row {
+  survived: number[]; // days lasted per game (days + 1 = never fired)
+  dayCount: number;
+  idle: number;
+  open: number;
+  active: number;
+  maxActive: number;
+  complaints: number;
+  warnings: number;
+  writeUps: number;
+  served: number;
 }
 
-type Row = [label: string, value: (r: ShiftReport) => number | null, format?: (n: number) => string];
-
-const whole = (n: number) => n.toFixed(0);
-const ROWS: Row[] = [
-  ["score", (r) => r.score, whole],
-  ["revenue $", (r) => r.revenueCents / 100, whole],
-  ["profit $", (r) => r.profitCents / 100, whole],
-  ["avg rating", (r) => r.avgRating, (n) => n.toFixed(2)],
-  ["on time %", (r) => r.onTimePct],
-  ["mistakes", (r) => r.mistakes.length],
-  ["orders taken", (r) => r.ordersTaken],
-  ["online orders", (r) => r.webOrders],
-  ["picked up", (r) => r.pickups],
-  ["self-serve", (r) => r.selfServed],
-  ["shipments", (r) => r.shipments],
-  ["held pkgs out", (r) => r.packagePickups],
-  ["missed truck", (r) => r.missedTruckPackages],
-  ["refunds $", (r) => r.refundsCents / 100],
-  ["calls answered", (r) => r.callsAnswered],
-  ["calls missed", (r) => r.missedCalls],
-  ["service+rush fees $", (r) => (r.serviceFeesCents + r.rushFeesCents) / 100, whole],
-  ["copier jams", (r) => r.copierJams],
-  ["breakdowns", (r) => r.breakdowns],
-  ["walkouts + balks", (r) => r.walkouts + r.balks],
-  ["turned away", (r) => r.turnedAway],
-  ["canceled", (r) => r.canceled],
-  ["open at close", (r) => r.leftForTomorrow],
-  ["avg line wait min", (r) => r.avgLineWaitMin],
-  ["sheets", (r) => r.sheets, whole],
-  ["busy %", (r) => r.busyPct],
-];
-
-function avg(reports: ShiftReport[], f: Row[1]): number | null {
-  const vals = reports.map(f).filter((v): v is number => v !== null);
-  return vals.length ? vals.reduce((a, v) => a + v, 0) / vals.length : null;
+async function run(style: BotStyle): Promise<Row> {
+  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, warnings: 0, writeUps: 0, served: 0 };
+  for (let g = 0; g < games; g++) {
+    const game = newGame(seed + g * 1000);
+    while (!game.fired && game.day <= days) {
+      const sim = startDay(game);
+      const bot = createBot(1, style, sim.state.seed);
+      while (!isDayOver(sim.state)) {
+        botAct(bot, sim.state, 1);
+        tick(sim, 1);
+      }
+      const s = sim.state;
+      row.dayCount++;
+      row.idle += s.stats.idleSeconds;
+      row.open += s.closeAt;
+      row.active += s.stats.activeSeconds;
+      row.maxActive = Math.max(row.maxActive, s.stats.maxActive);
+      row.complaints += s.manager.complaints;
+      row.served += s.stats.served;
+      const r = endDay(game, sim);
+      if (r.outcome === "warning") row.warnings++;
+      if (r.outcome === "write_up" || r.outcome === "fired") row.writeUps++;
+      if (postUrl) {
+        const res = await fetch(`${postUrl}/api/shifts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(summarize(s, `bot-${style}`, "bot")),
+        });
+        if (!res.ok) throw new Error(`POST failed: ${res.status} ${await res.text()}`);
+      }
+    }
+    row.survived.push(game.fired ? game.day : days + 1);
+  }
+  return row;
 }
 
 async function main() {
-  const results = new Map<BotStyle, ShiftReport[]>();
-  for (const style of styles) results.set(style, await play(style));
-
-  console.log(`${shifts} shifts, seeds ${seed}..${seed + shifts - 1}, bot reaction ${reaction}s`);
-  console.log(`${"".padEnd(20)}${styles.map((s) => s.padStart(12)).join("")}`);
-  for (const [label, f, fmt] of ROWS) {
-    const cells = styles.map((s) => {
-      const v = avg(results.get(s)!, f);
-      return (v === null ? "n/a" : (fmt ?? ((n: number) => n.toFixed(1)))(v)).padStart(12);
-    });
-    console.log(`${label.padEnd(20)}${cells.join("")}`);
+  console.log(`${games} games per style, up to ${days} days, seeds ${seed}, ${seed + 1000}, ...`);
+  console.log(["style".padEnd(8), "survived 20", "fired on day (median, range)", "idle %", "avg active", "max", "complaints/day", "warnings", "write-ups", "served/day"].join("  "));
+  for (const style of styles) {
+    const r = await run(style);
+    const fired = r.survived.filter((d) => d <= days).sort((a, b) => a - b);
+    const firedText = fired.length ? `${fired[Math.floor(fired.length / 2)]} (${fired[0]} to ${fired.at(-1)})` : "never";
+    console.log(
+      [
+        style.padEnd(8),
+        `${r.survived.length - fired.length}/${games}`.padStart(11),
+        firedText.padStart(28),
+        ((r.idle / r.open) * 100).toFixed(1).padStart(6),
+        (r.active / r.open).toFixed(2).padStart(10),
+        String(r.maxActive).padStart(3),
+        (r.complaints / r.dayCount).toFixed(1).padStart(14),
+        String(r.warnings).padStart(8),
+        String(r.writeUps).padStart(9),
+        (r.served / r.dayCount).toFixed(1).padStart(10),
+      ].join("  "),
+    );
   }
-  if (styles.length === 2) {
-    const [a, b] = styles.map((s) => avg(results.get(s)!, (r) => r.score)!);
-    console.log(`\ncareless scores ${(100 - (b / a) * 100).toFixed(0)}% lower than careful`);
-    const kinds = new Map<string, number>();
-    for (const r of results.get("careless")!) for (const m of r.mistakes) kinds.set(m.kind, (kinds.get(m.kind) ?? 0) + 1);
-    console.log(`careless mistakes per shift: ${[...kinds].map(([k, n]) => `${k} ${(n / shifts).toFixed(1)}`).join(", ") || "none"}`);
-  }
-  if (postUrl) console.log(`posted ${shifts * styles.length} shifts to ${postUrl}`);
+  if (postUrl) console.log(`posted every day to ${postUrl}`);
 }
 
 main().catch((e) => {

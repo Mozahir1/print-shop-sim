@@ -22,3 +22,16 @@ export function randInt(rng: Rng, min: number, max: number): number {
 export function pick<T>(rng: Rng, items: T[]): T {
   return items[Math.floor(rng() * items.length)];
 }
+
+// A roll keyed by what it's for (e.g. seed, "mood", customer id, choice number) instead of drawn from a stream.
+// Used for "usually" outcomes of your choices: the same choices always get the same results, and making a choice
+// never shifts any other system's rolls.
+export function keyedRoll(...keys: (number | string)[]): number {
+  let h = 0x811c9dc5;
+  for (const k of keys) {
+    const str = String(k);
+    for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 0x01000193);
+    h = Math.imul(h ^ 0xff, 0x01000193);
+  }
+  return createRng(h >>> 0)();
+}

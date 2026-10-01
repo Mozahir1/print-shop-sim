@@ -1,0 +1,9 @@
+{
+  "lines": [
+    { "speaker": "system", "moment": "event", "event": "printer_jam", "subject": "Printer jam", "text": "The printer jammed in the middle of a job." },
+    { "speaker": "system", "moment": "event", "event": "copier_dies", "subject": "Self-serve copier is dead", "text": "The self-serve copier won't turn on." },
+    { "speaker": "system", "moment": "event", "event": "card_reader_down", "subject": "Card reader is down", "text": "The card reader stopped working. Ring-ups have to be done by hand." },
+    { "speaker": "system", "moment": "event", "event": "box_rips", "subject": "The box ripped", "text": "The box ripped while you were packing it." },
+    { "speaker": "system", "moment": "event", "event": "wifi_drop", "subject": "Wi-Fi is down", "text": "The Wi-Fi dropped. Web orders aren't coming through." }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "lines": [
+    {
+      "speaker": "corporate",
+      "moment": "corporate_note",
+      "subject": "Reminder",
+      "text": "Badge photos are Thursday. Please look approachable."
+    },
+    {
+      "speaker": "corporate",
+      "moment": "corporate_note",
+      "subject": "Breakroom",
+      "text": "Whoever keeps unplugging the fridge, please stop."
+    },
+    {
+      "speaker": "corporate",
+      "moment": "corporate_note",
+      "subject": "New initiative",
+      "text": "Starting today we are a customer-first organization. Nothing else is changing."
+    },
+    {
+      "speaker": "corporate",
+      "moment": "corporate_note",
+      "subject": "Policy update",
+      "text": "Please do not refer to the printer by name in front of customers."
+    },
+    {
+      "speaker": "system",
+      "moment": "web_order",
+      "subject": "Web order #{job}",
+      "text": "{name} ordered online and will pick it up in the store."
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "subject": "Customer feedback: {name}",
+      "text": "Your employee was very unhelpful."
+    },
+    {
+      "speaker": "customer",
+      "moment": "review",
+      "subject": "New online review",
+      "text": "One star. Would not print again. ({name})"
+    },
+    {
+      "speaker": "customer",
+      "moment": "packages_left",
+      "subject": "Customer feedback: packages",
+      "text": "My package was supposed to go out yesterday. It is still sitting in your store."
+    },
+    {
+      "speaker": "manager",
+      "moment": "warning",
+      "subject": "Quick chat",
+      "text": "Hey, can we talk about yesterday? Let's do better."
+    },
+    {
+      "speaker": "manager",
+      "moment": "write_up",
+      "subject": "Write-up",
+      "text": "Please sign the attached write-up."
+    },
+    {
+      "speaker": "corporate",
+      "moment": "reward",
+      "subject": "Great job team!",
+      "text": "Great job team!"
+    },
+    {
+      "speaker": "corporate",
+      "moment": "reward",
+      "subject": "A little something",
+      "text": "Pizza party coupon (expired)."
+    },
+    {
+      "speaker": "corporate",
+      "moment": "reward",
+      "subject": "Compensation update",
+      "text": "Congrats on your 3 cent raise."
+    },
+    {
+      "speaker": "corporate",
+      "moment": "reward",
+      "subject": "Recognition",
+      "text": "Employee of the Month certificate attached. Please print it yourself."
+    },
+    {
+      "speaker": "manager",
+      "moment": "fired",
+      "subject": "Your employment",
+      "text": "We're going to have to let you go."
+    },
+    {
+      "speaker": "manager",
+      "moment": "tone",
+      "outcome": "none",
+      "text": "No word from the manager."
+    },
+    {
+      "speaker": "manager",
+      "moment": "tone",
+      "outcome": "warning",
+      "text": "Your manager wants a quick chat tomorrow."
+    },
+    {
+      "speaker": "manager",
+      "moment": "tone",
+      "outcome": "write_up",
+      "text": "There's a write-up waiting for you in the morning."
+    },
+    {
+      "speaker": "manager",
+      "moment": "tone",
+      "outcome": "fired",
+      "text": "Your manager would like to see you. Bring your badge."
+    }
+  ]
+}

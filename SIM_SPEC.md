@@ -1,257 +1,308 @@
-# Print Shop Sim: Full Simulation Spec
+# Print Shop Sim: Gameplay Spec (v3)
 
-This spec turns the prototype into a realistic print and ship shop simulator. It covers the core mechanics and the
-way the player experiences them. Satire, jokes, coworker characters, and story are separate layers and are out of scope.
+**This replaces the previous spec.** The game is changing direction: from a realistic, stressful shop simulator to a
+low-stress job game where **choices and their consequences** are the core. The realism-heavy systems built in the last
+round (knowledge, checks, hands, mistakes, multi-printer management) get removed or simplified. The job loop and the
+main character get finished here. Coworkers, customer personalities, regulars, and story come in a later spec.
 
-**Status:** All phases are done. Phases 1 to 4 (shipping, stockroom, phone, machine upkeep) and 5 to 10 (knowledge
-layer, store as the main screen, the computer, physical checks and hands, cues and mistakes, balance and cleanup) are
-implemented and tested. The old career mode was cancelled and its leftovers removed. The phase sections below are kept
-as a record of what each one specified.
-
----
-
-## Ground rules (read first)
-
-1. **Read the existing code before changing anything.** `client/src/sim/` already has walk-ins, web orders, pickups,
-   self-serve, line patience, due times, printers (trays, toner, jams, warmup, queues), finishing, pricing, material
-   costs, ratings, closing and overtime, shipping, stockroom, phone, machine upkeep, a bot, and dev tools.
-   Extend it; don't rebuild it.
-2. **Everything the player does is a task.** One employee. Actions go through `canStart()` / `startTask()` /
-   `stopTask()` / `previewTask()`: walk to a station, then spend time working. `canStart()` returns a plain-English
-   reason when an action isn't possible.
-3. **`src/sim/` stays DOM-free** so `scripts/batch-sim.ts` keeps running headless in Node.
-4. **Determinism.** Same seed + same play = same shift. New random systems get their own RNG stream. Looking at things
-   (checking, opening apps) must never consume randomness.
-5. **Money is integer cents.** Time is sim seconds since opening (sim time 0 = 9:00 AM).
-6. **All existing tests keep passing** unless a phase explicitly changes the behavior they test; update those tests
-   on purpose and say why. Add new tests per phase.
-7. **The bot keeps working** and plays on true state (it's for balancing and testing, not fair play). Teach it every new
-   task. `npm run batch` must still produce a competent day.
-8. **Tuning lives in `config.ts`** (and JSON in `src/data/`).
-9. **No real brand names, logos, or company-specific procedures.** Generic retail print and ship shop only.
-10. **Don't change the server or SQL** unless a phase says so.
-11. **Single shift only.** There is no multi-day mode.
+Work through the phases in order. Finish each phase (code, tests, bot, UI where listed), run the checks, then **stop and
+summarize** before starting the next.
 
 ---
 
-## Already implemented (reference only)
+## Ground rules
 
-- **Phase 1, Shipping** (`shipping.ts`): ship / drop-off / held-package customers, package lifecycle, daily carrier
-  truck with refunds for missed express packages, morning delivery and check-in, shipping money.
-- **Phase 2, Stockroom** (`inventory.ts`): back stock of paper, toner, rolls, boxes; tasks draw from it; fetch walking time.
-- **Phase 3, Phone** (`phone.ts`): scheduled calls, ringing, answering, quote calls converting to web orders.
-- **Phase 4, Machine upkeep** (`upkeep.ts`): copier paper and jams, printer breakdowns and tech visits, recall, jam waste.
-
----
-
-## Design goal for Phases 5 to 10
-
-Right now the UI shows the player everything: every tray level, every queue, every package, plus estimates and
-suggestions. Real shop work isn't like that. You find things out by going to them, the computer only knows what's
-been entered into it, and small things slip through the cracks.
-
-Three rules drive everything below:
-1. **The sim knows everything; the player doesn't.** The player sees only what they've checked, and what they saw can go stale.
-2. **The store is the main screen.** You interact by walking to objects. The computer is one of those objects.
-3. **Mistakes are possible and have consequences.** A careful player has a good day; a careless one has a noticeably bad one.
+1. **Checkpoint first.** Before deleting anything, commit the current state and tag it `realistic-sim` so it can be recovered.
+2. **Read the existing code before changing it.** Reuse what fits; delete what doesn't. Don't leave dead code or unused config behind.
+3. **The task system stays.** Player actions still go through `canStart()` / `startTask()` / `stopTask()` / `previewTask()`,
+   with `canStart()` returning a plain-English reason when an action isn't possible.
+4. **`src/sim/` stays DOM-free** so `scripts/batch-sim.ts` runs headless in Node.
+5. **Determinism.** Same seed + same choices = same day. Separate RNG streams per system. Choices never consume randomness.
+6. **Money is integer cents.** Time is sim seconds since opening.
+7. **Content is data.** All dialogue, MC lines, event text, and reward text live in JSON under `src/data/`, not in code.
+8. **Tests.** Old tests for removed systems get deleted with them. Every phase adds tests for what it builds.
+9. **No real brand names, logos, or company procedures.** Generic print and ship shop.
+10. **Server and SQL stay as they are.** The client must still post a summary the server accepts (see Phase 9).
+11. **Write player-facing text without em dashes.** Use commas, periods, or colons.
 
 ---
 
-## Phase 5: Player knowledge layer (`src/sim/knowledge.ts`) (done)
+## Design pillars
 
-Sim-side only. No UI changes yet (the old panels keep working until Phase 6).
-
-### Snapshots
-- Add `state.knowledge`: what the player has seen, each entry with the sim time it was observed.
-- A snapshot is a copy of the relevant facts at that moment, never a live reference. Examples:
-  - a tray's level (rounded to the nearest 50 sheets, or "about a quarter full" style buckets), checked at 10:42
-  - a printer's toner bucket (full / half / low / empty) and its output tray contents
-  - stockroom counts (rough, see Phase 8), copier paper and status, pickup shelf contents, package room contents
-- Helpers: `knows(state, key)`, `snapshot(state, key)`, `age(state, key)`. Snapshots are plain data so tests and the UI can read them.
-
-### What updates knowledge
-- **Checking** something (a new task type per thing, Phase 8) writes a snapshot.
-- **Doing work** at a place updates what you'd naturally see there: loading paper into a tray tells you that tray is full;
-  clearing a jam shows you the printer's panel; packing a box at the scale shows you the box count you took from.
-- **Computer apps** (Phase 7) write snapshots of what the system knows, which is not the same as physical truth.
-
-### Acceptance criteria
-- Snapshots don't change when the true state changes; only re-checking updates them.
-- Checking consumes no randomness (determinism tests still pass).
-- Unit tests for snapshot creation, staleness, and updates from work tasks.
+- **Low stress, never idle.** The clock always runs (while talking and while doing tasks). There's always one obvious
+  thing to do and rarely more than two or three at once. No downtime, no overload.
+- **Choices are the game.** How the player handles customers and tasks decides what happens.
+- **You fail by not caring, not by being a bit slow.** An attentive player doesn't fail by accident. Ignoring things,
+  being rude, or doing sloppy work eventually gets you fired.
+- **Perfection gets you nothing.** Doing a perfect job just keeps the game going with hollow rewards. The MC never changes.
+- **No maintenance busywork.** Supplies and machines only need attention when something actually happens, and then it's
+  one clear task.
 
 ---
 
-## Phase 6: The store is the main screen (done)
+## Phase 1: Teardown (done)
 
-### Layout
-- The floor canvas becomes the main view, large and centered. Remove the dashboard panels (counter, orders, machines,
-  stockroom, shipping, "You" suggestions, KPIs) from normal play. **Move them into dev mode** as a "true state" view for debugging.
-- Make the floor readable as a store: counter and register, production area with printers, finishing table, pickup shelf,
-  shipping scale, package room, stockroom, self-serve area, waiting area, door. Keep it simple shapes and labels
-  (logic over looks), but every interactive object needs a clear click target.
+Remove the realism systems. Delete their code, config, types, UI, and tests.
 
-### Interaction
-- Click an object: your character walks there and a small **action menu** opens next to it, listing only what you can
-  do there (Check trays, Load paper, Clear jam, Collect output...). Disabled actions show the `canStart()` reason on hover.
-- Click a customer at the counter: talk to them (see what they want, in their words).
-- Some objects open a **station view** (a modal) instead of a menu: the computer (Phase 7) and the stockroom shelves (Phase 8).
+**Remove entirely**
+- `knowledge.ts` (snapshots, staleness, observe/glance/count)
+- `hands.ts` (carrying, set down, pick up, put back) and all hands-empty requirements
+- `mistakes.test.ts` and the mistake mechanics: manual job settings mismatches, wrong paper in a tray, mislabeled or
+  unshelved orders, output tray capacity stalls
+- Physical check tasks (check trays, check panel, check copier, glance/count stockroom, check shelf, scan package room, check finishing)
+- `ui/notes.ts` (notepad), `ui/stockroom.ts`, the walkable floor as the main interaction model (`ui/floor.ts` can be reused for
+  a background picture or removed)
+- Stockroom as a managed resource (`inventory.ts`): no back stock counts, no fetching, no supply orders
+- Production printer breakdowns, tech visits, `needs_service`, and `recall_job`
+- Jam waste sheets
+- Phone calls, ringing, voicemail (`phone.ts`). Web orders and messages arrive through the inbox only.
+- The hourly arrival schedule in `schedule.ts` (replaced by the flow director in Phase 3)
+- Star ratings, penalties in stars, `satisfaction()` as currently computed, the score formula (replaced in Phase 5)
+- Carrier refunds math and missed-truck refunds
+- Any remaining career or multi-day economy code (`mode`, `supplyOrders`, etc.)
+- Self-serve "goes alone / with help / full service" rolls and the copier queue math
 
-### HUD (all that's always on screen)
-- **Wall clock:** current time only. No day progress bar, no "closes in", no truck countdown.
-- **Current task** with a progress bar and a Stop button.
-- **Hands:** what you're carrying (Phase 8).
-- **Notepad** button (Phase 8).
-- Speed controls and pause stay.
+**Keep**
+- RNG, determinism tests, the task system, `util.ts`, time formatting, pricing basics in `orders.ts`, the bot and batch sim
+  (they'll be rewritten against the new loop), dev mode (it will show true state), the API client and summary posting.
 
-### Remove these crutches
-- The "Suggestion" next-action button.
-- "Your estimate" (ready-time estimate) when taking an order.
-- Per-order "Next step" buttons and the global orders table.
-- Header chips for truck and phone, and the KPI bar (sales, ratings, lost customers). Those numbers show on the end-of-shift report only.
-- Autopause options for counter, truck, and phone. Plain pause stays.
-
-### Acceptance criteria
-- A full shift is playable using only the floor, menus, and HUD.
-- Dev mode still shows the full true-state panels.
-- Existing sim tests unaffected (this phase is UI only, plus any small sim helpers it needs).
+**Acceptance:** the project typechecks and the remaining tests pass, even if the game is temporarily not playable. List
+in the summary what was deleted.
 
 ---
 
-## Phase 7: The computer (`src/sim/computer.ts`, UI in `src/ui/computer.ts`) (done)
+## Phase 2: The simplified job (done)
 
-The register has a computer. You must be standing at the register to use it. It opens as a desktop with app icons.
-Opening an app takes a few seconds; refreshing a view takes a couple of seconds. Using the computer is a task (you're busy while on it).
+One employee (the MC), a handful of stations, short readable tasks (a few seconds to about 30 game seconds each).
 
-### Apps
-- **POS / Orders:** take an order (enter it from what the customer said), ring up pickups, list open orders with the
-  status the system knows: ordered, sent to printer, paid. **It doesn't know whether a job is printed, finished, bagged,
-  or on the shelf.** That's physical.
-- **Inbox:** web orders and customer emails arrive here. Nothing pops up; the icon shows an unread count. Opening a
-  web order is how you learn its specs and due time. Web orders you haven't opened can't be sent to a printer.
-- **Print server:** pick an order, choose the printer, **set the job settings manually** (paper, color, duplex, copies,
-  finishing note), and send. See each printer's queue, move jobs up or down, cancel, recall. Shows printer **error codes**
-  (jam, paper out on tray X, toner out, needs service) but **not** tray levels or toner percentages.
-- **Shipping:** rate a package, print the label, list of labels printed today. It doesn't know what's physically in the
-  outbound bins or on the hold shelf. Shows the carrier pickup time as plain text.
-- **Voicemail:** missed calls leave a message (who, what they wanted, a callback number). Calling back is a task
-  that works like answering a call.
+### Stations and tasks
+| Station | Tasks |
+|---|---|
+| **Counter** | Talk to the customer (opens the choice menu, Phase 4), hand over an order, ring up |
+| **Computer** | Enter the order (choose specs from what the customer said; defaults are prefilled from the request, the player just confirms), send it to the printer, open the inbox (web orders and messages) |
+| **Printer** (one production printer) | Collect a finished job, clear a jam, load paper when the tray is empty |
+| **Finishing table** | One step per finishing type (staple, cut, laminate), then bag it |
+| **Self-serve copier** | Help a stuck customer, fix the copier |
+| **Shipping** | Weigh, pick a box, tape it, print the label, put it in the outbound bin, hand off to the driver when the truck comes |
 
-### Taking an order
-- The customer's request is shown as speech at the counter ("50 copies, double-sided, on cardstock, by 2").
-  The player enters it into the POS. Defaults are the plain options (letter, B&W, single-sided, no finishing),
-  so the player has to set anything else themselves.
-- What gets entered is what the system knows. If it differs from what the customer asked for, the job is wrong (Phase 9).
-- Taking an order prints an **order ticket** that goes into your notepad (Phase 8) with the specs as entered.
+### Rules
+- **One production printer** handles color and B&W, letter, legal, tabloid, cardstock. Wide format is gone for now.
+- **Supplies are events, not resources.** The paper tray runs out at most occasionally (seeded) and shows "Tray empty."
+  Loading paper is one task. There is no stock count.
+- **Jobs flow:** ordered, sent, printing, printed (waiting at the printer), finished and bagged, picked up.
+  Collecting from the printer and finishing are simple tasks, no carrying.
+- **Self-serve:** customers use it on their own. It only needs you when a bad luck event hits it or a customer asks for help.
+- **Shipping:** ship (weigh, box, label, bin), drop-off (scan, bin), pickup of a held package (find it, hand it over).
+  The truck comes once a day; handing off is one task. Packages left in the bin go tomorrow; that's a consequence hook (Phase 5), not a refund calculation.
+- **Pricing:** keep the existing price list logic for revenue shown in the end-of-day report. Revenue is flavor, not a win condition.
 
-### Acceptance criteria
-- Every computer action is a task at the register with a duration; you can't use the computer from across the store.
-- The print server never exposes tray levels or toner percentages.
-- Unopened web orders can't be printed. Tests cover entering settings that match and don't match the customer's request.
-- The bot uses the computer through the same task API, entering correct settings.
+**Acceptance:** a scripted test can take each request type from arrival to done using only tasks. Tasks have short fixed
+durations from `config.ts`.
 
 ---
 
-## Phase 8: Physical checks, hands, and output trays (done)
+## Phase 3: Day structure and flow director (done)
 
-### Checks (new task types)
-| Check | Where | Reveals | Time |
-|---|---|---|---|
-| Check trays | at a printer | each tray's paper level, bucketed | 5 s per tray |
-| Check printer panel | at a printer | toner/ink bucket, current job progress, what's in the output tray | 5 s |
-| Check copier | at a self-serve copier | paper bucket, jammed or not | 5 s |
-| Glance at stockroom | stockroom | rough counts ("a few cases", "one box", "none") | 10 s |
-| Count stockroom item | stockroom | exact count of one item | 20 to 60 s by item |
-| Check pickup shelf | pickup shelf | which bagged orders are on it, by name | 10 s |
-| Scan package room | package room | staged outbound, on-hold, unsorted packages | 5 s + 2 s per package |
-| Check finishing table | finishing table | printed jobs waiting there | 5 s |
+### The day
+- About **5 real minutes** at default speed, about **10 to 15 customers**. The in-game clock is compressed (open to close).
+- **Start of day:** MC monologue line, an inbox message (corporate note or a hollow reward, Phase 5), store opens.
+- **During:** customers, tasks, at most one bad luck event (Phase 6).
+- **Close:** customers already inside get finished or leave; no new arrivals.
+- **End of day:** end-of-day report (Phase 8), then the manager outcome (Phase 5), then "Start next day."
 
-### Hands
-- You carry **one thing** at a time: a case of a paper type, a toner cartridge or ink set, a roll, an empty box,
-  a stack of printed output (one job), a bagged order, or a package.
-- Restocking: take an item at the stockroom (a task), walk to the printer, load it. Loading needs the matching item in hand.
-  Fetch time is no longer baked into task durations; it comes from actually walking.
-- Grabbing the wrong item means another trip. Put-back is a task at the stockroom.
-- Hands must be empty for counter work. If they're not, you set the item down on the counter (a short task) and it
-  stays there until you pick it up.
+### Multiple days
+- Days run in sequence. **Only this carries over:** manager heat, write-ups, consequence flags, orders not yet picked up,
+  packages left in the outbound bin, and the day number. No money, no supplies, no machine state.
+- Save between days in `localStorage` (wrapped in try/catch). On load: "Continue (day N)" or "New game."
+- Each day uses seed = base seed + day number.
 
-### Output trays and moving work
-- Printers no longer mark jobs "printed" into thin air. Finished sheets sit in the printer's **output tray**
-  (capacity by printer, about 500 sheets for narrow format). A full output tray stops the printer with an error code.
-- **Collect output** (task at the printer) puts the job in your hands. Carry it to the finishing table and do the
-  finishing work there; the result is a bagged order in your hands. **Shelve** it at the pickup shelf.
-- **Ring up** at the register requires the bagged order to be on the shelf. You fetch it during the ring-up (walk included).
+### Flow director (replaces the arrival schedule)
+- Keeps the player's load in a target band: spawn the next customer or task when **active things** (customers waiting or
+  being served + jobs needing the player) drop below the band's floor; hold back when at or above the ceiling.
+- Default band: at least 1 active thing, at most 3. A small random gap (seconds) between spawns, from the director's RNG stream.
+- Request mix from `config.ts` weights: quick copies, larger print job (wait or come back later), poster/laminate,
+  ship, drop-off, order pickup, held package pickup, self-serve help.
+- **Difficulty ramps slowly with the day number:** slightly shorter patience, slightly more multi-step requests, never more than the band ceiling.
 
-### Notepad
-- **Auto-notes:** your latest snapshots with how long ago you checked.
-- **Order tickets:** one per order taken or web order opened, with specs as entered. Mark as done by hand.
-- **Manual notes:** free text the player types.
-- Opening the notepad is free (no task, no time); it only shows what you already know.
-
-### Acceptance criteria
-- A job only reaches the shelf by going printer, output tray, hands, finishing, hands, shelf.
-- Out-of-date snapshots are visible as out of date; nothing refreshes without a check or work at that spot.
-- The bot collects, finishes, and shelves correctly and the balance test still passes (retune if needed).
+**Acceptance:** batch runs show near-zero idle time (track seconds with no active thing; target under 5% of the day) and
+never more than the band ceiling. Same seed and same choices produce the same day.
 
 ---
 
-## Phase 9: Cues and mistakes (done)
+## Phase 4: Choices and customer mood (done)
 
-### Cues instead of alerts
-- **On the floor:** a stopped printer shows a blinking light on its sprite (not the reason). A ringing phone and the
-  door chime show as small icons at their location. The carrier truck appears outside the door while the driver waits.
-- **Customers tell you things:** a self-serve customer whose copier stopped comes to the counter and says so after a
-  short wait. A pickup customer asks for their order by name.
-- **Missed things leave traces, not popups:** missed calls go to voicemail; unread emails pile up; when the driver
-  leaves, there's no message. You find out by seeing packages still in the bin.
-- Remove log lines that hand the player information they wouldn't have (for example "the color printer is out of toner"
-  as a global message). The activity log becomes a record of **your own actions** only. Dev mode keeps the full log.
+### Counter choices
+Talking to a customer opens up to four options, always written in the MC's flat voice:
+- **Proper:** do it right.
+- **Minimum:** do it, barely (no small talk, no upsell, rushed).
+- **Rude:** say the thing.
+- **Ignore:** don't engage; the customer keeps waiting.
 
-### Mistakes and their costs
-| Mistake | How it happens | Consequence |
-|---|---|---|
-| Wrong job settings | entered something different from the request | job prints wrong; customer refuses it at pickup; you reprint at your cost and they wait; rating hit |
-| Wrong paper in a tray | loaded a different stock than the tray holds | jobs from that tray print on the wrong stock (same as wrong settings) |
-| Output left in the tray | never collected | tray fills, printer stops |
-| Order not shelved / bagged with the wrong ticket | shelved under a different name, or left on the finishing table | ring-up takes much longer while you search; rating hit |
-| Package not staged | never put in the outbound bin | misses the truck |
-| Missed the truck | not at the package room when the driver came | existing refund and rating rules |
-| Unread web order | never opened the inbox | starts late, possibly misses its due time |
-| Took an order you can't fill | out of the needed stock | stuck mid-job until you find a fix; late |
+Not choosing anything for long enough counts as Ignore.
 
-- Each mistake is deterministic given the player's actions (no random "mistake rolls").
-- The end-of-shift report lists mistakes made, so the player can learn from them.
+### Task choice points
+Some tasks offer a lazy alternative:
+- Smudged or misprinted copy: reprint it, or hand it over anyway.
+- Broken self-serve copier: fix it, or tape an "out of order" sign on it.
+- Packing: pack it properly, or just tape it shut.
+- Inbox: process a web order now, or leave it unread.
+- Truck: hand off the packages, or let the driver leave.
 
-### Acceptance criteria
-- Tests for each row of the mistakes table: the mistake is possible, and its consequence happens.
-- The bot never makes these mistakes (it enters correct settings and follows the full job path).
+Lazy options are faster. Each choice is recorded with its type (proper, minimum, rude, ignore, lazy).
 
----
+### Customer mood
+Each customer has a mood: happy, neutral, or angry. It's set by the choices made during their visit and by waiting:
+- Proper: happy. Minimum: usually neutral. Rude: usually angry. Ignored or waited far past patience: angry and they leave.
+- Lazy task results that the customer would notice (smudged copies, taped box) lower their mood when they get it.
+- Use seeded rolls only where the outline says "usually," from a dedicated stream, so the same choices give the same result.
 
-## Phase 10: Balance pass and cleanup (done)
+### Patience
+- Every customer has patience (seconds, from config, adjusted by the day ramp). Waiting in line and waiting for an order both use it.
+- Patience is generous: a reasonably attentive player never hits it.
 
-- **Remove career mode leftovers:** `mode: "career"`, `supplyOrders`, `SupplyOrder`, `placeSupplyOrder`,
-  `receiveSupplyOrders`, and any related UI and tests. `mode` can go entirely if nothing else uses it.
-- **Retune** so a careful human has a decent day and a careless one has a clearly worse one. Use the bot for the
-  "careful" baseline. Add a second bot setting in `batch-sim.ts` that skips checks and forgets things on purpose
-  (for example, never checks email until something is late, collects output late) to measure how punishing carelessness is.
-  Report both in the batch output.
-- **README:** update "How it's built", the gameplay section, and controls for the new UI. Remove anything about career mode.
-- Delete this spec's completed phases or mark them done.
-
-### Acceptance criteria
-- No references to career mode remain.
-- Batch output shows a clear score gap between the careful and careless bots.
+**Acceptance:** tests cover each choice type's effect on mood, ignore-by-timeout, and each lazy task option.
 
 ---
 
-## Out of scope
-- Multi-day play, career mode, story (planned separately).
-- Coworkers, breaks, character personalities, satirical events and dialogue (separate layers).
-- Cash drawer counting and a separate POS cash flow.
-- Sprites and art. Simple shapes and labels are fine.
+## Phase 5: Consequences (done)
+
+### Hidden meters (never shown as numbers)
+- **Manager heat (0 to 100):** rises from complaints, angry customers, rude choices, ignored customers, unhandled bad luck,
+  packages left behind. Falls a little after a clean day (no complaints).
+- **Write-ups:** 3 write-ups = fired.
+
+### Complaints
+- Angry customers usually complain. Neutral customers sometimes complain. Happy customers don't.
+- Complaints show up as inbox messages (same day or next morning) and add heat.
+
+### End-of-day manager outcome
+Based on heat at close: nothing, a verbal warning (message), or a write-up (message). Thresholds in config.
+On the third write-up: **fired** (Phase 7).
+
+### Delayed consequences (flags)
+- Choices can set a flag with a due day. When it comes due, it fires an event (a message, an angry returning customer, extra heat).
+- Starter set: taped-shut box comes back damaged in 1 to 2 days; a rude reply becomes a bad online review next morning;
+  smudged copies come back the same day or next; packages left in the bin cause a complaint next day.
+- Flags persist across days with the save.
+
+### Perfect play: hollow rewards
+- A clean day queues a **hollow reward** message for the next morning, from a JSON pool (placeholders below).
+- There's no score bonus, no unlock, and no change to the MC. The MC reacts with the same deadpan line every time.
+
+**Acceptance:** tests show a rude/ignore playstyle reaching 3 write-ups, a proper playstyle never getting a write-up,
+delayed flags firing on the right day, and hollow rewards appearing after clean days.
+
+---
+
+## Phase 6: Bad luck events (done)
+
+- **About one per day, never two at once.** Rolled from a dedicated RNG stream; each day may also have none.
+- Starter set: printer jams mid-job, self-serve copier dies, card reader goes down (ring-ups take a manual workaround task),
+  a box rips while packing (repack), Wi-Fi drops (a web order arrives late in the inbox).
+- Each is **obvious** (clear on-screen prompt) and **simple** (one or two tasks to fix).
+- Ignoring it causes trouble: the job stalls, a customer waits and gets angry, heat rises.
+- Each offers the fix, a lazy workaround where it makes sense (out of order sign), or ignoring it. These are choices (Phase 4).
+
+**Acceptance:** each event can be triggered in dev mode, fixed, worked around, or ignored, with the right consequence.
+
+---
+
+## Phase 7: The MC and endings (done)
+
+### The MC
+- Fixed personality: apathetic and dry. **Demeanor and voice never change based on player choices.**
+- The player chooses actions, not attitude. Even Proper options read as bored.
+- **Monologue lines** fire on: start of day, bad luck event, hollow reward, warning, write-up, end of day, getting fired.
+  Lines come from `src/data/mc.json` keyed by moment, with a few variants each, picked deterministically.
+
+### Endings
+- **Getting fired is the only ending for now.** A short end scene (text) picks a variant by the main cause:
+  too many complaints, too much ignoring, rude to customers. Placeholder text for now.
+- After the ending: "New game." No win state.
+
+---
+
+## Phase 8: UI (functional, not final) (done)
+
+Replace the store-walking UI with a **counter view**:
+- **Center:** the current customer (name, request text in their words, mood indicator only through their dialogue), and the choice buttons.
+- **Side:** station buttons (Computer, Printer, Finishing, Self-serve, Shipping). Clicking one opens a small panel with that station's tasks.
+- **To-do list:** the current obvious tasks (customers waiting, a job ready at the printer, tray empty, truck here). This is what makes "always something to do" readable.
+- **HUD:** clock, current task with progress bar, speed and pause.
+- **Inbox:** unread count on the Computer button; messages open in the computer panel.
+- **Monologue:** MC lines show as a small caption.
+- **End-of-day report:** satirical corporate metrics (customers served, "upsell opportunities missed", complaints,
+  a meaningless "Team Spirit Index"), revenue, and a tone line from the manager outcome. Never show heat as a number.
+- **Dev mode:** shows true state (heat, write-ups, flags, director band, upcoming events) and can trigger events and skip days.
+- Keep it plain and readable. Art comes later.
+
+---
+
+## Phase 9: Bot, batch, server, README (done)
+
+- **Bot playstyles:** proper, minimum, rude, ignore, lazy, random. Each picks its choice type consistently.
+- **Batch sim:** `npm run batch -- --days 20 --style proper` (and `--style all`) reports days survived per style,
+  average idle time, average active-thing count, complaints per day.
+- **Targets (tune config until true):** proper and minimum survive 20 days; rude and ignore get fired within 2 to 6 days;
+  lazy lands somewhere in between; idle time under 5%.
+- **Server compatibility:** keep posting the existing `ShiftSummary` shape at end of day. Map: score = customers served,
+  cashCents = day revenue, satisfaction = share of happy customers (0 to 100), customersLost = angry customers,
+  jams = bad luck events. No server or SQL changes.
+- **README:** rewrite "How it's built", gameplay, controls, and the batch commands for the new loop. Remove everything about the realistic sim.
+
+---
+
+## Placeholder content (put in JSON, testing only)
+
+**MC (`src/data/mc.json`)**
+- greeting: "Hi. What do you need."
+- proper: "Yeah, I can do that."
+- minimum: "Sure."
+- rude: "That's not how printers work."
+- ignore: *(keeps staring at the screen)*
+- lazy: "Good enough."
+- bad luck: "Of course."
+- hollow reward: "Cool."
+- warning: "Noted."
+- write-up: "Okay."
+- start of day: "Another day."
+- end of day: "That's a day."
+- fired: "Okay."
+
+**Customers (`src/data/customers.json`, by request type and mood)**
+- quick copies: "I just need a few copies, real quick."
+- larger job: "Can this be ready by two?"
+- poster or laminate: "Can you make this bigger?"
+- ship: "How much to ship this? It's just a box."
+- drop-off: "Just dropping this off."
+- order pickup: "I'm here to pick something up."
+- held package: "I got a text saying my package is here."
+- self-serve help: "This machine isn't doing anything."
+- waiting too long: "Is anyone working here?"
+- happy: "Thanks!"
+- neutral: "Okay."
+- angry, leaving: "I'll go somewhere else."
+
+**Messages (`src/data/messages.json`)**
+- complaint: "Your employee was very unhelpful."
+- bad review: "One star. Would not print again."
+- warning: "Hey, can we talk about yesterday? Let's do better."
+- write-up: "Please sign the attached write-up."
+- hollow rewards: "Great job team!", "Pizza party coupon (expired)", "Congrats on your 3 cent raise.",
+  "Employee of the Month certificate attached. Please print it yourself."
+- fired: "We're going to have to let you go."
+
+Structure the data so lines can later be tagged by **customer trait** and **speaker** (coworkers) without changing code.
+
+---
+
+## Out of scope (next spec)
+- Coworkers and the manager as an on-screen character (the manager exists only as heat and messages for now)
+- Customer personalities and trait-based dialogue, regulars
+- Story, art, sound
 
 ## Definition of done
-- `npm run typecheck`, `npm test`, and `npm run build` pass.
-- `npm run batch -- --shifts 50` runs clean for both bot settings.
-- A full shift is playable in the browser using only the store, the computer, menus, the HUD, and the notepad.
+- `npm run typecheck`, `npm test`, `npm run build` pass.
+- `npm run batch -- --days 20 --style all` meets the Phase 9 targets.
+- In the browser: a full day is playable from the counter view, the next day continues from the save, and a rude
+  playthrough ends in getting fired.

@@ -1,0 +1,22 @@
+{
+  "lines": [
+    { "speaker": "mc", "moment": "greeting", "text": "Hi. What do you need." },
+    { "speaker": "mc", "moment": "greeting", "text": "Hi." },
+    { "speaker": "mc", "moment": "proper", "text": "Yeah, I can do that." },
+    { "speaker": "mc", "moment": "minimum", "text": "Sure." },
+    { "speaker": "mc", "moment": "rude", "text": "That's not how printers work." },
+    { "speaker": "mc", "moment": "rude", "request": "ship", "text": "It's a box. It goes in a truck." },
+    { "speaker": "mc", "moment": "rude", "request": "complaint", "text": "Did you read the receipt?" },
+    { "speaker": "mc", "moment": "ignore", "text": "(keeps staring at the screen)" },
+    { "speaker": "mc", "moment": "lazy", "text": "Good enough." },
+    { "speaker": "mc", "moment": "bad_luck", "text": "Of course." },
+    { "speaker": "mc", "moment": "bad_luck", "text": "Great." },
+    { "speaker": "mc", "moment": "hollow_reward", "text": "Cool." },
+    { "speaker": "mc", "moment": "warning", "text": "Noted." },
+    { "speaker": "mc", "moment": "write_up", "text": "Okay." },
+    { "speaker": "mc", "moment": "start_of_day", "text": "Another day." },
+    { "speaker": "mc", "moment": "start_of_day", "text": "Here we go." },
+    { "speaker": "mc", "moment": "end_of_day", "text": "That's a day." },
+    { "speaker": "mc", "moment": "fired", "text": "Okay." }
+  ]
+}

@@ -24,15 +24,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-export async function getDailySeed(): Promise<number | null> {
-  try {
-    const body = await request<{ seed: number }>("/api/daily-seed");
-    return body.seed;
-  } catch {
-    return null;
-  }
-}
-
 export function postShift(summary: ShiftSummary): Promise<{ id: number }> {
   return request("/api/shifts", {
     method: "POST",
