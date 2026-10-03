@@ -4,18 +4,19 @@
 // "Usually" outcomes are keyed rolls, so the same choices always lead to the same consequences.
 import type { Customer, Flag, GameState, HeatCause, Job, ManagerState, MessageDraft, MessageKind } from "./types";
 import type { CounterQuote } from "./quote";
-import { COMPLAINT_CHANCE, COMPLAINT_DELAY, COMPLAINT_SAME_DAY, FLAGS, HEAT } from "./config";
+import { BUSINESS, SURVEY, COMPLAINT_CHANCE, COMPLAINT_DELAY, COMPLAINT_SAME_DAY, FLAGS, HEAT } from "./config";
 import { keyedRoll } from "./rng";
-import { fill, log } from "./util";
+import { fill, log, money } from "./util";
 import { moodOf } from "./mood";
 import { pickLine, POOLS } from "./lines";
 import { mcSay } from "./mc";
 import { morningTime } from "./customers";
+import { recordFailure } from "./failures";
 
 type MessagePool = Exclude<MessageKind, "web_order" | "note"> | "packages_left";
 
 export function createManager(heat = 0, flags: Flag[] = [], morning: MessageDraft[] = []): ManagerState {
-  return { heat, heatBy: { complaints: 0, ignoring: 0, lost_sales: 0 }, complaints: 0, flags, scheduled: [], morning, visitsDue: [] };
+  return { heat, heatBy: { complaints: 0, ignoring: 0, lost_sales: 0, overtime: 0 }, complaints: 0, flags, scheduled: [], morning, visitsDue: [] };
 }
 
 export function addHeat(state: GameState, amount: number, cause: HeatCause): void {
@@ -49,13 +50,21 @@ export function onIgnore(state: GameState): void {
   addHeat(state, HEAT.ignore, "ignoring");
 }
 
-// Turning someone away costs nothing if it couldn't be done in time or wasn't worth doing. Otherwise it's a lost sale.
+// Turning someone away costs nothing if it couldn't be done in time, wasn't worth doing, or it's after closing.
+// Otherwise it's a lost sale.
 export function onTurnAway(state: GameState, q: CounterQuote): void {
   state.stats.turnedAway++;
-  if (!q.doable || !q.worth) return;
+  if (!q.doable || !q.worth || state.time >= state.closeAt) return; // (after closing, no one expects you to)
   state.stats.lostSales++;
   state.stats.lostSalesCents += q.valueCents;
   addHeat(state, HEAT.lostSale, "lost_sales");
+}
+
+// A business client gone, and their order with them: the manager hears about that one.
+export function lostBusiness(state: GameState, c: Customer, valueCents: number): void {
+  state.stats.businessLost++;
+  addHeat(state, BUSINESS.lostHeat, "lost_sales");
+  recordFailure(state, "lost_business", { name: c.name, money: money(valueCents) }, { customerId: c.id });
 }
 
 // An order wasn't ready when promised.
@@ -75,6 +84,7 @@ export function onUnfinished(state: GameState, job: Job): void {
 
 // A customer left the store for good: how they felt decides whether the manager hears about it.
 export function onLeave(state: GameState, c: Customer, walkedOut: boolean): void {
+  maybeSurvey(state, c, walkedOut);
   const mood = moodOf(c);
   if (walkedOut) addHeat(state, HEAT.walkout, angerCause(c));
   const roll = keyedRoll(state.seed, "complaint", c.id, state.day);
@@ -86,6 +96,19 @@ export function onLeave(state: GameState, c: Customer, walkedOut: boolean): void
   const msg = draft("complaint", { name: c.name }, at, HEAT.complaint, cause);
   if (timing < COMPLAINT_SAME_DAY && at < state.closeAt) state.manager.scheduled.push(msg);
   else state.manager.morning.push({ ...msg, at: 0 });
+}
+
+// Now and then (rarely, like real life) someone fills out the survey. How it reads depends on their visit.
+function maybeSurvey(state: GameState, c: Customer, walkedOut: boolean): void {
+  if (keyedRoll(state.seed, "survey", c.id, state.day) >= SURVEY.chance) return;
+  const mood = moodOf(c);
+  const reason = c.couldSelfServe ? "could_self_serve" : walkedOut ? "walked_out" : c.jobId !== null && state.jobs.find((j) => j.id === c.jobId)?.walkUp ? "full_service" : undefined;
+  const result = c.couldSelfServe || walkedOut || mood === "angry" ? "bad" : mood === "happy" && c.outcome === "served" ? "good" : null;
+  if (!result) return;
+  const line = pickLine(POOLS.messages, "survey", { result, reason });
+  state.stats.surveys++;
+  if (result === "bad") state.stats.badSurveys++;
+  deliver(state, { kind: "survey", subject: fill(line.subject ?? "", { name: c.name }), body: line.text, at: state.time, heat: result === "bad" ? SURVEY.badHeat : SURVEY.goodHeat, cause: "complaints" });
 }
 
 // What a customer is mostly unhappy about, for when getting fired needs a reason.
@@ -138,6 +161,7 @@ function fire(state: GameState, f: Flag): void {
     case "smudged_return":
       addHeat(state, HEAT.flag, "complaints");
       state.manager.visitsDue.push({ name: f.name, about: f.kind });
+      recordFailure(state, f.kind === "damaged_box" ? "damaged_package" : "smudged_return", { name: f.name });
       log(state, `${f.name} is coming back about ${f.kind === "damaged_box" ? "a damaged box" : "smudged copies"}.`);
       return;
   }

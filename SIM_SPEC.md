@@ -1,65 +1,64 @@
-# Print Shop Sim: Spec v4 (choice model + counter decisions)
+# Print Shop Sim: Spec v5 (visible work + feedback)
 
-Builds on the current version. Keep the existing UI, days/saving, flow director, bad luck events, heat and write-ups,
-delayed consequences, hollow rewards, to-do list, and dev mode. Only change core logic below.
-Many removed features still exist in the `realistic-sim` git tag (turn away, self-serve ushering and refusals, timing,
-price quotes, ready-time estimate). Restore simplified versions from there instead of rewriting.
+Builds on the current version (v4 choice model and counter decisions stay). This round fixes three problems:
+1. You can't tell you're busy, and multi-step jobs hide their remaining steps.
+2. Ignored customers never leave.
+3. Failures happen silently; the player can't tell they're doing a bad job.
 
-Rules: `src/sim/` stays DOM-free and deterministic (customer reactions use a seeded stream; choices never consume
-randomness). Content stays in JSON. Update tests and the bot with each change. Player-facing text has no em dashes.
+Rules: `src/sim/` stays DOM-free and deterministic. Content (lines, cues, step data) stays in JSON. Update tests and the
+bot with each change. Player-facing text has no em dashes.
 
-## Direction
-Low stress, never idle, choices matter. The MC's attitude never changes and isn't graded. The manager cares about
-the job getting done and sales, not manners.
+## 1. Workflows (sim)
+- Multi-step jobs become **workflows**: take order, ring up, ship, drop-off, release package, collect and finish a job,
+  fix copier, clear jam, load paper, send to self-serve.
+- Each workflow is data: ordered steps, and per step: station, held item, pose, duration, thought line.
+  Example, ship: weigh, box, tape, label, bin.
+- **Strict lock:** while a workflow is active, nothing unrelated can start. `canStart()` returns
+  "You can't do that, you're <current step>." Exception: jobs printing on their own run in the background.
+- Abandoning a workflow is explicit and counts as don't or ignore with normal consequences.
+- The next step is always known to the sim (`currentStep()`), so the UI never needs scrolling to find it.
 
-## 1. Choices: Do / Don't / Ignore
-- Replace proper / minimum / rude / lazy everywhere with **do / dont / ignore**.
-- Counter: **Do** = handle it (sub-options in section 2). **Don't** = engage and decline (turn away). **Ignore** = don't
-  engage; they wait until you return or give up. Not choosing for long enough counts as ignore.
-- Tasks and events use the same three: Do = fix properly (fix copier, pack properly, reprint smudged copy).
-  Don't = cut the corner (out of order sign, tape box shut, hand over smudged copy). Ignore = leave it.
-- MC lines are reactions and monologue only, the same regardless of choice. Remove rude/nice line variants.
+## 2. Customers leave
+- Fix: ignored or waiting customers must give up. Default 2 to 5 game minutes depending on request (config).
+- Patience stages: fine, annoyed, angry, gone. Each stage change emits a cue line ("Hello?", "Is anyone working here?",
+  exit line) and the exit is a logged failure.
+- Test: an ignored customer leaves within the configured window.
 
-## 2. Counter decisions
-When a customer reaches the counter, the sim exposes a quote: full-service price with fees itemized, self-serve price
-if eligible, their timing (wait / come back / tomorrow), and a simple ready-time estimate from the printer queue.
+## 3. Every failure has a visible moment
+Hidden meters (heat) are fine; hidden events are not.
+- **Missing or unfinished order at pickup:** the customer comes to the counter and it becomes a counter scene
+  ("Where's my order?") with do (rush it now, they wait) / don't (apologize, refund) / ignore. Outcome is logged.
+- Same pattern for: damaged package returned, smudged copies returned, broken copier with a customer at it, packages
+  left in the bin after the truck leaves, customers walking out.
+- Notable failures send a short manager message to the inbox during the day.
+- End-of-day report lists failures by name ("Order #112 was never printed. Dana left without it."), not only counts.
+- Add a **manager mood** value derived from heat (calm, annoyed, unhappy) for the UI. Never expose the number.
 
-- **Do:** take order (standard turnaround), take as rush (only if needed sooner than standard; adds rush fee), or send to self-serve (only if eligible: plain paper, no back-counter finishing, staying in store).
-- **Don't:** turn away.
+## 4. Visual UI
+Replace the panel-heavy layout with a simple scene drawn on the existing canvas. Placeholder shapes are fine; real
+sprites later must be drop-in (no logic changes).
+- **Scene:** counter in front, stations behind (printer, finishing table, shipping scale), self-serve to the side,
+  customers lining up in front.
+- **MC:** simple character that walks to the station of the current step and shows the **held item** for that step
+  (box, paper stack, bag, wrench, ream). Empty hands mean free.
+- **Thought bubble** over the MC with the current step's line ("Weigh it.", "Tape it.").
+- **Customers:** simple characters with a mood icon (fine, annoyed, angry) and speech bubbles for cue lines.
+- **Blocked actions:** short message at the click point ("You can't do that, you're packing a box.").
+- **Station highlight:** pulse the station that needs attention (job done at printer, truck here, tray empty).
+- **Kept panels, small:** active job card (step checklist with checkmarks, next-step button), to-do list ordered by
+  urgency with waiting time turning amber then red, manager mood icon, computer screen when used.
+- Every click gets immediate feedback: pressed state, short caption, counters or checklist updating.
+- No scrolling needed for core actions. Keyboard shortcuts for next step and do / don't / ignore.
+- First turn-away or abandon asks for a quick confirm.
+- Keep it touch-friendly.
 
-## 3. Customer reactions (seeded per customer)
-- **Self-serve:** some eligible customers go straight to self-serve without coming to the counter; some accept being
-  sent over; some refuse and want full service (player then chooses do or don't).
-- **Fees:** some balk at a rush fee or small-order service fee. They take standard time instead, ask for self-serve, or leave.
-- **Timing:** if the estimate misses their time, some accept a later time, some leave.
-
-## 4. Pricing
-- Restore full-service and self-serve price lists (self-serve cheaper).
-- **Rush fee:** percent of order (config). **Service fee:** flat fee on full-service orders under a threshold.
-- **Shipping:** service level (ground / 2-day / overnight) plus packing fee by box size.
-- Revenue matters again: it's what the manager watches (section 6).
-
-## 5. Prioritization (light)
-- Orders have due times again. The player chooses what to work on next and which job to send first.
-- Big jobs pay more but tie up the printer; shipping pays little; small quick jobs are best sent to self-serve.
-- Flow director still caps load at 2 to 3 active things, so prioritizing is a decision, not a scramble.
-
-## 6. Consequences
-- Remove the "rude" heat cause. Heat comes from:
-  - ignoring (walkouts after being ignored, ignored events)
-  - late or unfinished orders
-  - complaints from bad outcomes (smudged copies handed over, taped box arrives damaged, copier left broken)
-  - **lost sales:** turning away a job that was doable and worth it adds a little heat; turning away a job that
-    couldn't be done in time or wasn't worth it adds none
-- Firing ending variants: too much ignoring, too many lost sales, too many complaints.
-
-## 7. Bot and balance
-- Bot styles: do-everything (never turns away), smart (turns away impossible/unprofitable jobs, uses self-serve),
-  turn-away-heavy, ignore-heavy, random.
-- Targets: smart survives 20 days; do-everything survives with more late orders; turn-away-heavy gets fired slowly;
-  ignore-heavy gets fired fast; idle time stays near zero.
-- Tests: the three choices at the counter and on tasks, self-serve accept/refuse/go-alone, fee balking, rush pricing,
-  justified vs unjustified turn-away heat.
+## 5. Tests
+- Workflow lock blocks unrelated tasks with the right message; background printing continues.
+- Ignored customers progress through patience stages and leave.
+- Pickup with a missing or unprinted order produces a counter scene and a logged failure.
+- Each failure type appears in the end-of-day report.
+- Bot still meets the v4 balance targets.
 
 ## Done when
-`npm run typecheck`, `npm test`, `npm run build` pass, and `npm run batch -- --days 20 --style all` meets the targets.
+`npm run typecheck`, `npm test`, `npm run build` pass, batch targets still met, and in the browser you can see what the
+MC is doing at all times, customers leave when ignored, and every failure is visible when it happens.

@@ -1,16 +1,30 @@
 // Choices, customer mood, and patience. Your attitude isn't graded: customers feel what happens to them.
-import type { Choice, ChoiceType, CounterAction, Customer, CustomerOutcome, GameState, Mood, RequestKind } from "./types";
-import { LEAVE_AFTER, MOOD, PATIENCE, PATIENCE_RAMP } from "./config";
-import { jobById, log } from "./util";
-import { onLeave } from "./consequences";
+import type { Choice, ChoiceType, CounterAction, Customer, CustomerOutcome, GameState, Mood, PatienceStage, RequestKind } from "./types";
+import { BUSY_PATIENCE, GIVE_UP, MOOD, PATIENCE_RAMP, PATIENCE_STAGES } from "./config";
+import { isOverdue, jobById, log } from "./util";
+import { recordFailure } from "./failures";
+import { lostBusiness, onLeave } from "./consequences";
+import { fullServiceQuote } from "./orders";
 import { customerSay } from "./mc";
 
 export function moodOf(c: Customer): Mood {
   return c.mood >= 1 ? "happy" : c.mood <= -1 ? "angry" : "neutral";
 }
 
-export function patienceFor(kind: RequestKind, day: number): number {
-  return Math.round(PATIENCE[kind] * Math.max(PATIENCE_RAMP.min, 1 - PATIENCE_RAMP.perDay * (day - 1)));
+export function giveUpFor(kind: RequestKind, day: number): number {
+  return Math.round(GIVE_UP[kind] * Math.max(PATIENCE_RAMP.min, 1 - PATIENCE_RAMP.perDay * (day - 1)));
+}
+
+export function stageFor(c: Customer): PatienceStage {
+  const f = c.waited / c.giveUp;
+  return f >= 1 ? "gone" : f >= PATIENCE_STAGES.angry ? "angry" : f >= PATIENCE_STAGES.annoyed ? "annoyed" : "fine";
+}
+
+// A fresh visit (or a fresh promise): their patience starts over.
+export function resetPatience(state: GameState, c: Customer): void {
+  c.waited = 0;
+  c.stage = "fine";
+  c.giveUp = giveUpFor(c.kind, state.day);
 }
 
 export function choiceType(action: CounterAction): ChoiceType {
@@ -24,27 +38,38 @@ export function recordChoice(state: GameState, type: ChoiceType, what: Choice["w
   state.choices.push(c);
 }
 
-// Customers who are in the store use up patience while they wait, in line and for their order.
+// Customers in the store use up patience while nobody's helping them: in line, at the counter, and waiting for an
+// order once it's overdue (more slowly while you're busy with someone else: they can see it). Fine, annoyed ("Hello?"), angry ("Is anyone working here?"), then they leave.
 export function runPatience(state: GameState, dt: number): void {
+  const helping = state.workflow?.customerId ?? state.employee.task?.customerId;
+  const busy = state.workflow !== null || state.employee.task !== null;
   for (const c of state.customers) {
     if (c.state !== "line" && c.state !== "talking" && c.state !== "waiting") continue;
-    if (state.employee.task?.customerId === c.id) continue; // you're helping them right now
-    c.waited += dt;
-    if (!c.fedUp && c.waited > c.patience) {
-      c.fedUp = true;
+    if (helping === c.id || c.lingering) continue; // a lingerer isn't going anywhere
+    const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
+    if (c.state === "waiting" && job && job.status !== "bagged" && !isOverdue(state, job)) continue; // it isn't due yet
+    c.waited += busy && c.kind !== "business" ? dt * BUSY_PATIENCE : dt; // they can see you're busy (a business client doesn't care)
+    const stage = stageFor(c);
+    if (stage === c.stage) continue;
+    c.stage = stage;
+    if (stage === "annoyed") customerSay(c, "annoyed", {}, state.time);
+    if (stage === "angry") {
       c.mood += MOOD.fedUp;
-      customerSay(c, "waiting_too_long");
-      log(state, `${c.name} has been waiting a long time.`);
+      customerSay(c, "angry", {}, state.time);
+      log(state, `${c.name} is getting angry.`);
     }
-    if (c.waited > c.patience * LEAVE_AFTER) walkOut(state, c);
+    if (stage === "gone") walkOut(state, c);
   }
 }
 
 // Waited far too long: they leave angry, and whatever they were waiting on stays here.
 export function walkOut(state: GameState, c: Customer): void {
   c.mood = Math.min(c.mood, -1);
+  const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
+  const open = job && job.status !== "picked_up" && job.status !== "canceled";
   leave(state, c, "left");
-  log(state, `${c.name} gave up and left.`);
+  if (c.kind === "business" && !job) return lostBusiness(state, c, fullServiceQuote(c.spec!, false).totalCents);
+  recordFailure(state, open ? "never_ready" : "walked_out", open ? { name: c.name, job: job.id } : { name: c.name }, { customerId: c.id, jobId: job?.id });
 }
 
 // A customer leaves the store for good. Their mood at that moment is how the visit went.
@@ -53,8 +78,8 @@ export function leave(state: GameState, c: Customer, outcome: CustomerOutcome): 
   c.outcome = outcome;
   c.leftAt = state.time;
   c.answerBy = null;
-  if (outcome === "left") customerSay(c, "leaving_angry");
-  else if (outcome === "served") customerSay(c, "mood", { mood: moodOf(c) });
+  if (outcome === "left") customerSay(c, "leaving_angry", {}, state.time);
+  else if (outcome === "served") customerSay(c, "mood", { mood: moodOf(c) }, state.time);
   if (outcome === "served") state.stats.served++;
   if (outcome === "left") state.stats.left++;
   state.stats[moodOf(c)]++;

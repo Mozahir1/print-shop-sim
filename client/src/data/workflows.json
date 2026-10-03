@@ -1,0 +1,454 @@
+{
+  "steps": {
+    "talk": {
+      "station": "counter",
+      "held": null,
+      "pose": "talk",
+      "duration": 1,
+      "thought": "Hi.",
+      "doing": "talking to a customer"
+    },
+    "respond": {
+      "station": "counter",
+      "held": null,
+      "pose": "talk",
+      "duration": 0,
+      "thought": "Answer them.",
+      "doing": "talking to a customer"
+    },
+    "hand_over": {
+      "station": "counter",
+      "held": "bag",
+      "pose": "reach",
+      "duration": 1,
+      "thought": "Here you go.",
+      "doing": "handing over an order"
+    },
+    "ring_up": {
+      "station": "counter",
+      "held": "bag",
+      "pose": "type",
+      "duration": 2,
+      "thought": "Ring it up.",
+      "doing": "ringing someone up"
+    },
+    "manual_ring_up": {
+      "station": "counter",
+      "held": "pen",
+      "pose": "write",
+      "duration": 4,
+      "thought": "Write the card number down.",
+      "doing": "ringing someone up by hand"
+    },
+    "make_good": {
+      "station": "counter",
+      "held": "pen",
+      "pose": "write",
+      "duration": 5,
+      "thought": "File the claim.",
+      "doing": "sorting out a damaged package"
+    },
+    "enter_order": {
+      "station": "computer",
+      "held": null,
+      "pose": "type",
+      "duration": 2,
+      "thought": "Type it in.",
+      "doing": "entering an order"
+    },
+    "send_job": {
+      "station": "computer",
+      "held": null,
+      "pose": "type",
+      "duration": 1,
+      "thought": "Send it.",
+      "doing": "sending a job to the printer"
+    },
+    "open_message": {
+      "station": "computer",
+      "held": null,
+      "pose": "type",
+      "duration": 1,
+      "thought": "Read it.",
+      "doing": "reading the inbox"
+    },
+    "leave_unread": {
+      "station": "computer",
+      "held": null,
+      "pose": "type",
+      "duration": 1,
+      "thought": "Later.",
+      "doing": "reading the inbox"
+    },
+    "fix_card_reader": {
+      "station": "computer",
+      "held": "wrench",
+      "pose": "reach",
+      "duration": 6,
+      "thought": "Turn it off and on.",
+      "doing": "fixing the card reader"
+    },
+    "restart_router": {
+      "station": "computer",
+      "held": null,
+      "pose": "reach",
+      "duration": 4,
+      "thought": "Unplug it. Plug it back in.",
+      "doing": "restarting the router"
+    },
+    "collect": {
+      "station": "printer",
+      "held": "paper",
+      "pose": "reach",
+      "duration": 1,
+      "thought": "Grab the stack.",
+      "doing": "collecting a job"
+    },
+    "reprint": {
+      "station": "printer",
+      "held": "paper",
+      "pose": "type",
+      "duration": 1,
+      "thought": "Run it again.",
+      "doing": "reprinting a job"
+    },
+    "use_anyway": {
+      "station": "printer",
+      "held": "paper",
+      "pose": "reach",
+      "duration": 1,
+      "thought": "Nobody will notice.",
+      "doing": "collecting a job"
+    },
+    "clear_jam": {
+      "station": "printer",
+      "held": "wrench",
+      "pose": "bend",
+      "duration": 5,
+      "thought": "Pull the jam.",
+      "doing": "clearing a jam"
+    },
+    "load_paper": {
+      "station": "printer",
+      "held": "ream",
+      "pose": "bend",
+      "duration": 3,
+      "thought": "Load paper.",
+      "doing": "loading paper"
+    },
+    "finish": {
+      "station": "finishing",
+      "held": "paper",
+      "pose": "work",
+      "duration": 0,
+      "thought": "Finish it.",
+      "doing": "finishing a job"
+    },
+    "bag": {
+      "station": "finishing",
+      "held": "bag",
+      "pose": "work",
+      "duration": 1,
+      "thought": "Bag it.",
+      "doing": "bagging a job"
+    },
+    "help_self_serve": {
+      "station": "self_serve",
+      "held": null,
+      "pose": "reach",
+      "duration": 3,
+      "thought": "Press the green button.",
+      "doing": "helping at self-serve"
+    },
+    "escort": {
+      "station": "self_serve",
+      "held": null,
+      "pose": "talk",
+      "duration": 1,
+      "thought": "It's this one.",
+      "doing": "showing someone the copier"
+    },
+    "fix_copier": {
+      "station": "self_serve",
+      "held": "wrench",
+      "pose": "bend",
+      "duration": 8,
+      "thought": "Fix the copier.",
+      "doing": "fixing the copier"
+    },
+    "out_of_order_sign": {
+      "station": "self_serve",
+      "held": "sign",
+      "pose": "reach",
+      "duration": 1,
+      "thought": "Out of order. Done.",
+      "doing": "taping up a sign"
+    },
+    "weigh": {
+      "station": "shipping",
+      "held": "box",
+      "pose": "work",
+      "duration": 1,
+      "thought": "Weigh it.",
+      "doing": "weighing a package"
+    },
+    "pack": {
+      "station": "shipping",
+      "held": "box",
+      "pose": "work",
+      "duration": 4,
+      "thought": "Box it.",
+      "doing": "boxing a package"
+    },
+    "tape": {
+      "station": "shipping",
+      "held": "tape",
+      "pose": "work",
+      "duration": 1,
+      "thought": "Tape it.",
+      "doing": "taping a box"
+    },
+    "tape_shut": {
+      "station": "shipping",
+      "held": "tape",
+      "pose": "work",
+      "duration": 1,
+      "thought": "Just tape it shut.",
+      "doing": "taping a box"
+    },
+    "label": {
+      "station": "shipping",
+      "held": "label",
+      "pose": "work",
+      "duration": 2,
+      "thought": "Label it.",
+      "doing": "labeling a package"
+    },
+    "bin": {
+      "station": "shipping",
+      "held": "box",
+      "pose": "bend",
+      "duration": 1,
+      "thought": "Into the bin.",
+      "doing": "putting a package in the bin"
+    },
+    "scan_dropoff": {
+      "station": "shipping",
+      "held": "box",
+      "pose": "work",
+      "duration": 1,
+      "thought": "Scan it.",
+      "doing": "scanning a drop-off"
+    },
+    "find_package": {
+      "station": "shipping",
+      "held": "box",
+      "pose": "bend",
+      "duration": 2,
+      "thought": "Find it.",
+      "doing": "looking for a package"
+    },
+    "hand_off": {
+      "station": "shipping",
+      "held": "box",
+      "pose": "reach",
+      "duration": 3,
+      "thought": "Here. Take them.",
+      "doing": "handing off to the driver"
+    },
+    "let_truck_go": {
+      "station": "shipping",
+      "held": null,
+      "pose": "stand",
+      "duration": 1,
+      "thought": "Bye.",
+      "doing": "waving off the driver"
+    },
+    "usher_out": {
+      "station": "counter",
+      "held": null,
+      "pose": "talk",
+      "duration": 1,
+      "thought": "We're closed.",
+      "doing": "showing someone out"
+    },
+    "make_copies": {
+      "station": "self_serve",
+      "held": "paper",
+      "pose": "work",
+      "duration": 0,
+      "thought": "Make the copies.",
+      "doing": "making copies for someone"
+    }
+  },
+  "workflows": {
+    "take_order": {
+      "label": "Take an order",
+      "steps": [
+        "talk",
+        "respond",
+        "enter_order",
+        "send_job"
+      ]
+    },
+    "self_serve": {
+      "label": "Send to self-serve",
+      "steps": [
+        "talk",
+        "respond",
+        "escort"
+      ]
+    },
+    "ship": {
+      "label": "Ship a package",
+      "steps": [
+        "talk",
+        "respond",
+        "weigh",
+        "pack",
+        "tape",
+        "label",
+        "bin"
+      ]
+    },
+    "dropoff": {
+      "label": "Take a drop-off",
+      "steps": [
+        "talk",
+        "respond",
+        "scan_dropoff",
+        "bin"
+      ]
+    },
+    "release_package": {
+      "label": "Release a package",
+      "steps": [
+        "talk",
+        "respond",
+        "find_package",
+        "hand_over"
+      ]
+    },
+    "pickup": {
+      "label": "Order pickup",
+      "steps": [
+        "talk",
+        "respond",
+        "ring_up"
+      ]
+    },
+    "missing_order": {
+      "label": "Where's my order?",
+      "steps": [
+        "talk",
+        "respond",
+        "enter_order",
+        "send_job"
+      ]
+    },
+    "self_serve_help": {
+      "label": "Self-serve help",
+      "steps": [
+        "talk",
+        "respond",
+        "fix_copier",
+        "help_self_serve"
+      ]
+    },
+    "complaint": {
+      "label": "Complaint",
+      "steps": [
+        "talk",
+        "respond",
+        "make_good",
+        "enter_order",
+        "send_job"
+      ]
+    },
+    "counter": {
+      "label": "Someone at the counter",
+      "steps": [
+        "talk",
+        "respond"
+      ]
+    },
+    "ring_up": {
+      "label": "Ring up",
+      "steps": [
+        "ring_up"
+      ]
+    },
+    "collect_finish": {
+      "label": "Collect and finish",
+      "steps": [
+        "collect",
+        "reprint",
+        "finish",
+        "bag"
+      ]
+    },
+    "fix_copier": {
+      "label": "Fix the copier",
+      "steps": [
+        "fix_copier"
+      ]
+    },
+    "clear_jam": {
+      "label": "Clear a jam",
+      "steps": [
+        "clear_jam"
+      ]
+    },
+    "load_paper": {
+      "label": "Load paper",
+      "steps": [
+        "load_paper"
+      ]
+    },
+    "fix_card_reader": {
+      "label": "Fix the card reader",
+      "steps": [
+        "fix_card_reader"
+      ]
+    },
+    "restart_router": {
+      "label": "Restart the router",
+      "steps": [
+        "restart_router"
+      ]
+    },
+    "hand_off": {
+      "label": "The truck",
+      "steps": [
+        "hand_off"
+      ]
+    },
+    "inbox": {
+      "label": "Inbox",
+      "steps": [
+        "open_message"
+      ]
+    },
+    "bin": {
+      "label": "Bin a package",
+      "steps": [
+        "bin"
+      ]
+    },
+    "usher_out": {
+      "label": "Show them out",
+      "steps": [
+        "usher_out"
+      ]
+    },
+    "walk_up": {
+      "label": "Make copies while they wait",
+      "steps": [
+        "talk",
+        "respond",
+        "make_copies",
+        "ring_up"
+      ]
+    }
+  }
+}

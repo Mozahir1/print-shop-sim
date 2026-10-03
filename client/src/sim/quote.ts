@@ -1,8 +1,8 @@
 // What you know when someone reaches the counter: what it costs (fees itemized), whether self-serve is an option,
-// when they need it, and when it could be ready given what's already in the printer.
+// when they need it, when it could be ready, and how much of your time each way of doing it takes.
 import type { Customer, GameState, Job, JobSpec, Timing } from "./types";
-import { DURATIONS, FINISH_SECONDS, PRINTER, RUSH_BUFFER, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
-import { fullServiceQuote, selfServeBlocker, selfServePriceCents, shipQuote, totalSheets, type FullServiceQuote, type ShipQuote } from "./orders";
+import { DURATIONS, PRINTER, RESPOND_MINUTES, RUSH_BUFFER, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
+import { finishMinutes, fullServiceQuote, selfServeBlocker, selfServePriceCents, shipQuote, totalSheets, walkUpMinutes, type FullServiceQuote, type ShipQuote } from "./orders";
 import { isPrintKind } from "./customers";
 import { jobById } from "./util";
 
@@ -17,6 +17,10 @@ export interface CounterQuote {
   standardReadyAt: number;
   rushReadyAt: number;
   tomorrow: boolean; // it can't be ready before close (or they're fine with tomorrow): it's promised for tomorrow morning
+  walkUp: boolean; // a simple job and they're waiting: full service means you make the copies yourself, right now
+  yourMinutes: number; // your time if you take it (a walk-up job: all at once, and you can't leave it)
+  printMinutes: number; // the production printer's time (it runs on its own)
+  selfServeMinutes: number; // your time if they go to self-serve: just showing them the copier
   // shipping
   ship: ShipQuote | null;
   // for deciding whether turning them away loses a sale
@@ -25,14 +29,13 @@ export interface CounterQuote {
   valueCents: number; // what doing it would bring in
 }
 
-export function printSeconds(spec: JobSpec): number {
-  return PRINTER.warmup + totalSheets(spec) / PRINTER.sheetsPerSecond;
+export function printMinutes(spec: JobSpec): number {
+  return PRINTER.warmup + totalSheets(spec) / PRINTER.sheetsPerMinute;
 }
 
-// Your time on an order from entering it to bagging it (the printing itself runs on its own).
-export function handlingSeconds(spec: JobSpec): number {
-  const finish = spec.finishing === "none" ? 0 : FINISH_SECONDS[spec.finishing];
-  return DURATIONS.enter_order + DURATIONS.send_job + DURATIONS.collect + finish + DURATIONS.bag;
+// Your time on a production order from entering it to bagging it (the printing itself runs on its own).
+export function handlingMinutes(spec: JobSpec): number {
+  return DURATIONS.enter_order + DURATIONS.send_job + DURATIONS.collect + finishMinutes(spec) + DURATIONS.bag;
 }
 
 // Printer time still owed to what's in the printer queue: whatever's printing, plus what's waiting to print (only
@@ -41,27 +44,27 @@ export function handlingSeconds(spec: JobSpec): number {
 function printerBacklog(state: GameState, rush: boolean): number {
   let seconds = 0;
   for (const j of state.jobs) {
-    if (j.status === "printing") seconds += (j.sheets - j.sheetsPrinted) / PRINTER.sheetsPerSecond;
-    else if (j.status === "queued" && (!rush || j.rush)) seconds += printSeconds(j.spec);
+    if (j.status === "printing") seconds += (j.sheets - j.sheetsPrinted) / PRINTER.sheetsPerMinute;
+    else if (j.status === "queued" && (!rush || j.rush)) seconds += printMinutes(j.spec);
   }
   return seconds;
 }
 
 // A simple estimate of when a new order could be ready, from the printer queue.
 export function estimateReadyAt(state: GameState, spec: JobSpec, rush: boolean): number {
-  return Math.round(state.time + printerBacklog(state, rush) + printSeconds(spec) + handlingSeconds(spec));
+  return Math.round(state.time + printerBacklog(state, rush) + printMinutes(spec) + handlingMinutes(spec));
 }
 
 // Would rushing this push an order that's already waiting to print past its due time? (Rushes print first.)
 export function rushBumpsSomeone(state: GameState, spec: JobSpec): boolean {
-  const extra = printSeconds(spec);
+  const extra = printMinutes(spec);
   let ahead = 0;
-  for (const j of state.jobs) if (j.status === "printing") ahead += (j.sheets - j.sheetsPrinted) / PRINTER.sheetsPerSecond;
+  for (const j of state.jobs) if (j.status === "printing") ahead += (j.sheets - j.sheetsPrinted) / PRINTER.sheetsPerMinute;
   for (const id of state.printer.queue) {
     const j = jobById(state, id);
     if (!j) continue;
-    ahead += printSeconds(j.spec);
-    if (!j.rush && j.dueDay === state.day && state.time + ahead + extra + handlingSeconds(j.spec) > j.dueAt) return true;
+    ahead += printMinutes(j.spec);
+    if (!j.rush && j.dueDay === state.day && state.time + ahead + extra + handlingMinutes(j.spec) > j.dueAt) return true;
   }
   return false;
 }
@@ -77,6 +80,10 @@ export function quoteFor(state: GameState, c: Customer): CounterQuote {
     standardReadyAt: state.time,
     rushReadyAt: state.time,
     tomorrow: false,
+    walkUp: false,
+    yourMinutes: 0,
+    printMinutes: 0,
+    selfServeMinutes: RESPOND_MINUTES.self_serve + DURATIONS.escort,
     ship: null,
     doable: true,
     worth: false,
@@ -87,12 +94,20 @@ export function quoteFor(state: GameState, c: Customer): CounterQuote {
     q.timing = c.timing;
     q.needBy = c.needBy;
     q.standard = fullServiceQuote(spec, false);
-    const ready = estimateReadyAt(state, spec, false);
-    q.standardReadyAt = Math.max(ready, state.time + STANDARD_LEAD);
-    q.rushReadyAt = estimateReadyAt(state, spec, true) + RUSH_BUFFER;
-    q.tomorrow = c.timing === "tomorrow" || q.standardReadyAt > state.closeAt;
+    q.walkUp = c.timing === "wait" && selfServeBlocker(spec) === null;
+    if (q.walkUp) {
+      // You make the copies yourself, now, while they wait: ready when you're done.
+      q.yourMinutes = RESPOND_MINUTES.take + walkUpMinutes(spec) + DURATIONS.ring_up;
+      q.standardReadyAt = q.rushReadyAt = state.time + q.yourMinutes - DURATIONS.ring_up;
+    }
+    q.printMinutes = q.walkUp ? 0 : Math.round(printMinutes(spec));
+    if (!q.walkUp) q.yourMinutes = RESPOND_MINUTES.take + handlingMinutes(spec) + DURATIONS.ring_up;
+    const ready = q.walkUp ? q.standardReadyAt : estimateReadyAt(state, spec, false);
+    q.standardReadyAt = q.walkUp ? ready : Math.max(ready, state.time + STANDARD_LEAD);
+    if (!q.walkUp) q.rushReadyAt = estimateReadyAt(state, spec, true) + RUSH_BUFFER;
+    q.tomorrow = !q.walkUp && (c.timing === "tomorrow" || q.standardReadyAt > state.closeAt);
     // A rush is offered when they need it sooner than standard, and a rush would actually get it to them sooner.
-    if (c.needBy !== null && c.needBy < q.standardReadyAt && q.rushReadyAt < q.standardReadyAt && q.rushReadyAt <= state.closeAt) q.rush = fullServiceQuote(spec, true);
+    if (!q.walkUp && c.needBy !== null && c.needBy < q.standardReadyAt && q.rushReadyAt < q.standardReadyAt && q.rushReadyAt <= state.closeAt) q.rush = fullServiceQuote(spec, true);
     q.selfServeBlocker = selfServeBlocker(spec) ?? (c.timing !== "wait" ? "They aren't staying in the store." : null) ?? (c.refusedSelfServe ? "They want full service." : null) ?? (state.copier.status !== "ok" ? "The self-serve copier is broken." : null);
     if (!q.selfServeBlocker) q.selfServeCents = selfServePriceCents(spec);
     q.doable = c.needBy === null || Math.min(q.standardReadyAt, q.rushReadyAt) <= c.needBy;

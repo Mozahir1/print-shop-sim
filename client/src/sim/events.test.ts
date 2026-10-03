@@ -5,7 +5,7 @@ import { botAct, createBot } from "./bot";
 import { spawnCustomer } from "./customers";
 import { activeCount, todoList } from "./todo";
 import { EVENTS } from "./config";
-import { collect, doTask, runUntil, talkTo, calm } from "./testkit";
+import { doTask, makeReady, runUntil, talkTo, calm } from "./testkit";
 import type { JobSpec } from "./types";
 
 // These are about the work, not how customers react: nobody balks.
@@ -29,11 +29,9 @@ function closeDay(sim: Sim) {
 
 // A customer whose order is printing right now.
 function printing(sim: Sim, copies = 200) {
-  const c = spawnCustomer(sim.state, sim.rng.dev, "quick_copies", { spec: plain({ copies }) });
+  const c = spawnCustomer(sim.state, sim.rng.dev, "quick_copies", { spec: plain({ copies, media: "cardstock" }), timing: "wait", needIn: 400 });
   talkTo(sim, c);
   const job = sim.state.jobs.find((j) => j.id === c.jobId)!;
-  doTask(sim, { type: "enter_order", jobId: job.id });
-  doTask(sim, { type: "send_job", jobId: job.id });
   runUntil(sim, () => job.sheetsPrinted > 0);
   return { c, job };
 }
@@ -65,7 +63,7 @@ describe("the day's bad luck", () => {
       rolled++;
       if (e.status === "pending") continue; // e.g. no box got packed after it was due to rip
       fired++;
-      expect(e.status).toBe("fixed");
+      expect(["fixed", "worked_around"]).toContain(e.status); // e.g. ringing someone up by hand mid-checkout
     }
     expect(fired).toBeGreaterThan(rolled / 2);
   });
@@ -75,7 +73,7 @@ describe("the day's bad luck", () => {
     sim.state.event = { kind: "card_reader_down", at: 0, status: "pending", firedAt: null };
     for (let i = 0; i < 3; i++) spawnCustomer(sim.state, sim.rng.dev, "dropoff");
     sim.state.director.enabled = false;
-    for (let i = 0; i < 20; i++) tick(sim, 1);
+    for (let i = 0; i < 5; i++) tick(sim, 1);
     expect(sim.state.event.status).toBe("pending");
   });
 
@@ -132,14 +130,17 @@ describe("self-serve copier dies", () => {
     expect(sim.state.copier.status).toBe("broken");
   });
 
-  it("or ignore it: nobody can be helped, and it's on you at close", () => {
+  it("or ignore it: whoever needs it comes to the counter about it (a failure you see), and it's on you at close", () => {
     const sim = quiet();
     devEvent(sim, "copier_dies");
     const c = spawnCustomer(sim.state, sim.rng.dev, "self_serve_help");
-    talkTo(sim, c);
-    expect(canStart(sim.state, { type: "help_self_serve", customerId: c.id })).toMatch(/broken/);
+    doTask(sim, { type: "talk", customerId: c.id });
+    expect(c.said).toBe("The copier's dead. I need these today.");
+    expect(sim.state.failures.at(-1)).toMatchObject({ kind: "copier_broken", customerId: c.id });
+    doTask(sim, { type: "respond", customerId: c.id, choice: "ignore" });
     closeDay(sim);
     expect(sim.state.event!.status).toBe("ignored");
+    expect(sim.state.failures.some((f) => f.kind === "left_broken")).toBe(true);
   });
 });
 
@@ -149,8 +150,7 @@ describe("card reader down", () => {
     const s = sim.state;
     const { c, job } = printing(sim, 5);
     devEvent(sim, "card_reader_down");
-    collect(sim, job);
-    doTask(sim, { type: "bag", jobId: job.id });
+    makeReady(sim, job);
     expect(canStart(s, { type: "ring_up", customerId: c.id })).toMatch(/card reader/);
     expect(todoList(s).some((t) => t.req.type === "manual_ring_up")).toBe(true);
     doTask(sim, { type: "manual_ring_up", customerId: c.id });
@@ -183,7 +183,6 @@ describe("box rips", () => {
   function shipper(sim: Sim) {
     const c = spawnCustomer(sim.state, sim.rng.dev, "ship");
     talkTo(sim, c);
-    doTask(sim, { type: "weigh", packageId: c.packageId! });
     return c;
   }
 
@@ -195,8 +194,8 @@ describe("box rips", () => {
     const pkg = sim.state.packages[0];
     expect(pkg.status).toBe("weighed");
     expect(sim.state.event!.status).toBe("active");
-    doTask(sim, { type: "pack", packageId: pkg.id });
-    expect(pkg.status).toBe("packed");
+    doTask(sim, { type: "pack", packageId: pkg.id }); // taped, labeled, binned
+    expect(pkg.status).toBe("binned");
     expect(sim.state.event!.status).toBe("fixed");
   });
 

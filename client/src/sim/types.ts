@@ -24,7 +24,7 @@ export interface JobSpec {
 // entered: in the computer, not sent. queued/printing: at the printer. printed: waiting in the printer's output.
 // collected: picked up from the printer, waiting for finishing. finished: finishing done, not bagged yet.
 // bagged: ready for the customer. picked_up: gone with the customer.
-export type JobStatus = "new" | "unread" | "entered" | "queued" | "printing" | "printed" | "collected" | "finished" | "bagged" | "picked_up";
+export type JobStatus = "new" | "unread" | "entered" | "queued" | "printing" | "printed" | "collected" | "finished" | "bagged" | "picked_up" | "canceled";
 
 export interface Job {
   id: number;
@@ -40,6 +40,7 @@ export interface Job {
   serviceFeeCents: number;
   rushCents: number;
   rush: boolean; // jumps the printer queue
+  walkUp: boolean; // a simple job you make yourself while they wait (instead of the production printer)
   sheetsPrinted: number; // float while printing
   orderedAt: number;
   dueDay: number; // the day it's promised for...
@@ -62,7 +63,8 @@ export type RequestKind =
   | "order_pickup"
   | "package_pickup"
   | "self_serve_help"
-  | "complaint"; // back because of something you did (a damaged box, smudged copies)
+  | "complaint" // back because of something you did (a damaged box, smudged copies)
+  | "business"; // a business client with a big order: worth a lot, and they won't wait around
 
 export type ShipService = "ground" | "two_day" | "overnight";
 export type BoxSize = "small" | "medium" | "large";
@@ -73,6 +75,9 @@ export type BoxSize = "small" | "medium" | "large";
 export type CustomerState = "line" | "talking" | "waiting" | "self_serve" | "away" | "gone";
 
 export type Mood = "happy" | "neutral" | "angry";
+
+// How a waiting customer is doing. Each change is a cue they say out loud; "gone" means they left.
+export type PatienceStage = "fine" | "annoyed" | "angry" | "gone";
 
 // Every choice is one of three: do it (properly), don't (decline it, or cut the corner), or ignore it.
 export type ChoiceType = "do" | "dont" | "ignore";
@@ -88,7 +93,7 @@ export interface Choice {
   time: number;
   type: ChoiceType;
   action?: CounterAction; // at the counter: which kind of Do (or Don't)
-  what: "counter" | "smudge" | "copier" | "pack" | "inbox" | "truck" | "event";
+  what: "counter" | "smudge" | "copier" | "pack" | "inbox" | "truck" | "event" | "work"; // work: walked away from a workflow
   customerId?: number;
   auto?: boolean; // you didn't answer in time: counts as ignoring them
 }
@@ -97,6 +102,7 @@ export type CustomerOutcome =
   | "served" // got what they came for (self-serve included)
   | "turned_away" // you said no
   | "balked" // didn't like the fee or the timing, and left
+  | "closed" // the store closed (they went at close, or you showed them out)
   | "left"; // gave up waiting and left
 
 export interface Customer {
@@ -108,6 +114,9 @@ export interface Customer {
   timing: Timing; // print requests: when they want it
   needBy: number | null; // the latest it's any use to them today (null: tomorrow is fine)
   refusedSelfServe: boolean; // asked to use self-serve, and wants full service instead
+  goingToSelfServe: boolean; // agreed to self-serve: you're about to show them the copier
+  lingering: boolean; // stayed past closing (and won't leave on their own)
+  couldSelfServe: boolean; // you turned them away when they could have used self-serve
   selfServeUntil: number | null; // self_serve: when they're done copying
   weightLb: number; // ship: how heavy the box is
   service: ShipService; // ship: how fast
@@ -118,12 +127,13 @@ export interface Customer {
   mood: number; // starts happy (1); waiting, lateness, being turned away, and bad work bring it down (see moodOf)
   choices: number; // counter choices made with them this visit (keys their reaction rolls)
   ignored: number; // times you ignored them
-  patience: number; // seconds they'll wait (in line and for their order) before they're fed up
-  waited: number; // seconds waited this visit
-  fedUp: boolean; // waited past their patience and said so
+  giveUp: number; // seconds of waiting before they give up and leave (see PATIENCE_STAGES for annoyed and angry)
+  waited: number; // seconds waited this visit (waiting for an order only counts once it's overdue)
+  stage: PatienceStage;
   answerBy: number | null; // talking: past this, not answering counts as ignoring them
   about: FlagKind | null; // complaint: what they're back about
-  said: string | null; // the last thing they said
+  said: string | null; // the last thing they said...
+  saidAt: number | null; // ...and when (for speech bubbles)
   outcome: CustomerOutcome | null;
   leftAt: number | null;
 }
@@ -132,7 +142,7 @@ export interface Customer {
 
 // Outgoing: new (at the counter) -> weighed -> packed -> labeled -> binned -> shipped. Drop-offs: scanned -> binned.
 // Held packages: held -> found -> picked_up.
-export type PackageStatus = "new" | "weighed" | "packed" | "labeled" | "scanned" | "binned" | "shipped" | "held" | "found" | "picked_up";
+export type PackageStatus = "new" | "weighed" | "boxed" | "packed" | "labeled" | "scanned" | "binned" | "shipped" | "held" | "found" | "picked_up";
 
 export interface Package {
   id: number;
@@ -188,7 +198,7 @@ export interface BadLuck {
 
 // ---------- the computer ----------
 
-export type MessageKind = "web_order" | "note" | "complaint" | "warning" | "write_up" | "reward" | "fired";
+export type MessageKind = "web_order" | "note" | "complaint" | "survey" | "warning" | "write_up" | "reward" | "fired";
 
 export interface Message {
   id: number;
@@ -205,7 +215,7 @@ export interface Message {
 
 // Why the manager is unhappy. Heat is tallied by cause so getting fired can say why. Late and unfinished orders
 // count as complaints (that's how the manager hears about them).
-export type HeatCause = "complaints" | "ignoring" | "lost_sales";
+export type HeatCause = "complaints" | "ignoring" | "lost_sales" | "overtime";
 
 // Something you did that comes back later (see consequences.ts).
 export type FlagKind = "damaged_box" | "smudged_return" | "packages_left";
@@ -237,6 +247,79 @@ export interface ManagerState {
   visitsDue: { name: string; about: FlagKind }[]; // people coming back to complain, when there's room
 }
 
+// ---------- failures ----------
+
+// Things that went wrong, each with a moment you can see (and a line in the end-of-day report, by name).
+export type FailureKind =
+  | "walked_out"
+  | "missing_order"
+  | "never_ready"
+  | "late_order"
+  | "damaged_package"
+  | "smudged_return"
+  | "copier_broken"
+  | "packages_left"
+  | "lost_sale"
+  | "left_broken"
+  | "left_work"
+  | "lost_business";
+
+export interface Failure {
+  time: number;
+  kind: FailureKind;
+  text: string;
+  customerId?: number;
+  jobId?: number;
+}
+
+export type ManagerMood = "calm" | "annoyed" | "unhappy";
+
+export interface WentHome {
+  at: number;
+  onTime: boolean; // within the grace period after close, with nothing left undone
+  overtime: number; // seconds past close
+  leftUndone: string[]; // what you left behind
+  sentHome: boolean; // the manager locked up
+}
+
+// ---------- workflows ----------
+
+export type WorkflowKind =
+  | "take_order"
+  | "self_serve"
+  | "ship"
+  | "dropoff"
+  | "release_package"
+  | "pickup"
+  | "walk_up"
+  | "missing_order"
+  | "self_serve_help"
+  | "complaint"
+  | "counter"
+  | "ring_up"
+  | "collect_finish"
+  | "fix_copier"
+  | "clear_jam"
+  | "load_paper"
+  | "fix_card_reader"
+  | "restart_router"
+  | "hand_off"
+  | "inbox"
+  | "bin"
+  | "usher_out";
+
+// A multi-step job you're in the middle of. While it's on, nothing unrelated can start (see workflow.ts).
+export interface Workflow {
+  kind: WorkflowKind;
+  customerId?: number;
+  jobId?: number;
+  packageId?: number;
+  messageId?: number;
+  done: TaskType[]; // steps finished in this workflow (most steps also show as done from the state of things)
+  fixFirst?: boolean; // self-serve help: you chose to fix the copier first
+  startedAt: number;
+}
+
 // ---------- you ----------
 
 export type TaskType =
@@ -245,6 +328,8 @@ export type TaskType =
   | "respond"
   | "hand_over"
   | "ring_up"
+  | "make_good"
+  | "usher_out"
   // computer
   | "enter_order"
   | "send_job"
@@ -264,11 +349,14 @@ export type TaskType =
   | "bag"
   // self-serve
   | "help_self_serve"
+  | "make_copies" // full service on a walk-up job: you make the copies while they wait
+  | "escort"
   | "fix_copier"
   | "out_of_order_sign"
   // shipping
   | "weigh"
   | "pack"
+  | "tape"
   | "tape_shut"
   | "label"
   | "bin"
@@ -321,6 +409,11 @@ export interface DayStats {
   balked: number; // left over a fee or the timing
   rushOrders: number;
   lateOrders: number;
+  refundsCents: number;
+  surveys: number; // rare: customers who filled out a survey
+  badSurveys: number;
+  businessWon: number;
+  businessLost: number;
   ordersTaken: number;
   webOrders: number;
   sheets: number;
@@ -351,6 +444,9 @@ export interface GameState {
   cardReader: "ok" | "down";
   wifi: { down: boolean; backAt: number };
   choices: Choice[];
+  failures: Failure[];
+  workflow: Workflow | null;
+  wentHome: WentHome | null; // set when you go home: the day is over
   captions: { time: number; moment: string; text: string }[]; // the MC's monologue
   manager: ManagerState;
   director: DirectorState;

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { canStart, createSim, isDayOver, tick, type Sim } from "./sim";
 import { botAct, createBot } from "./bot";
-import { placeWebOrder, spawnCustomer } from "./customers";
+import { placeWebOrder, returnCustomer, spawnCustomer } from "./customers";
 import { moodOf } from "./mood";
 import { quoteFor } from "./quote";
 import { activeCount, todoList } from "./todo";
-import { ANSWER_WITHIN, DURATIONS, FULL_SERVICE, HEAT, LEAVE_AFTER, REACTIONS, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
-import { calm, collect, doTask, runUntil, talkTo } from "./testkit";
+import { ANSWER_WITHIN, DURATIONS, FULL_SERVICE, GIVE_UP, HEAT, REACTIONS, RESPOND_MINUTES, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
+import { walkUpMinutes } from "./orders";
+import { calm, doTask, makeReady, runUntil, talkTo } from "./testkit";
 import type { Customer, JobSpec } from "./types";
 
 const plain = (s: Partial<JobSpec> = {}): JobSpec => ({ item: "document", originals: 1, copies: 1, color: "bw", media: "letter", duplex: false, finishing: "none", ...s });
@@ -31,37 +32,42 @@ function at(sim: Sim, c: Customer) {
 
 function make(sim: Sim, c: Customer) {
   const job = sim.state.jobs.find((j) => j.id === c.jobId)!;
-  doTask(sim, { type: "enter_order", jobId: job.id });
-  doTask(sim, { type: "send_job", jobId: job.id });
-  collect(sim, job);
-  if (job.spec.finishing !== "none") doTask(sim, { type: "finish", jobId: job.id });
-  doTask(sim, { type: "bag", jobId: job.id });
+  makeReady(sim, job);
   return job;
 }
 
 describe("the counter quote", () => {
-  it("itemizes fees, says when they need it, offers self-serve if it's an option, and estimates from the printer queue", () => {
+  it("a walk-up job: fees itemized, the self-serve price, and how much of your time each way takes", () => {
     const sim = quiet();
-    const c = spawnCustomer(sim.state, sim.rng.dev, "quick_copies", { spec: plain({ copies: 10 }), timing: "wait", needIn: 300 });
+    const c = spawnCustomer(sim.state, sim.rng.dev, "quick_copies", { spec: plain({ originals: 4, copies: 10 }), timing: "wait", needIn: 300 });
     const q = at(sim, c);
-    expect(q.standard).toEqual({ printCents: 150, serviceFeeCents: FULL_SERVICE.serviceFeeCents, rushCents: 0, totalCents: 150 + FULL_SERVICE.serviceFeeCents });
-    expect(q.selfServeCents).toBeGreaterThan(0);
-    expect(q.selfServeCents!).toBeLessThan(q.standard!.totalCents);
-    expect(q.standardReadyAt).toBe(sim.state.time + STANDARD_LEAD); // standard turnaround
-    expect(q.rush).toBeNull(); // they're not in a hurry
-    expect(q.timing).toBe("wait");
+    expect(q.standard).toEqual({ printCents: 600, serviceFeeCents: FULL_SERVICE.serviceFeeCents, rushCents: 0, totalCents: 600 + FULL_SERVICE.serviceFeeCents });
+    expect(q.walkUp).toBe(true); // full service means you make them yourself, now
+    expect(q.yourMinutes).toBe(RESPOND_MINUTES.take + walkUpMinutes(c.spec!) + DURATIONS.ring_up);
+    expect(q.yourMinutes).toBeGreaterThan(10);
+    expect(q.selfServeCents!).toBeLessThan(q.standard!.totalCents); // less money...
+    expect(q.selfServeMinutes).toBeLessThanOrEqual(2); // ...but almost none of your time
+    expect(q.rush).toBeNull();
+  });
+
+  it("a production job: standard turnaround from the printer queue, your time spread out", () => {
+    const sim = quiet();
+    const c = spawnCustomer(sim.state, sim.rng.dev, "large_job", { spec: plain({ copies: 10, media: "cardstock" }), timing: "back", needIn: 300 });
+    const q = at(sim, c);
+    expect(q.walkUp).toBe(false);
+    expect(q.standardReadyAt).toBe(sim.state.time + STANDARD_LEAD);
+    expect(q.selfServeCents).toBeNull();
+    expect(q.printMinutes).toBeGreaterThan(0);
   });
 
   it("the estimate grows with what's in the printer queue", () => {
     const sim = quiet();
     const s = sim.state;
     for (let i = 0; i < 2; i++) {
-      const big = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 200, originals: 2 }), timing: "back", needIn: 1000 });
-      talkTo(sim, big);
-      doTask(sim, { type: "enter_order", jobId: big.jobId! });
-      doTask(sim, { type: "send_job", jobId: big.jobId! });
+      const big = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 600, originals: 2 }), timing: "back", needIn: 1000 });
+      talkTo(sim, big); // entered and sent
     }
-    const c = spawnCustomer(s, sim.rng.dev, "quick_copies", { spec: plain({ copies: 10 }), timing: "wait", needIn: 60 });
+    const c = spawnCustomer(s, sim.rng.dev, "quick_copies", { spec: plain({ copies: 10, media: "cardstock" }), timing: "wait", needIn: 60 });
     const q = at(sim, c);
     expect(q.standardReadyAt).toBeGreaterThan(s.time + STANDARD_LEAD);
     expect(q.rush).not.toBeNull(); // needed sooner than standard
@@ -86,7 +92,7 @@ describe("the counter quote", () => {
 describe("Do / Don't / Ignore at the counter", () => {
   it("Do: take the order, standard turnaround, paid at pickup", () => {
     const sim = quiet();
-    const c = spawnCustomer(sim.state, sim.rng.dev, "quick_copies", { spec: plain({ copies: 10 }), timing: "wait", needIn: 300 });
+    const c = spawnCustomer(sim.state, sim.rng.dev, "quick_copies", { spec: plain({ copies: 10, media: "cardstock" }), timing: "wait", needIn: 300 });
     talkTo(sim, c, "take");
     const job = sim.state.jobs[0];
     expect(job.rush).toBe(false);
@@ -113,11 +119,7 @@ describe("Do / Don't / Ignore at the counter", () => {
     const rush = s.jobs.find((j) => j.customerId === hurry.id)!;
     expect(rush.rush).toBe(true);
     expect(rush.rushCents).toBeGreaterThanOrEqual(FULL_SERVICE.rushMinCents);
-    for (const j of s.jobs) {
-      doTask(sim, { type: "enter_order", jobId: j.id });
-      doTask(sim, { type: "send_job", jobId: j.id });
-    }
-    expect(s.printer.queue[0] === rush.id || s.printer.currentJobId === rush.id).toBe(true);
+    expect(s.printer.queue[0] === rush.id || s.printer.currentJobId === rush.id).toBe(true); // ahead of the others
     expect(s.stats.rushOrders).toBe(1);
 
     const relaxed = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain(), timing: "back", needIn: 1000 });
@@ -187,13 +189,14 @@ describe("Do / Don't / Ignore at the counter", () => {
     expect(moodOf(c)).toBe("neutral");
   });
 
-  it("online orders can't be turned away", () => {
+  it("online orders can't be turned away when they come for them", () => {
     const sim = quiet();
     const s = sim.state;
     const job = placeWebOrder(s, sim.rng.dev, { spec: plain() });
+    doTask(sim, { type: "open_message", messageId: s.messages.find((m) => m.jobId === job.id)!.id });
+    makeReady(sim, job);
     const c = s.customers.find((x) => x.id === job.customerId)!;
-    c.state = "line";
-    c.lineTicket = s.nextLineNo++;
+    returnCustomer(s, c);
     doTask(sim, { type: "talk", customerId: c.id });
     expect(canStart(s, { type: "respond", customerId: c.id, choice: "turn_away" })).toMatch(/can't be turned away/);
   });
@@ -207,8 +210,7 @@ describe("Do / Don't / Ignore at the counter", () => {
     expect(c.ignored).toBe(1);
     expect(s.manager.heatBy.ignoring).toBe(HEAT.ignore);
     expect(s.choices.at(-1)).toMatchObject({ type: "ignore", action: "ignore" });
-    talkTo(sim, c, "take");
-    doTask(sim, { type: "scan_dropoff", customerId: c.id });
+    talkTo(sim, c, "take"); // scanned and binned
     expect(moodOf(c)).toBe("neutral"); // ignored once, then helped
   });
 
@@ -226,8 +228,7 @@ describe("Do / Don't / Ignore at the counter", () => {
     for (let seed = 1; seed <= 10; seed++) {
       const sim = quiet(seed);
       const c = spawnCustomer(sim.state, sim.rng.dev, "self_serve_help");
-      talkTo(sim, c);
-      doTask(sim, { type: "help_self_serve", customerId: c.id });
+      talkTo(sim, c); // and helped
       expect(moodOf(c)).toBe("happy");
     }
   });
@@ -269,12 +270,12 @@ describe("customer reactions", () => {
   it("if it can't be ready in time, some take the later time and some leave", () => {
     const sim = quiet();
     const s = sim.state;
-    const ok = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20 }), timing: "wait", needIn: 40 });
+    const ok = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20, media: "cardstock" }), timing: "wait", needIn: 40 });
     talkTo(sim, ok, "take");
     const job = s.jobs[0];
     expect(job.dueAt).toBeGreaterThan(ok.needBy!); // they took the later time
     REACTIONS.acceptLater = 0;
-    const no = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20 }), timing: "wait", needIn: 40 });
+    const no = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20, media: "cardstock" }), timing: "wait", needIn: 40 });
     talkTo(sim, no, "take");
     expect(no.outcome).toBe("balked");
   });
@@ -330,15 +331,44 @@ describe("late orders", () => {
 });
 
 describe("patience", () => {
-  it("waiting too long: fed up first, then they walk out angry", () => {
+  it("nobody helping them: annoyed, then angry (each said out loud), then they leave within the give-up time", () => {
     const sim = quiet();
-    const c = spawnCustomer(sim.state, sim.rng.dev, "package_pickup");
-    runUntil(sim, () => c.fedUp);
-    expect(c.state).toBe("line");
-    runUntil(sim, () => c.state === "gone");
-    expect(c.waited).toBeGreaterThan(c.patience * LEAVE_AFTER);
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "package_pickup");
+    const seen: string[] = [];
+    runUntil(sim, () => {
+      if (seen.at(-1) !== c.stage) seen.push(c.stage);
+      return c.state === "gone";
+    });
+    expect(seen).toEqual(["fine", "annoyed", "angry", "gone"]);
+    expect(s.time).toBeLessThanOrEqual(GIVE_UP.package_pickup + 1);
     expect(c.outcome).toBe("left");
     expect(moodOf(c)).toBe("angry");
+    expect(s.failures.map((f) => f.kind)).toEqual(["walked_out"]);
+  });
+
+  it("an ignored customer leaves within the configured window", () => {
+    const sim = quiet();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "quick_copies", { spec: plain(), timing: "wait", needIn: 300 });
+    talkTo(sim, c, "ignore");
+    const ignoredAt = s.time;
+    runUntil(sim, () => c.state === "gone");
+    expect(s.time - ignoredAt).toBeLessThanOrEqual(GIVE_UP.quick_copies);
+    expect(c.said).toBe("I'll go somewhere else.");
+  });
+
+  it("waiting for an order only counts once it's overdue", () => {
+    const sim = quiet();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20, media: "cardstock" }), timing: "wait", needIn: 300 });
+    talkTo(sim, c);
+    const job = s.jobs[0];
+    runUntil(sim, () => s.time >= job.dueAt);
+    expect(c.stage).toBe("fine");
+    runUntil(sim, () => c.state === "gone"); // nobody ever finishes it
+    expect(s.failures.at(-1)).toMatchObject({ kind: "never_ready", jobId: job.id });
+    expect(s.failures.at(-1)!.text).toBe(`Order #${job.id} was never finished. ${c.name} left without it.`);
   });
 
   it("is generous: an attentive player never runs out of anyone's patience", () => {
@@ -368,18 +398,17 @@ describe("Do / Don't / Ignore on the work", () => {
     for (let seed = 1; ; seed++) {
       const sim = quiet(seed);
       const s = sim.state;
-      const c = spawnCustomer(s, sim.rng.dev, "quick_copies", { spec: plain({ copies: 5 }), timing: "wait", needIn: 300 });
+      const c = spawnCustomer(s, sim.rng.dev, "quick_copies", { spec: plain({ copies: 5, media: "cardstock" }), timing: "wait", needIn: 300 });
       talkTo(sim, c);
       const job = s.jobs[0];
-      doTask(sim, { type: "enter_order", jobId: job.id });
-      doTask(sim, { type: "send_job", jobId: job.id });
       runUntil(sim, () => job.status === "printed");
       doTask(sim, { type: "collect", jobId: job.id });
       if (job.smudge !== "found") continue;
+      // The collect-and-finish workflow stops at the choice.
       expect(todoList(s)[0]).toMatchObject({ req: { type: "reprint", jobId: job.id }, alts: [{ type: "use_anyway", jobId: job.id }] });
-      doTask(sim, { type: "use_anyway", jobId: job.id });
-      expect(s.choices.at(-1)).toMatchObject({ type: "dont", what: "smudge" });
-      doTask(sim, { type: "bag", jobId: job.id });
+      doTask(sim, { type: "use_anyway", jobId: job.id }); // and bags it
+      expect(job.status).toBe("bagged");
+      expect(s.choices.find((x) => x.what === "smudge")).toMatchObject({ type: "dont" });
       doTask(sim, { type: "ring_up", customerId: c.id });
       expect(moodOf(c)).toBe("angry");
       return;
@@ -390,12 +419,12 @@ describe("Do / Don't / Ignore on the work", () => {
     const sim = quiet();
     const s = sim.state;
     s.copier.status = "broken";
-    const c = spawnCustomer(s, sim.rng.dev, "self_serve_help");
-    talkTo(sim, c);
     doTask(sim, { type: "out_of_order_sign" });
     expect(s.choices.at(-1)).toMatchObject({ type: "dont", what: "copier" });
-    doTask(sim, { type: "help_self_serve", customerId: c.id });
+    const c = spawnCustomer(s, sim.rng.dev, "self_serve_help");
+    talkTo(sim, c, "turn_away"); // "Sorry, it's broken."
     expect(moodOf(c)).toBe("angry");
+    expect(s.failures.map((f) => f.kind)).toContain("copier_broken");
     doTask(sim, { type: "fix_copier" });
     expect(s.choices.at(-1)).toMatchObject({ type: "do", what: "copier" });
     expect(s.copier).toEqual({ status: "ok", sign: false });
@@ -405,13 +434,11 @@ describe("Do / Don't / Ignore on the work", () => {
     const sim = quiet();
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.dev, "ship");
-    talkTo(sim, c);
-    doTask(sim, { type: "weigh", packageId: c.packageId! });
-    doTask(sim, { type: "tape_shut", packageId: c.packageId! });
-    doTask(sim, { type: "label", packageId: c.packageId! });
-    expect(s.packages[0].taped).toBe(true);
+    talkTo(sim, c); // weighed, then it stops: box it, or just tape it shut?
+    doTask(sim, { type: "tape_shut", packageId: c.packageId! }); // labeled and binned
+    expect(s.packages[0]).toMatchObject({ taped: true, status: "binned" });
     expect(moodOf(c)).toBe("angry");
-    expect(s.choices.at(-1)).toMatchObject({ type: "dont", what: "pack" });
+    expect(s.choices.find((x) => x.what === "pack")).toMatchObject({ type: "dont" });
   });
 
   it("inbox: open a web order (Do) or leave it unread (Ignore); it's off your list until they come in", () => {
@@ -433,14 +460,13 @@ describe("Do / Don't / Ignore on the work", () => {
       const sim = quiet();
       const s = sim.state;
       const c = spawnCustomer(s, sim.rng.dev, "dropoff");
-      talkTo(sim, c);
-      doTask(sim, { type: "scan_dropoff", customerId: c.id });
-      doTask(sim, { type: "bin", packageId: s.packages[0].id });
+      talkTo(sim, c); // scanned and binned
       runUntil(sim, () => s.truck.status === "waiting");
       if (how === "dont") doTask(sim, { type: "let_truck_go" });
       runUntil(sim, () => s.truck.status === "gone");
       expect(s.packages[0].status).toBe("binned");
       expect(s.choices.at(-1)).toMatchObject({ type: how, what: "truck" });
+      expect(s.failures.at(-1)).toMatchObject({ kind: "packages_left" });
     }
   });
 });

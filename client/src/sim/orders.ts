@@ -11,6 +11,8 @@ import {
   SELF_SERVE_PER_SIDE,
   SHIPPING,
   SHIP_RATE,
+  FINISH,
+  WALK_UP,
 } from "./config";
 
 export function sheetsPerCopy(spec: JobSpec): number {
@@ -63,6 +65,20 @@ export function fullServiceQuote(spec: JobSpec, rush: boolean): FullServiceQuote
   return { printCents, serviceFeeCents, rushCents, totalCents: printCents + serviceFeeCents + rushCents };
 }
 
+// ---------- how long it takes you ----------
+
+// Minutes of finishing work: grows with the job (stapling 300 brochures isn't stapling 3).
+export function finishMinutes(spec: JobSpec): number {
+  if (spec.finishing === "none") return 0;
+  const f = FINISH[spec.finishing];
+  return Math.max(1, Math.round(f.base + f.perCopy * spec.copies + f.perSheet * totalSheets(spec)));
+}
+
+// Minutes to make a walk-up job yourself (full service while they wait), finishing included.
+export function walkUpMinutes(spec: JobSpec): number {
+  return Math.round(WALK_UP.setupMinutes + impressions(spec) / WALK_UP.sidesPerMinute) + finishMinutes(spec);
+}
+
 // ---------- self-serve ----------
 
 // Why this job can't be done at the self-serve copier, or null if it can: plain paper and nothing that needs the
@@ -79,7 +95,7 @@ export function selfServePriceCents(spec: JobSpec): number {
 
 // How long they spend at the copier.
 export function selfServeSeconds(spec: JobSpec): number {
-  return Math.min(SELF_SERVE.maxSeconds, Math.round(SELF_SERVE.setupSeconds + impressions(spec) / SELF_SERVE.sidesPerSecond));
+  return Math.min(SELF_SERVE.maxMinutes, Math.round(SELF_SERVE.setupMinutes + impressions(spec) / SELF_SERVE.sidesPerMinute));
 }
 
 // ---------- shipping ----------

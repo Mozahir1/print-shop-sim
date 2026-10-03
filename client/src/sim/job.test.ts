@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { canStart, createSim, tick, type Sim } from "./sim";
+import { canStart, createSim, startTask, tick, type Sim } from "./sim";
 import { placeWebOrder, returnCustomer, spawnCustomer } from "./customers";
-import { DURATIONS, FINISH_SECONDS, PRINTER } from "./config";
-import { collect, doTask, runUntil, talkTo, calm } from "./testkit";
-import type { Customer, JobSpec } from "./types";
+import { DURATIONS, PRINTER, RESPOND_MINUTES } from "./config";
+import { walkUpMinutes } from "./orders";
+import { doTask, makeReady, runUntil, talkTo, calm } from "./testkit";
+import type { JobSpec } from "./types";
 
 // These are about the work, not how customers react: nobody balks.
 let restore: () => void;
@@ -19,31 +20,44 @@ function quiet(): Sim {
   return sim;
 }
 
-// Counter -> computer -> printer -> finishing table: what every print order goes through.
-function makeIt(sim: Sim, c: Customer) {
-  const jobId = c.jobId!;
-  const job = sim.state.jobs.find((j) => j.id === jobId)!;
-  if (job.status === "new") doTask(sim, { type: "enter_order", jobId });
-  doTask(sim, { type: "send_job", jobId });
-  collect(sim, job);
-  if (job.spec.finishing !== "none") doTask(sim, { type: "finish", jobId });
-  doTask(sim, { type: "bag", jobId });
-  expect(job.status).toBe("bagged");
-  return job;
-}
-
-describe("each request, arrival to done, using only tasks", () => {
-  it("quick copies: talk, enter, send, print, collect, bag, ring up", () => {
+describe("each request, arrival to done, as workflows", () => {
+  it("quick copies, done yourself while they wait: you make them, ring them up, done (and locked in the whole time)", () => {
     const sim = quiet();
     const s = sim.state;
-    const c = spawnCustomer(s, sim.rng.director, "quick_copies", { spec: plain({ copies: 10, finishing: "staple" }) });
-    talkTo(sim, c);
-    expect(c.state).toBe("waiting");
-    const job = makeIt(sim, c);
-    doTask(sim, { type: "ring_up", customerId: c.id });
+    const c = spawnCustomer(s, sim.rng.director, "quick_copies", { spec: plain({ originals: 3, copies: 10, finishing: "staple" }), timing: "wait", needIn: 300 });
+    doTask(sim, { type: "talk", customerId: c.id });
+    const start = s.time;
+    expect(startTask(s, { type: "respond", customerId: c.id, choice: "take" })).toBeNull();
+    tick(sim, 3);
+    expect(s.workflow?.kind).toBe("walk_up");
+    expect(canStart(s, { type: "fix_copier" })).toBe("You can't do that, you're making copies for someone.");
+    runUntil(sim, () => s.workflow === null);
+    const job = s.jobs[0];
+    expect(job.walkUp).toBe(true);
     expect(job.status).toBe("picked_up");
     expect(c.outcome).toBe("served");
     expect(s.revenueCents).toBe(job.priceCents);
+    const expected = RESPOND_MINUTES.take + walkUpMinutes(job.spec) + DURATIONS.ring_up;
+    expect(s.time - start).toBeGreaterThanOrEqual(expected);
+    expect(s.time - start).toBeLessThanOrEqual(expected + 1); // (steps start the minute the last one ends)
+  });
+
+  it("a production order (cardstock): taking it enters and sends it on its own; collecting finishes and bags it", () => {
+    const sim = quiet();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.director, "quick_copies", { spec: plain({ copies: 10, media: "cardstock", finishing: "staple" }), timing: "wait", needIn: 300 });
+    talkTo(sim, c);
+    expect(c.state).toBe("waiting");
+    const job = s.jobs[0];
+    expect(job.walkUp).toBe(false);
+    expect(job.status === "queued" || job.status === "printing").toBe(true); // entered and sent
+    expect(s.workflow).toBeNull();
+    runUntil(sim, () => job.status === "printed");
+    doTask(sim, { type: "collect", jobId: job.id });
+    if (job.smudge === "found") makeReady(sim, job);
+    expect(job.status).toBe("bagged"); // stapled and bagged on the way
+    doTask(sim, { type: "ring_up", customerId: c.id });
+    expect(c.outcome).toBe("served");
   });
 
   it("a larger job: they come back later for it", () => {
@@ -52,11 +66,10 @@ describe("each request, arrival to done, using only tasks", () => {
     const c = spawnCustomer(s, sim.rng.director, "large_job", { spec: plain({ originals: 4, copies: 30, duplex: true, finishing: "cut" }), timing: "back", needIn: 400 });
     talkTo(sim, c);
     expect(c.state).toBe("away");
-    makeIt(sim, c);
+    makeReady(sim, s.jobs[0]);
     returnCustomer(s, c);
     expect(c.kind).toBe("order_pickup");
-    talkTo(sim, c);
-    doTask(sim, { type: "ring_up", customerId: c.id });
+    talkTo(sim, c); // rings them up on its own
     expect(c.outcome).toBe("served");
   });
 
@@ -65,24 +78,27 @@ describe("each request, arrival to done, using only tasks", () => {
     const c = spawnCustomer(sim.state, sim.rng.director, "poster", { timing: "wait" });
     expect(c.spec!.finishing).toBe("laminate");
     talkTo(sim, c);
-    makeIt(sim, c);
+    makeReady(sim, sim.state.jobs[0]);
     doTask(sim, { type: "ring_up", customerId: c.id });
     expect(c.outcome).toBe("served");
   });
 
-  it("ship: weigh, pack, label (they pay and go), bin, then the truck takes it", () => {
+  it("ship: weigh, then you choose how to pack it; box, tape, label (they pay and go), bin", () => {
     const sim = quiet();
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.director, "ship", { weightLb: 12 });
     talkTo(sim, c);
-    const packageId = c.packageId!;
-    for (const type of ["weigh", "pack", "label"] as const) doTask(sim, { type, packageId });
+    const pkg = s.packages[0];
+    expect(pkg.status).toBe("weighed"); // weighed on its own, then it waits for your choice
+    expect(s.workflow?.kind).toBe("ship");
+    doTask(sim, { type: "pack", packageId: pkg.id });
+    expect(pkg.status).toBe("binned"); // taped, labeled, binned
     expect(c.outcome).toBe("served");
     expect(s.revenueCents).toBeGreaterThan(0);
-    doTask(sim, { type: "bin", packageId });
+    expect(s.workflow).toBeNull();
     runUntil(sim, () => s.truck.status === "waiting");
     doTask(sim, { type: "hand_off" });
-    expect(s.packages.find((p) => p.id === packageId)!.status).toBe("shipped");
+    expect(pkg.status).toBe("shipped");
   });
 
   it("drop-off: scan it, they go, bin it", () => {
@@ -90,21 +106,16 @@ describe("each request, arrival to done, using only tasks", () => {
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.director, "dropoff");
     talkTo(sim, c);
-    doTask(sim, { type: "scan_dropoff", customerId: c.id });
     expect(c.outcome).toBe("served");
-    const pkg = s.packages.find((p) => p.customerId === c.id)!;
-    doTask(sim, { type: "bin", packageId: pkg.id });
-    expect(pkg.status).toBe("binned");
+    expect(s.packages.find((p) => p.customerId === c.id)!.status).toBe("binned");
   });
 
   it("held package: find it, hand it over", () => {
     const sim = quiet();
     const c = spawnCustomer(sim.state, sim.rng.director, "package_pickup");
     talkTo(sim, c);
-    expect(sim.state.employee.task).toBeNull();
-    doTask(sim, { type: "find_package", customerId: c.id });
-    doTask(sim, { type: "hand_over", customerId: c.id });
     expect(c.outcome).toBe("served");
+    expect(sim.state.packages[0].status).toBe("picked_up");
   });
 
   it("web order: open it in the inbox (paid online), make it, hand it over when they come in", () => {
@@ -117,22 +128,19 @@ describe("each request, arrival to done, using only tasks", () => {
     doTask(sim, { type: "open_message", messageId: msg.id });
     expect(job.status).toBe("entered");
     expect(s.revenueCents).toBe(job.priceCents);
-    makeIt(sim, c);
+    makeReady(sim, job);
     returnCustomer(s, c);
-    talkTo(sim, c);
-    doTask(sim, { type: "hand_over", customerId: c.id });
+    talkTo(sim, c); // handed over on its own (it's paid for)
     expect(c.outcome).toBe("served");
   });
 
-  it("self-serve help, and a broken copier has to be fixed first", () => {
+  it("self-serve help with a broken copier: Do fixes it first, then helps them", () => {
     const sim = quiet();
     const s = sim.state;
     s.copier.status = "broken";
     const c = spawnCustomer(s, sim.rng.director, "self_serve_help");
     talkTo(sim, c);
-    expect(canStart(s, { type: "help_self_serve", customerId: c.id })).toMatch(/broken/);
-    doTask(sim, { type: "fix_copier" });
-    doTask(sim, { type: "help_self_serve", customerId: c.id });
+    expect(s.copier.status).toBe("ok");
     expect(c.outcome).toBe("served");
   });
 });
@@ -141,25 +149,21 @@ describe("the printer", () => {
   it("prints at its speed after a short warm-up", () => {
     const sim = quiet();
     const s = sim.state;
-    const c = spawnCustomer(s, sim.rng.director, "quick_copies", { spec: plain({ copies: 80 }) });
-    talkTo(sim, c);
-    doTask(sim, { type: "enter_order", jobId: c.jobId! });
-    doTask(sim, { type: "send_job", jobId: c.jobId! });
+    const c = spawnCustomer(s, sim.rng.director, "large_job", { spec: plain({ copies: 90 }), timing: "back", needIn: 300 });
+    talkTo(sim, c); // enters and sends it
     const start = s.time;
     const job = s.jobs[0];
     runUntil(sim, () => job.status === "printed");
     // It starts in the same second the send finishes.
-    expect(s.time - start).toBe(PRINTER.warmup + 80 / PRINTER.sheetsPerSecond - 1);
+    expect(s.time - start).toBe(PRINTER.warmup + 90 / PRINTER.sheetsPerMinute - 1);
   });
 
   it("an empty tray stops it mid-job; loading paper is one task and it picks up where it left off", () => {
     const sim = quiet();
     const s = sim.state;
     s.printer.paperOutAt = 20;
-    const c = spawnCustomer(s, sim.rng.director, "quick_copies", { spec: plain({ copies: 50 }) });
-    talkTo(sim, c);
-    doTask(sim, { type: "enter_order", jobId: c.jobId! });
-    doTask(sim, { type: "send_job", jobId: c.jobId! });
+    const c = spawnCustomer(s, sim.rng.director, "large_job", { spec: plain({ copies: 50 }), timing: "back", needIn: 300 });
+    talkTo(sim, c); // enters and sends it
     runUntil(sim, () => s.printer.status === "tray_empty");
     const job = s.jobs[0];
     expect(job.sheetsPrinted).toBe(20);
@@ -180,7 +184,7 @@ describe("the printer", () => {
 
 describe("tasks are short and fixed", () => {
   it("every task takes a few seconds to about 30", () => {
-    for (const d of [...Object.values(DURATIONS), ...Object.values(FINISH_SECONDS)]) {
+    for (const d of Object.values(DURATIONS)) {
       expect(d).toBeGreaterThan(0);
       expect(d).toBeLessThanOrEqual(30);
     }

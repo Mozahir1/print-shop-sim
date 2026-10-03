@@ -4,6 +4,7 @@ import type { CounterAction, Customer, GameState, Station, TaskRequest, TaskType
 import { canStart, currentCustomer, STATION } from "./sim";
 import { jobById, packageById } from "./util";
 import { eventIsActive } from "./events";
+import { WORKFLOWS, currentStep } from "./workflow";
 
 export interface TodoItem {
   text: string;
@@ -38,7 +39,7 @@ export function isActive(state: GameState, c: Customer): boolean {
 // that you're busy) are listed.
 export function todoList(state: GameState): TodoItem[] {
   const items: TodoItem[] = [];
-  const free = { ...state, employee: { ...state.employee, task: null } };
+  const free = { ...state, employee: { ...state.employee, task: null }, workflow: null };
   const add = (text: string, station: Station, req: TaskRequest, customerId?: number, alts: TaskRequest[] = []) => {
     if (canStart(free, req) === null) items.push({ text, station, req, alts, customerId });
   };
@@ -78,7 +79,9 @@ export function todoList(state: GameState): TodoItem[] {
   }
 
   const front = currentCustomer(state);
-  if (front?.state === "line") add(`${front.name} is at the counter`, "counter", { type: "talk", customerId: front.id }, front.id);
+  const closed = state.time >= state.closeAt;
+  const showOut = (c: Customer): TaskRequest[] => (closed ? [{ type: "usher_out", customerId: c.id }] : []);
+  if (front?.state === "line") add(`${front.name} is at the counter${front.lingering ? " (after closing)" : ""}`, "counter", { type: "talk", customerId: front.id }, front.id, showOut(front));
   if (front?.state === "talking") {
     const reply = (choice: CounterAction): TaskRequest => ({ type: "respond", customerId: front.id, choice });
     const alts = (["rush", "self_serve", "turn_away", "ignore"] as const).map(reply).filter((r) => canStart(free, r) === null);
@@ -97,7 +100,8 @@ export function todoList(state: GameState): TodoItem[] {
     if (job.status === "collected" && job.spec.finishing !== "none") add(`Finish order #${job.id}`, "finishing", { type: "finish", jobId: job.id }, owner?.id);
     if (job.status === "collected" || job.status === "finished") add(`Bag order #${job.id}`, "finishing", { type: "bag", jobId: job.id }, owner?.id);
     if (job.status === "entered") add(`Send order #${job.id} to the printer`, "computer", { type: "send_job", jobId: job.id }, owner?.id);
-    if (job.status === "new") add(`Enter ${who} order #${job.id}`, "computer", { type: "enter_order", jobId: job.id }, owner?.id);
+    if (job.status === "new" && job.walkUp) add(`Make ${who} copies (order #${job.id})`, "self_serve", { type: "make_copies", jobId: job.id }, owner?.id);
+    else if (job.status === "new") add(`Enter ${who} order #${job.id}`, "computer", { type: "enter_order", jobId: job.id }, owner?.id);
   }
 
   for (const m of state.messages) {
@@ -119,7 +123,14 @@ export function todoList(state: GameState): TodoItem[] {
     if (c.state === "away" && theirs) return theirs.dueDay > state.day ? state.closeAt * 3 : theirs.dueAt;
     return c.arrivedAt + 60;
   };
-  return items.map((item, i) => ({ item, i, r: rank(item) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.item);
+  const sorted = items.map((item, i) => ({ item, i, r: rank(item) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.item);
+  // In the middle of a workflow, its next step comes first (answering someone is already at the top).
+  const step = currentStep(state);
+  if (!step || step.type === "respond") return sorted;
+  const same = (r: TaskRequest) => r.type === step.req.type && r.jobId === step.req.jobId && r.packageId === step.req.packageId && r.customerId === step.req.customerId;
+  const wf = state.workflow!;
+  const now: TodoItem = { text: `Now: ${WORKFLOWS[wf.kind].label}`, station: step.data.station, req: step.req, alts: step.alts, customerId: wf.customerId };
+  return [now, ...sorted.filter((i) => !same(i.req))];
 }
 
 // Cutting the corner (Don't): the faster, sloppier way to do something.

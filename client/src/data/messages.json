@@ -107,6 +107,44 @@
       "moment": "tone",
       "outcome": "fired",
       "text": "Your manager would like to see you. Bring your badge."
+    },
+    {
+      "speaker": "customer",
+      "moment": "survey",
+      "result": "bad",
+      "reason": "could_self_serve",
+      "subject": "Customer survey: {name}",
+      "text": "1 out of 5. I just needed a few copies. They have a machine right there and I was told no."
+    },
+    {
+      "speaker": "customer",
+      "moment": "survey",
+      "result": "bad",
+      "reason": "walked_out",
+      "subject": "Customer survey: {name}",
+      "text": "1 out of 5. Waited forever. Nobody helped me."
+    },
+    {
+      "speaker": "customer",
+      "moment": "survey",
+      "result": "bad",
+      "subject": "Customer survey: {name}",
+      "text": "2 out of 5. Not a great experience."
+    },
+    {
+      "speaker": "customer",
+      "moment": "survey",
+      "result": "good",
+      "subject": "Customer survey: {name}",
+      "text": "5 out of 5. Quick and easy."
+    },
+    {
+      "speaker": "customer",
+      "moment": "survey",
+      "result": "good",
+      "reason": "full_service",
+      "subject": "Customer survey: {name}",
+      "text": "5 out of 5. They made the copies for me while I waited!"
     }
   ]
 }

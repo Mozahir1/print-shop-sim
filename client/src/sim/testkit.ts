@@ -9,7 +9,8 @@ export function runUntil(sim: Sim, done: () => boolean, limit = 3600): void {
   expect(done()).toBe(true);
 }
 
-// Starts a task (it has to be allowed) and runs the clock until it's done.
+// Starts a task (it has to be allowed) and runs the clock until you're free: inside a workflow the next steps run
+// on by themselves, so that's when it ends or stops at a choice.
 export function doTask(sim: Sim, req: TaskRequest): void {
   expect(startTask(sim.state, req)).toBeNull();
   runUntil(sim, () => sim.state.employee.task === null);
@@ -21,14 +22,28 @@ export function talkTo(sim: Sim, c: Customer, choice: CounterAction = "take"): v
   doTask(sim, { type: "respond", customerId: c.id, choice });
 }
 
-// Collects a printed order, reprinting it as long as it comes out smudged.
-export function collect(sim: Sim, job: Job): void {
-  for (;;) {
-    runUntil(sim, () => job.status === "printed");
-    doTask(sim, { type: "collect", jobId: job.id });
-    if (job.smudge !== "found") return;
-    doTask(sim, { type: "reprint", jobId: job.id });
+// Gets an order all the way to bagged from wherever it is, the way you would: steps run on by themselves inside a
+// workflow; a smudged run gets reprinted.
+export function makeReady(sim: Sim, job: Job): void {
+  const s = sim.state;
+  const idle = () => runUntil(sim, () => s.employee.task === null);
+  for (let guard = 0; guard < 30 && job.status !== "bagged"; guard++) {
+    idle();
+    if (s.workflow) {
+      // Paused at a choice in this job's workflow (a smudged run): do it properly.
+      if (job.smudge === "found" && job.status === "collected") doTask(sim, { type: "reprint", jobId: job.id });
+      else throw new Error(`makeReady: stuck in a workflow (${s.workflow.kind})`);
+      continue;
+    }
+    if (job.status === "new") doTask(sim, { type: "enter_order", jobId: job.id });
+    else if (job.status === "entered") doTask(sim, { type: "send_job", jobId: job.id });
+    else if (job.status === "queued" || job.status === "printing") runUntil(sim, () => job.status === "printed");
+    else if (job.status === "printed") doTask(sim, { type: "collect", jobId: job.id });
+    else if (job.status === "collected" && job.smudge === "found") doTask(sim, { type: "reprint", jobId: job.id });
+    else if (job.status === "collected" && job.spec.finishing !== "none") doTask(sim, { type: "finish", jobId: job.id });
+    else if (job.status === "collected" || job.status === "finished") doTask(sim, { type: "bag", jobId: job.id });
   }
+  expect(job.status).toBe("bagged");
 }
 
 // Customers who never balk, always accept a later time, and always agree to self-serve: for tests about something

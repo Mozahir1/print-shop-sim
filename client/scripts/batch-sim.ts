@@ -29,13 +29,19 @@ interface Row {
   complaints: number;
   late: number;
   lostSales: number;
+  onTime: number;
+  revenue: number;
+  bizLost: number;
+  badSurveys: number;
+  overtime: number;
+  walkouts: number;
   warnings: number;
   writeUps: number;
   served: number;
 }
 
 async function run(style: BotStyle): Promise<Row> {
-  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, late: 0, lostSales: 0, warnings: 0, writeUps: 0, served: 0 };
+  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, late: 0, lostSales: 0, onTime: 0, revenue: 0, bizLost: 0, badSurveys: 0, overtime: 0, walkouts: 0, warnings: 0, writeUps: 0, served: 0 };
   for (let g = 0; g < games; g++) {
     const game = newGame(seed + g * 1000);
     while (!game.fired && game.day <= days) {
@@ -54,6 +60,12 @@ async function run(style: BotStyle): Promise<Row> {
       row.complaints += s.manager.complaints;
       row.late += s.stats.lateOrders;
       row.lostSales += s.stats.lostSales;
+      row.walkouts += s.stats.left;
+      if (s.wentHome?.onTime) row.onTime++;
+      row.revenue += s.revenueCents / 100;
+      row.bizLost += s.stats.businessLost;
+      row.badSurveys += s.stats.badSurveys;
+      row.overtime += s.wentHome?.overtime ?? 0;
       row.served += s.stats.served;
       const r = endDay(game, sim);
       if (r.outcome === "warning") row.warnings++;
@@ -74,7 +86,7 @@ async function run(style: BotStyle): Promise<Row> {
 
 async function main() {
   console.log(`${games} games per style, up to ${days} days, seeds ${seed}, ${seed + 1000}, ...`);
-  console.log(["style".padEnd(13), "survived 20", "fired on day (median, range)", "idle %", "avg active", "max", "complaints/day", "late/day", "lost sales/day", "warnings", "write-ups", "served/day"].join("  "));
+  console.log(["style".padEnd(13), "survived 20", "fired on day (median, range)", "idle %", "avg active", "max", "complaints/day", "late/day", "lost sales/day", "walkouts/day", "revenue $/day", "biz lost/day", "bad surveys/day", "on time %", "overtime s", "warnings", "write-ups", "served/day"].join("  "));
   for (const style of styles) {
     const r = await run(style);
     const fired = r.survived.filter((d) => d <= days).sort((a, b) => a - b);
@@ -90,6 +102,12 @@ async function main() {
         (r.complaints / r.dayCount).toFixed(1).padStart(14),
         (r.late / r.dayCount).toFixed(1).padStart(8),
         (r.lostSales / r.dayCount).toFixed(1).padStart(14),
+        (r.walkouts / r.dayCount).toFixed(1).padStart(12),
+        (r.revenue / r.dayCount).toFixed(0).padStart(13),
+        (r.bizLost / r.dayCount).toFixed(2).padStart(12),
+        (r.badSurveys / r.dayCount).toFixed(2).padStart(15),
+        ((r.onTime / r.dayCount) * 100).toFixed(0).padStart(9),
+        (r.overtime / r.dayCount).toFixed(0).padStart(10),
         String(r.warnings).padStart(8),
         String(r.writeUps).padStart(9),
         (r.served / r.dayCount).toFixed(1).padStart(10),

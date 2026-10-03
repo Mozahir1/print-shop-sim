@@ -1,8 +1,10 @@
-// Turns game state into HTML. Pure functions: main.ts decides when to call them and wires up the buttons.
-// Buttons carry a task request as JSON in data-req; main.ts starts it.
+// Turns game state into HTML for the small panels around the scene. Pure functions: main.ts decides when to call
+// them and wires up the buttons. Buttons carry a task request as JSON in data-req; main.ts starts it.
 import type { CounterAction, Customer, GameState, RequestKind, Station, TaskRequest } from "../sim/types";
-import { canStart, currentCustomer, previewTask, STATION } from "../sim/sim";
+import { canGoHome, canStart, currentCustomer, previewTask, sceneOf, workLeft } from "../sim/sim";
 import { availableTasks, DONT, IGNORE, todoList } from "../sim/todo";
+import { currentStep, isChoice, workflowSteps, WORKFLOWS, STEP } from "../sim/workflow";
+import { managerMood } from "../sim/failures";
 import { eventText } from "../sim/events";
 import { quoteFor } from "../sim/quote";
 import { isPrintKind } from "../sim/customers";
@@ -17,35 +19,33 @@ export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
-// A button that starts a task. Greyed out (with the reason on hover) when it can't start right now.
-export function taskButton(state: GameState, req: TaskRequest, opts: { label?: string; primary?: boolean; sub?: string } = {}): string {
+// A button that starts a task. Greyed out (with the reason on hover, and shown where you click) when it can't start.
+export function taskButton(state: GameState, req: TaskRequest, opts: { label?: string; primary?: boolean; sub?: string; key?: string } = {}): string {
   const err = canStart(state, req);
   const t = previewTask(state, req);
   const cornerCut = DONT.has(req.type) || IGNORE.has(req.type) || req.choice === "turn_away" || req.choice === "ignore";
   const cls = ["btn", opts.primary ? "primary" : "", cornerCut ? "corner" : "", err ? "off" : ""].join(" ");
-  const sub = opts.sub ? `<span class="kind">${esc(opts.sub)}</span>` : "";
-  return `<button class="${cls}" data-act="task" data-req="${esc(JSON.stringify(req))}" title="${esc(err ?? "")}">${sub}${esc(opts.label ?? t.label)}<span class="dur">${formatDuration(t.duration)}</span></button>`;
+  const sub = opts.sub ? `<span class="kind">${esc(opts.sub)}${opts.key ? ` <kbd>${opts.key}</kbd>` : ""}</span>` : "";
+  // (Answers at the counter say what they cost you in their own label.)
+  const dur = req.type === "respond" ? "" : `<span class="dur">${formatDuration(t.duration)}</span>`;
+  return `<button class="${cls}" data-act="task" data-req="${esc(JSON.stringify(req))}" data-err="${esc(err ?? "")}" title="${esc(err ?? "")}">${sub}${esc(opts.label ?? t.label)}${dur}</button>`;
 }
 
 // ---------- the top bar ----------
-
-export function hudTask(state: GameState): string {
-  const t = state.employee.task;
-  if (!t) return `<b>Free.</b> <span class="muted">Pick something from the to-do list.</span>`;
-  const frac = t.duration > 0 ? t.elapsed / t.duration : 1;
-  return `<div class="row"><span><b>${esc(t.label)}</b> <span class="muted">${formatDuration(t.duration - t.elapsed)} left</span></span>
-    <button class="btn" data-act="stop" style="padding:1px 8px">Stop</button></div>
-    <div class="bar"><div style="width:${(frac * 100).toFixed(1)}%"></div></div>`;
-}
 
 export function clock(state: GameState): string {
   return state.time >= state.closeAt ? `${formatClock(state.time)} (closed)` : formatClock(state.time);
 }
 
-// The MC's latest monologue line.
-export function caption(state: GameState): string {
-  const c = state.captions.at(-1);
-  return c ? `<b>You:</b> "${esc(c.text)}"` : "";
+export function managerMoodHtml(state: GameState): string {
+  const mood = managerMood(state.manager.heat);
+  return `<span class="mood ${mood}" title="How the manager seems">Manager: ${mood}</span>`;
+}
+
+export function goHomeButton(state: GameState): string {
+  if (canGoHome(state)) return "";
+  const left = workLeft(state).length;
+  return `<button class="btn ${left ? "corner" : "primary"}" data-act="goHome" title="${left ? `${left} thing${left === 1 ? "" : "s"} left undone` : "Everything's done"}">Go home <kbd>G</kbd></button>`;
 }
 
 // Today's bad luck, while it needs you.
@@ -56,93 +56,8 @@ export function banner(state: GameState): string | null {
   return `<b>${esc(t.title)}.</b> ${esc(t.prompt)}`;
 }
 
-// ---------- stations ----------
+// ---------- the job card: what you're doing ----------
 
-export const STATIONS: { id: Station; label: string }[] = [
-  { id: "computer", label: "Computer" },
-  { id: "printer", label: "Printer" },
-  { id: "finishing", label: "Finishing" },
-  { id: "self_serve", label: "Self-serve" },
-  { id: "shipping", label: "Shipping" },
-];
-
-export function stationButtons(state: GameState, open: Station | null): string {
-  return STATIONS.map(({ id, label }) => {
-    const unread = id === "computer" ? state.messages.filter((m) => !m.read && !m.snoozed).length : 0;
-    const busy = availableTasks(state, id).length > 0;
-    const mark = unread ? `<span class="badge">${unread}</span>` : busy ? `<span class="dot"></span>` : "";
-    return `<button class="btn ${open === id ? "on" : ""}" data-act="station" data-station="${id}">${label}${mark}</button>`;
-  }).join("");
-}
-
-function stationStatus(state: GameState, station: Station): string {
-  switch (station) {
-    case "printer": {
-      const p = state.printer;
-      const what = { idle: "Idle", printing: `Printing order #${p.currentJobId}`, jammed: "Jammed", tray_empty: "Tray empty" }[p.status];
-      const queue = p.queue.length ? ` · ${p.queue.length} queued` : "";
-      return `${what}${queue}`;
-    }
-    case "self_serve":
-      return state.copier.status === "ok" ? "Copier working." : state.copier.sign ? "Copier broken (out of order sign on it)." : "Copier broken.";
-    case "shipping": {
-      const binned = state.packages.filter((p) => p.status === "binned").length;
-      const truck = { coming: "The truck hasn't come yet.", waiting: "The truck is here.", gone: "The truck has gone." }[state.truck.status];
-      return `${binned} in the outbound bin. ${truck}`;
-    }
-    case "computer":
-      return [state.cardReader === "down" ? "Card reader: down." : "", state.wifi.down ? "Wi-Fi: down." : ""].filter(Boolean).join(" ");
-    default:
-      return "";
-  }
-}
-
-// Extra detail for a task button, so you know what you're confirming.
-function detail(state: GameState, req: TaskRequest): string {
-  if (req.type === "enter_order" || req.type === "send_job") {
-    const job = jobById(state, req.jobId!)!;
-    return `${describeQuantity(job.spec)}: ${describeSpecs(job.spec)}`;
-  }
-  if (req.type === "weigh" || req.type === "pack" || req.type === "label") {
-    const pkg = packageById(state, req.packageId!)!;
-    return `${customerById(state, pkg.customerId)?.name ?? ""}, ${pkg.weightLb} lb`;
-  }
-  return "";
-}
-
-export function stationPanel(state: GameState, station: Station): string {
-  const label = STATIONS.find((s) => s.id === station)!.label;
-  const status = stationStatus(state, station);
-  let html = `<div class="row"><h2>${label}</h2><button class="btn" data-act="station" data-station="${station}" style="padding:0 8px">×</button></div>`;
-  if (status) html += `<p class="muted small" style="margin:0 0 8px">${esc(status)}</p>`;
-  const reqs = availableTasks(state, station);
-  html += reqs.length
-    ? `<ul class="plain">${reqs
-        .map((r) => {
-          const d = detail(state, r);
-          return `<li>${taskButton(state, r)}${d ? `<div class="muted small">${esc(d)}</div>` : ""}</li>`;
-        })
-        .join("")}</ul>`
-    : `<p class="muted">Nothing to do here right now.</p>`;
-  if (station === "computer") html += inbox(state);
-  return html;
-}
-
-function inbox(state: GameState): string {
-  const msgs = state.messages.slice().reverse();
-  if (!msgs.length) return "";
-  return `<h2 style="margin-top:14px">Inbox</h2>${msgs
-    .map((m) => {
-      const body = m.read || m.kind !== "web_order" ? `<div class="small">${esc(m.body)}</div>` : `<div class="small muted">Open it to see the order.</div>`;
-      const state_ = m.snoozed && !m.read ? ` <span class="muted small">(left unread)</span>` : "";
-      return `<div class="msg ${m.read ? "" : "unread"}"><div class="subj">${esc(m.subject)}${state_}</div>${body}</div>`;
-    })
-    .join("")}`;
-}
-
-// ---------- the counter ----------
-
-// What Do means for each kind of request (print requests get the full menu: take, rush, self-serve).
 const DO_LABEL: Record<RequestKind, string> = {
   quick_copies: "Take the order",
   large_job: "Take the order",
@@ -153,7 +68,25 @@ const DO_LABEL: Record<RequestKind, string> = {
   package_pickup: "Get their package",
   self_serve_help: "Help them",
   complaint: "Hear them out",
+  business: "Take the order",
 };
+
+function answerLabels(state: GameState, c: Customer): { take: string; turnAway: string } {
+  switch (sceneOf(state, c)) {
+    case "missing_order":
+      return { take: "Rush it now, they wait", turnAway: "Apologize and refund" };
+    case "copier_broken":
+      return { take: "Fix the copier now, they wait", turnAway: "Sorry, it's broken" };
+    case "complaint":
+      return { take: c.about === "smudged_return" ? "Reprint them free" : "File a claim", turnAway: "Apologize" };
+    default: {
+      const q = quoteFor(state, c);
+      if (!isPrintKind(c.kind) || !q.standard) return { take: DO_LABEL[c.kind], turnAway: "Turn them away" };
+      const take = q.walkUp ? `Make them yourself (${money(q.standard.totalCents)}, ${formatDuration(q.yourMinutes)})` : `Take the order (${money(q.standard.totalCents)})`;
+      return { take, turnAway: "Turn them away" };
+    }
+  }
+}
 
 // The quote: what they want, when, what it costs (fees itemized), and when it could be ready.
 function quoteHtml(state: GameState, c: Customer): string {
@@ -161,78 +94,162 @@ function quoteHtml(state: GameState, c: Customer): string {
   const rows: string[] = [];
   if (isPrintKind(c.kind) && c.spec && q.standard) {
     rows.push(`<dt>Wants</dt><dd>${esc(describeQuantity(c.spec))}<br><span class="muted small">${esc(describeSpecs(c.spec))}</span></dd>`);
-    const when = c.timing === "tomorrow" ? "Tomorrow is fine" : `${c.timing === "wait" ? "Waiting in the store" : "Coming back"}, needs it by ${formatClock(c.needBy!)}`;
+    const when = c.timing === "tomorrow" ? "Tomorrow is fine" : `${c.timing === "wait" ? "Waiting" : "Coming back"}, needs it by ${formatClock(c.needBy!)}`;
     rows.push(`<dt>When</dt><dd>${when}</dd>`);
-    const fee = q.standard.serviceFeeCents ? `${money(q.standard.printCents)} + ${money(q.standard.serviceFeeCents)} service fee = ` : "";
+    const fee = q.standard.serviceFeeCents ? `${money(q.standard.printCents)} + ${money(q.standard.serviceFeeCents)} fee = ` : "";
     const ready = q.tomorrow ? "ready tomorrow" : `ready by ${formatClock(q.standardReadyAt)}`;
     rows.push(`<dt>Full service</dt><dd>${fee}<b>${money(q.standard.totalCents)}</b>, ${ready}</dd>`);
-    if (q.rush) rows.push(`<dt>Rush</dt><dd>${money(q.standard.totalCents)} + ${money(q.rush.rushCents)} rush fee = <b>${money(q.rush.totalCents)}</b>, ready by ${formatClock(q.rushReadyAt)}</dd>`);
-    rows.push(`<dt>Self-serve</dt><dd>${q.selfServeCents !== null ? `<b>${money(q.selfServeCents)}</b>, they do it themselves` : `<span class="muted">${esc(q.selfServeBlocker ?? "")}</span>`}</dd>`);
+    if (q.rush) rows.push(`<dt>Rush</dt><dd>+ ${money(q.rush.rushCents)} = <b>${money(q.rush.totalCents)}</b>, ready by ${formatClock(q.rushReadyAt)}</dd>`);
+    rows.push(
+      q.walkUp
+        ? `<dt>Your time</dt><dd><b>${formatDuration(q.yourMinutes)}</b>, all at once: you make the copies while they wait, and you can't leave it</dd>`
+        : `<dt>Your time</dt><dd>about <b>${formatDuration(q.yourMinutes)}</b> of work (enter it, then collect, finish, bag), printer ${formatDuration(q.printMinutes)}</dd>`,
+    );
+    rows.push(`<dt>Self-serve</dt><dd>${q.selfServeCents !== null ? `<b>${money(q.selfServeCents)}</b>, they do it. Your time: ${formatDuration(q.selfServeMinutes)}` : `<span class="muted">${esc(q.selfServeBlocker ?? "")}</span>`}</dd>`);
   } else if (q.ship) {
-    rows.push(`<dt>Package</dt><dd>${c.weightLb} lb, ${SERVICE_LABEL[c.service]}</dd>`);
-    rows.push(`<dt>Price</dt><dd>${money(q.ship.postageCents)} postage + ${money(q.ship.packingCents)} packing = <b>${money(q.ship.totalCents)}</b> <span class="muted small">(the store keeps ${money(q.ship.storeCents)})</span></dd>`);
+    rows.push(`<dt>Package</dt><dd>${c.weightLb} lb, ${SERVICE_LABEL[c.service]}: <b>${money(q.ship.totalCents)}</b> <span class="muted small">(store keeps ${money(q.ship.storeCents)})</span></dd>`);
   }
   return rows.length ? `<dl class="spec">${rows.join("")}</dl>` : "";
 }
 
-export function counter(state: GameState): string {
-  const c = currentCustomer(state);
-  let html = `<h2>Counter</h2>`;
-  if (!c) html += `<p class="muted">Nobody at the counter.</p>`;
-  else if (c.state === "line") {
-    html += `<div class="who">${esc(c.name)}</div>`;
-    html += c.said ? `<div class="said">"${esc(c.said)}"</div>` : `<p class="muted">Waiting to be helped.</p>`;
-    html += `<div class="btns">${taskButton(state, { type: "talk", customerId: c.id }, { primary: true })}</div>`;
-  } else {
-    html += `<div class="who">${esc(c.name)}</div><div class="said">"${esc(c.said ?? "")}"</div>${quoteHtml(state, c)}`;
-    const reply = (choice: CounterAction, label: string, sub: string, primary = false) => {
-      const req: TaskRequest = { type: "respond", customerId: c.id, choice };
-      return canStart(state, req) === null || /busy/.test(canStart(state, req)!) ? taskButton(state, req, { label, sub, primary }) : "";
-    };
-    const q = quoteFor(state, c);
-    const print = isPrintKind(c.kind) && q.standard;
-    html += `<div class="choices">
-      ${reply("take", print ? `Take the order (${money(q.standard!.totalCents)})` : DO_LABEL[c.kind], "Do", true)}
-      ${print && q.rush ? reply("rush", `Take it as a rush (${money(q.rush.totalCents)})`, "Do") : ""}
-      ${print && q.selfServeCents !== null ? reply("self_serve", `Send them to self-serve (${money(q.selfServeCents)})`, "Do") : ""}
-      ${reply("turn_away", "Turn them away", "Don't")}
-      ${reply("ignore", "Ignore them", "Ignore")}
-    </div>`;
-    const left = Math.max(0, (c.answerBy ?? state.time) - state.time);
-    html += `<p class="muted small">They're waiting for an answer (${formatDuration(left)}).</p>`;
+function answers(state: GameState, c: Customer, confirming: string | null): string {
+  const q = quoteFor(state, c);
+  const labels = answerLabels(state, c);
+  const btn = (choice: CounterAction, label: string, sub: string, key?: string, primary = false) => {
+    const req: TaskRequest = { type: "respond", customerId: c.id, choice };
+    const err = canStart(state, req);
+    if (err && !err.startsWith("You can't do that")) return ""; // not an option for them
+    const sure = choice === "turn_away" && confirming === "turn_away" ? "Sure? Click again" : label;
+    return taskButton(state, req, { label: sure, sub, key, primary });
+  };
+  const print = isPrintKind(c.kind) && !sceneOf(state, c);
+  return `<div class="choices">
+    ${btn("take", labels.take, "Do", "Enter", true)}
+    ${print && q.rush ? btn("rush", `Rush it (${money(q.rush.totalCents)})`, "Do") : ""}
+    ${print && q.selfServeCents !== null ? btn("self_serve", `Send to self-serve (${money(q.selfServeCents)}, ${formatDuration(q.selfServeMinutes)})`, "Do") : ""}
+    ${btn("turn_away", labels.turnAway, "Don't", "X")}
+    ${btn("ignore", "Ignore them", "Ignore", "I")}
+  </div>`;
+}
+
+export function jobCard(state: GameState, confirming: string | null): string {
+  const wf = state.workflow;
+  const task = state.employee.task;
+  if (!wf) {
+    const front = currentCustomer(state);
+    let html = `<h2>You</h2><p class="free">Hands empty. You're free.</p>`;
+    if (front?.state === "line") html += `<div class="btns">${taskButton(state, { type: "talk", customerId: front.id }, { primary: true, label: `Talk to ${front.name}`, sub: "Next", key: "Enter" })}</div>`;
+    else html += `<p class="muted small">Pick something from the to-do list, or click a station.</p>`;
+    if (state.time >= state.closeAt) {
+      const left = workLeft(state);
+      html += `<p class="small ${left.length ? "warn" : "ok"}">${left.length ? `Still to do: ${esc(left.join(", "))}.` : "Everything's done. Go home on time."}</p>`;
+    }
+    return html;
   }
-  const line = state.customers.filter((x) => x.state === "line" && x.id !== c?.id).length;
-  if (line) html += `<p class="muted small">${line} more in line.</p>`;
-  const waiting = state.customers.filter((x) => x.state === "waiting");
-  if (waiting.length) html += `<h2 style="margin-top:14px">Waiting in the store</h2><ul class="plain">${waiting.map((x) => waitingRow(state, x)).join("")}</ul>`;
+  const c = wf.customerId !== undefined ? customerById(state, wf.customerId) : undefined;
+  const steps = workflowSteps(state, wf);
+  const step = currentStep(state);
+  let html = `<div class="row"><h2>${esc(WORKFLOWS[wf.kind].label)}${c ? `: ${esc(c.name)}` : ""}</h2>
+    <button class="btn corner small" data-act="abandon" title="Walk away (counts as ignoring it)">${confirming === "abandon" ? "Sure? Walk away" : "Walk away"}</button></div>`;
+  html += `<ol class="steps">${steps
+    .map((s) => {
+      const now = !s.done && s.type === step?.type;
+      return `<li class="${s.done ? "done" : now ? "now" : ""}">${s.done ? "✓" : now ? "▶" : "·"} ${esc(STEP[s.type].thought.replace(/\.$/, ""))}</li>`;
+    })
+    .join("")}</ol>`;
+  if (task) {
+    const frac = task.duration > 0 ? task.elapsed / task.duration : 1;
+    html += `<div class="doing"><b>${esc(task.label)}</b> <span class="muted">${formatDuration(task.duration - task.elapsed)}</span><div class="bar"><div style="width:${(frac * 100).toFixed(1)}%"></div></div></div>`;
+    return html;
+  }
+  if (!step) return html;
+  if (step.type === "respond" && c) {
+    html += `<div class="said">"${esc(c.said ?? "")}"</div>${quoteHtml(state, c)}${answers(state, c, confirming)}`;
+    const left = Math.max(0, (c.answerBy ?? state.time) - state.time);
+    html += `<p class="muted small">Waiting for your answer (${formatDuration(left)}).</p>`;
+  } else if (isChoice(step)) {
+    html += `<div class="choices">${taskButton(state, step.req, { primary: true, sub: "Do", key: "Enter" })}${step.alts.map((a) => taskButton(state, a, { sub: "Don't", key: "X" })).join("")}</div>`;
+  } else {
+    html += `<div class="btns">${taskButton(state, step.req, { primary: true, sub: "Next step", key: "Enter" })}</div>`;
+  }
   return html;
 }
 
-function waitingRow(state: GameState, c: Customer): string {
-  const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
-  const what = job ? `order #${job.id} (${job.status === "bagged" ? "ready" : job.status.replace("_", " ")})` : c.kind.replace(/_/g, " ");
-  const counterTasks = availableTasks(state, "counter").filter((r) => r.customerId === c.id && r.type !== "talk");
-  return `<li><div class="row"><span><b>${esc(c.name)}</b> <span class="muted small">${esc(what)}</span></span><span class="btns">${counterTasks.map((r) => taskButton(state, r)).join("")}</span></div>
-    ${c.said ? `<div class="muted small">"${esc(c.said)}"</div>` : ""}</li>`;
+// ---------- station menus (open where you click) ----------
+
+export const STATION_LABEL: Record<Station | "truck", string> = { computer: "Computer", printer: "Printer", finishing: "Finishing table", self_serve: "Self-serve copier", shipping: "Shipping", counter: "Counter", truck: "The truck" };
+
+// Extra detail for a task button, so you know what you're confirming.
+function detail(state: GameState, req: TaskRequest): string {
+  if (req.type === "enter_order" || req.type === "send_job") {
+    const job = jobById(state, req.jobId!)!;
+    return `${describeQuantity(job.spec)}: ${describeSpecs(job.spec)}${job.rush ? " (rush)" : ""}, due ${formatClock(job.dueAt)}`;
+  }
+  if (req.type === "weigh" || req.type === "pack" || req.type === "label") {
+    const pkg = packageById(state, req.packageId!)!;
+    return `${customerById(state, pkg.customerId)?.name ?? ""}, ${pkg.weightLb} lb`;
+  }
+  return "";
 }
 
-// ---------- to-do list ----------
+function inbox(state: GameState): string {
+  const msgs = state.messages.slice().reverse().slice(0, 6);
+  if (!msgs.length) return "";
+  return `<h2 style="margin-top:10px">Inbox</h2>${msgs
+    .map((m) => {
+      const body = m.read || m.kind !== "web_order" ? `<div class="small">${esc(m.body)}</div>` : `<div class="small muted">Open it to see the order.</div>`;
+      return `<div class="msg ${m.read ? "" : "unread"}"><div class="subj">${esc(m.subject)}${m.snoozed && !m.read ? ` <span class="muted small">(left unread)</span>` : ""}</div>${body}</div>`;
+    })
+    .join("")}`;
+}
 
-export function todo(state: GameState): string {
+export function stationMenu(state: GameState, station: Station | "truck"): string {
+  const at: Station = station === "truck" ? "shipping" : station;
+  const reqs = availableTasks(state, at).filter((r) => station !== "truck" || r.type === "hand_off" || r.type === "let_truck_go");
+  let html = `<div class="row"><h2>${STATION_LABEL[station]}</h2><button class="btn small" data-act="closePop">×</button></div>`;
+  html += reqs.length
+    ? `<ul class="plain">${reqs
+        .map((r) => {
+          const d = detail(state, r);
+          return `<li>${taskButton(state, r)}${d ? `<div class="muted small">${esc(d)}</div>` : ""}</li>`;
+        })
+        .join("")}</ul>`
+    : `<p class="muted small">Nothing to do here right now.</p>`;
+  if (station === "computer") html += inbox(state);
+  return html;
+}
+
+export function customerMenu(state: GameState, id: number): string {
+  const c = customerById(state, id);
+  if (!c) return "";
+  const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
+  const reqs = (["counter", "shipping", "self_serve"] as Station[]).flatMap((st) => availableTasks(state, st)).filter((r) => r.customerId === id);
+  const what = job ? `order #${job.id}: ${job.status === "bagged" ? "ready" : job.status.replace("_", " ")}${job.dueDay === state.day ? `, due ${formatClock(job.dueAt)}` : ""}` : c.kind.replace(/_/g, " ");
+  return `<div class="row"><h2>${esc(c.name)}</h2><button class="btn small" data-act="closePop">×</button></div>
+    <p class="muted small">${esc(what)}. ${c.stage === "fine" ? "" : `They're ${c.stage}.`}</p>
+    ${reqs.length ? `<div class="btns">${reqs.map((r) => taskButton(state, r)).join("")}</div>` : ""}`;
+}
+
+// ---------- to-do list, most urgent first ----------
+
+export function todo(state: GameState, confirming: string | null): string {
   const items = todoList(state);
   if (!items.length) return `<li class="muted">Nothing right now.</li>`;
   return items
+    .slice(0, 8)
     .map((item) => {
-      const station = STATIONS.find((s) => s.id === STATION[item.req.type])?.label ?? "Counter";
-      return `<li><span>${esc(item.text)} <span class="muted small">· ${station}</span></span>
-        <span class="btns">${taskButton(state, item.req, { primary: true })}${item.alts.map((a) => taskButton(state, a)).join("")}</span></li>`;
+      const c = item.customerId !== undefined ? customerById(state, item.customerId) : undefined;
+      const urgency = c && c.stage !== "fine" ? c.stage : "";
+      const waited = c && ["line", "talking", "waiting"].includes(c.state) && c.waited > 0 ? ` <span class="wait ${urgency}">${formatDuration(c.waited)}</span>` : "";
+      const alts = item.alts.map((a) => taskButton(state, a, { label: a.choice === "turn_away" && confirming === "turn_away" ? "Sure? Click again" : undefined })).join("");
+      return `<li class="${urgency}"><span>${esc(item.text)}${waited}</span><span class="btns">${taskButton(state, item.req, { primary: true })}${alts}</span></li>`;
     })
     .join("");
 }
 
 export function logList(state: GameState): string {
   return state.log
-    .slice(-40)
+    .slice(-30)
     .reverse()
     .map((e) => `<li><time>${formatClock(e.time)}</time><span>${esc(e.text)}</span></li>`)
     .join("");
@@ -244,13 +261,15 @@ export function startScreen(saved: Game | null, name: string): string {
   const cont = saved && !saved.fired ? `<button class="btn primary" data-act="continue">Continue (day ${saved.day})</button>` : "";
   return `<h1>Print Shop</h1>
     <p>You work the counter at a print and ship shop. Customers come in, you decide how to deal with them. The job is not hard. Caring is optional. Not caring adds up.</p>
-    <p class="muted small">Talk to whoever is at the counter, then pick an answer. Use the stations on the left, or just work down the to-do list. Space pauses; 1 to 3 change speed.</p>
+    <p class="muted small">Click the customer at the counter (or press Enter) to talk to them, then Do, Don't, or Ignore. Click a station to see what you can do there. At 5 PM, finish up and go home. Space pauses; 1 to 3 change speed.</p>
     <p><label>Your name (for the leaderboard): <input type="text" id="name" maxlength="50" value="${esc(name)}"></label></p>
     <div class="btns">${cont}<button class="btn ${cont ? "" : "primary"}" data-act="newGame">New game</button></div>`;
 }
 
 export function reportScreen(r: DayReport, posted: string): string {
+  const failures = r.failures.length ? `<h2 style="margin-top:12px">What went wrong</h2><ul class="failures">${r.failures.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : `<p class="ok">Nothing went wrong today.</p>`;
   return `<h1>End of day ${r.day}: performance summary</h1>
+    <p>${esc(r.wentHome)}</p>
     <dl class="report">
       <dt>Customers served</dt><dd>${r.served}</dd>
       <dt>Customer delight rate</dt><dd>${r.happyPct}%</dd>
@@ -260,10 +279,10 @@ export function reportScreen(r: DayReport, posted: string): string {
       <dt>Self-serve customers</dt><dd>${r.selfServed}</dd>
       <dt>Customers turned away</dt><dd>${r.turnedAway}</dd>
       <dt>Revenue opportunities declined</dt><dd>${money(r.lostSalesCents)}</dd>
-      <dt>Sheets printed</dt><dd>${r.sheets.toLocaleString("en-US")}</dd>
       <dt>Revenue</dt><dd>${money(r.revenueCents)}</dd>
       <dt>Team Spirit Index</dt><dd>${r.teamSpirit}</dd>
     </dl>
+    ${failures}
     <div class="tone">${esc(r.tone)}</div>
     <p class="muted small" id="posted">${esc(posted)}</p>
     <div id="board"></div>

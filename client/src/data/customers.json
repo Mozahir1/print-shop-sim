@@ -64,11 +64,6 @@
     },
     {
       "speaker": "customer",
-      "moment": "waiting_too_long",
-      "text": "Is anyone working here?"
-    },
-    {
-      "speaker": "customer",
       "moment": "mood",
       "mood": "happy",
       "text": "Thanks!"
@@ -131,6 +126,51 @@
       "moment": "reaction",
       "reaction": "turned_away",
       "text": "Oh. Okay."
+    },
+    {
+      "speaker": "customer",
+      "moment": "annoyed",
+      "text": "Hello?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "angry",
+      "text": "Is anyone working here?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "order_pickup",
+      "scene": "missing_order",
+      "text": "Where's my order?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "self_serve_help",
+      "scene": "copier_broken",
+      "text": "The copier's dead. I need these today."
+    },
+    {
+      "speaker": "customer",
+      "moment": "linger",
+      "text": "Oh, I'll just be a minute."
+    },
+    {
+      "speaker": "customer",
+      "moment": "closed",
+      "text": "Oh, you're closing? Okay."
+    },
+    {
+      "speaker": "customer",
+      "moment": "ushered",
+      "text": "Fine. I'll come back."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "business",
+      "text": "Hi. I need a big run of these for a client. Can you handle it?"
     }
   ]
 }

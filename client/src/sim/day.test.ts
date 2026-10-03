@@ -4,7 +4,7 @@ import { botAct, createBot } from "./bot";
 import { daySeed, endDay, loadGame, newGame, saveGame, startDay } from "./game";
 import { activeCount } from "./todo";
 import { spawnCustomer } from "./customers";
-import { DIRECTOR, TUNING } from "./config";
+import { CLOSING, DIRECTOR } from "./config";
 import { calm, doTask, talkTo } from "./testkit";
 
 function playDay(sim: Sim, onTick?: () => void): void {
@@ -17,7 +17,7 @@ function playDay(sim: Sim, onTick?: () => void): void {
 }
 
 describe("the flow director", () => {
-  it("keeps the load in the band: never above the ceiling, rarely idle", () => {
+  it("keeps the load in the band: never above the ceiling; quiet stretches, but not most of the day", () => {
     let idle = 0;
     let open = 0;
     for (let seed = 1; seed <= 20; seed++) {
@@ -26,16 +26,16 @@ describe("the flow director", () => {
       idle += sim.state.stats.idleSeconds;
       open += sim.state.closeAt;
     }
-    expect(idle / open).toBeLessThan(0.05);
+    expect(idle / open).toBeLessThan(0.4); // fewer customers, more time with each (the UI speeds through quiet time)
   });
 
-  it("you deal with about 10 to 20 people at the counter a day (plus whoever goes straight to self-serve)", () => {
+  it("you deal with 15 to 40 people at the counter (plus whoever goes straight to self-serve)", () => {
     for (let seed = 1; seed <= 10; seed++) {
       const sim = createSim(seed);
       playDay(sim);
       const helped = new Set(sim.state.choices.filter((c) => c.what === "counter").map((c) => c.customerId)).size;
-      expect(helped).toBeGreaterThanOrEqual(10);
-      expect(helped).toBeLessThanOrEqual(22);
+      expect(helped).toBeGreaterThanOrEqual(15);
+      expect(helped).toBeLessThanOrEqual(40);
     }
   });
 
@@ -43,7 +43,7 @@ describe("the flow director", () => {
     const sim = createSim(3);
     const s = sim.state;
     for (let i = 0; i < DIRECTOR.ceiling; i++) spawnCustomer(s, sim.rng.dev, "quick_copies");
-    for (let i = 0; i < 60; i++) tick(sim, 1);
+    for (let i = 0; i < 10; i++) tick(sim, 1);
     expect(s.customers).toHaveLength(DIRECTOR.ceiling);
   });
 
@@ -80,21 +80,22 @@ describe("the day", () => {
     expect(s.messages.some((m) => m.kind === "note")).toBe(true);
   });
 
-  it("nobody new comes in after close; the day ends once the people inside are done", () => {
+  it("nobody new comes in after close; an attentive player finishes up and goes home soon after", () => {
     const sim = createSim(5);
     const s = sim.state;
     playDay(sim);
     expect(s.customers.every((c) => c.arrivedAt < s.closeAt)).toBe(true);
     expect(s.time).toBeGreaterThanOrEqual(s.closeAt);
-    expect(s.time).toBeLessThanOrEqual(s.closeAt + TUNING.wrapUp);
+    expect(s.time).toBeLessThan(s.closeAt + CLOSING.sentHomeAfter);
+    expect(s.wentHome!.leftUndone).toEqual([]);
   });
 
-  it("if you stop working, the people still inside go home at the end of wrap-up", () => {
+  it("if you stop working, the manager eventually locks up and sends you home; nobody's left inside", () => {
     const sim = createSim(5);
     const s = sim.state;
     while (!isDayOver(s)) tick(sim, 1);
-    expect(s.time).toBe(s.closeAt + TUNING.wrapUp);
-    expect(s.customers.some((c) => c.state === "line" || c.state === "waiting")).toBe(false);
+    expect(s.time).toBe(s.closeAt + CLOSING.sentHomeAfter);
+    expect(s.customers.some((c) => c.state === "line" || c.state === "talking" || c.state === "waiting")).toBe(false);
   });
 });
 
@@ -114,11 +115,9 @@ describe("multiple days", () => {
     const restore = calm();
     talkTo(sim, c);
     restore();
-    doTask(sim, { type: "enter_order", jobId: c.jobId! });
-    doTask(sim, { type: "send_job", jobId: c.jobId! });
     const shipper = spawnCustomer(s, sim.rng.dev, "ship");
     talkTo(sim, shipper);
-    for (const type of ["weigh", "pack", "label", "bin"] as const) doTask(sim, { type, packageId: shipper.packageId! });
+    doTask(sim, { type: "pack", packageId: shipper.packageId! }); // taped, labeled, binned
     s.revenueCents = 12345;
     while (!isDayOver(s)) tick(sim, 1); // never hand off to the truck
     endDay(game, sim);

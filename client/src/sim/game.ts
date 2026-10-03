@@ -53,7 +53,7 @@ export function newGame(baseSeed: number): Game {
     writeUps: 0,
     flags: [],
     morning: [],
-    causes: { complaints: 0, ignoring: 0, lost_sales: 0 },
+    causes: { complaints: 0, ignoring: 0, lost_sales: 0, overtime: 0 },
     rewards: 0,
     fired: false,
     ending: null,

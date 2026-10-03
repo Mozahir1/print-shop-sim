@@ -97,8 +97,7 @@ describe("complaints", () => {
       sim.state.director.enabled = false;
       sim.state.copier = { status: "broken", sign: true };
       const c = spawnCustomer(sim.state, sim.rng.dev, "self_serve_help");
-      talkTo(sim, c);
-      doTask(sim, { type: "help_self_serve", customerId: c.id });
+      talkTo(sim, c, "turn_away"); // "Sorry, it's broken."
       expect(c.mood).toBeLessThanOrEqual(-1);
       complained += sim.state.manager.complaints;
     }
@@ -125,9 +124,7 @@ describe("delayed consequences", () => {
     const sim = quietDay(game);
     const c = spawnCustomer(sim.state, sim.rng.dev, "ship");
     talkTo(sim, c);
-    doTask(sim, { type: "weigh", packageId: c.packageId! });
-    doTask(sim, { type: "tape_shut", packageId: c.packageId! });
-    doTask(sim, { type: "label", packageId: c.packageId! });
+    doTask(sim, { type: "tape_shut", packageId: c.packageId! }); // labeled and binned
     const flag = sim.state.manager.flags.find((f) => f.kind === "damaged_box")!;
     expect(flag.dueDay - 1).toBeGreaterThanOrEqual(1);
     expect(flag.dueDay - 1).toBeLessThanOrEqual(2);
@@ -147,8 +144,6 @@ describe("delayed consequences", () => {
     const sim = quietDay(game);
     const c = spawnCustomer(sim.state, sim.rng.dev, "dropoff");
     talkTo(sim, c);
-    doTask(sim, { type: "scan_dropoff", customerId: c.id });
-    doTask(sim, { type: "bin", packageId: sim.state.packages[0].id });
     finishDay(game, sim); // the truck came and went without them
     const next = quietDay(game);
     tick(next, 1);

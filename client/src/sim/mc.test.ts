@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createSim, isDayOver, tick } from "./sim";
+import { createSim, goHome, isDayOver, tick } from "./sim";
 import { botAct, createBot, type BotStyle } from "./bot";
 import { endDay, newGame, startDay, type Game } from "./game";
 import { spawnCustomer } from "./customers";
 import { devEvent } from "./dev";
 import { pickLine, POOLS } from "./lines";
-import { HEAT } from "./config";
+import { CLOSING, HEAT } from "./config";
 import { calm, doTask } from "./testkit";
 import type { RequestKind } from "./types";
 import { readdirSync, readFileSync } from "node:fs";
@@ -67,11 +67,12 @@ describe("the MC", () => {
     expect(moments(startDay(game))).toContain("hollow_reward");
     game.writeUps = 0;
     const s = startDay(game);
-    s.state.manager.heat = HEAT.warnAt;
+    s.state.manager.heat = HEAT.warnAt + CLOSING.onTimeReward; // (leaving on time takes a little off)
     s.state.director.enabled = false; // nothing else happens
     s.state.event = null;
     s.state.manager.flags = [];
-    while (!isDayOver(s.state)) tick(s, 1);
+    while (s.state.time < s.state.closeAt) tick(s, 1);
+    goHome(s.state);
     endDay(game, s);
     expect(moments(startDay(game))).toContain("warning");
   });
@@ -84,7 +85,6 @@ describe("the MC", () => {
     doTask(sim, { type: "talk", customerId: c.id });
     expect(c.said).toBe("Just dropping this off.");
     doTask(sim, { type: "respond", customerId: c.id, choice: "take" });
-    doTask(sim, { type: "scan_dropoff", customerId: c.id });
     expect(c.said).toBe("Thanks!");
     const no = spawnCustomer(sim.state, sim.rng.dev, "ship");
     doTask(sim, { type: "talk", customerId: no.id });

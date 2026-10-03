@@ -3,15 +3,16 @@
 import type { Customer, FlagKind, GameState, Job, JobSpec, RequestKind, ShipService, Timing } from "./types";
 import { FLAGS, MOOD, PICKUP_AFTER, PRINT_REQUESTS, SHIPPING, TIMING } from "./config";
 import { keyedRoll, randInt, pick, type Rng } from "./rng";
-import { patienceFor } from "./mood";
+import { giveUpFor, resetPatience } from "./mood";
 import { boxFor, fullServiceQuote, shipQuote, totalSheets } from "./orders";
 import names from "../data/names.json";
 import { pickLine, POOLS } from "./lines";
 import { fill } from "./util";
 
-export const PRINT_KINDS: RequestKind[] = ["quick_copies", "large_job", "poster"];
+export type PrintKind = "quick_copies" | "large_job" | "poster" | "business";
+export const PRINT_KINDS: RequestKind[] = ["quick_copies", "large_job", "poster", "business"];
 
-export function isPrintKind(kind: RequestKind): kind is "quick_copies" | "large_job" | "poster" {
+export function isPrintKind(kind: RequestKind): kind is PrintKind {
   return PRINT_KINDS.includes(kind);
 }
 
@@ -26,7 +27,7 @@ export function weighted<T extends string>(roll: number, weights: Partial<Record
   return entries[entries.length - 1][0];
 }
 
-export function rollSpec(rng: Rng, kind: "quick_copies" | "large_job" | "poster"): JobSpec {
+export function rollSpec(rng: Rng, kind: PrintKind): JobSpec {
   const d = PRINT_REQUESTS[kind];
   return {
     item: d.item,
@@ -96,6 +97,9 @@ function newCustomer(state: GameState, name: string, kind: RequestKind): Custome
     timing: "wait",
     needBy: null,
     refusedSelfServe: false,
+    goingToSelfServe: false,
+    lingering: false,
+    couldSelfServe: false,
     selfServeUntil: null,
     weightLb: 0,
     service: "ground",
@@ -106,12 +110,13 @@ function newCustomer(state: GameState, name: string, kind: RequestKind): Custome
     mood: MOOD.start,
     choices: 0,
     ignored: 0,
-    patience: patienceFor(kind, state.day),
+    giveUp: giveUpFor(kind, state.day),
     waited: 0,
-    fedUp: false,
+    stage: "fine",
     answerBy: null,
     about: null,
     said: null,
+    saidAt: null,
     outcome: null,
     leftAt: null,
   };
@@ -123,13 +128,12 @@ export function returnCustomer(state: GameState, c: Customer): void {
   c.state = "line";
   c.arrivedAt = state.time;
   c.lineTicket = state.nextLineNo++;
-  c.patience = patienceFor("order_pickup", state.day);
-  c.waited = 0;
-  c.fedUp = false;
+  resetPatience(state, c);
 }
 
 export interface JobTerms {
   rush: boolean;
+  walkUp?: boolean; // you make it yourself while they wait
   dueDay: number;
   dueAt: number;
 }
@@ -150,7 +154,8 @@ export function createJob(state: GameState, c: Customer, channel: Job["channel"]
     serviceFeeCents: q.serviceFeeCents,
     rushCents: q.rushCents,
     rush: terms.rush,
-    prepaid: channel === "web",
+    walkUp: terms.walkUp ?? false,
+    prepaid: channel === "web" || c.kind === "business", // businesses are billed on account
     status: channel === "web" ? "unread" : "new",
     sheetsPrinted: 0,
     orderedAt: state.time,

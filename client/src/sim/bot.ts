@@ -10,7 +10,8 @@
 //   random         a different answer every time (from its own stream, never the game's)
 import type { CounterAction, GameState, TaskRequest } from "./types";
 import { createRng, type Rng } from "./rng";
-import { startTask } from "./sim";
+import { abandonWorkflow, goHome, startTask, workLeft } from "./sim";
+import { currentStep } from "./workflow";
 import { DONT, todoList, type TodoItem } from "./todo";
 import { quoteFor, rushBumpsSomeone } from "./quote";
 import { isPrintKind } from "./customers";
@@ -35,7 +36,33 @@ export function botAct(bot: Bot, state: GameState, dt: number): void {
   bot.cooldown -= dt;
   if (bot.cooldown > 0) return;
   bot.cooldown = bot.reaction;
-  const items = todoList(state); // soonest due first
+  // In a workflow: its next step is the only thing you can do (or walk away from).
+  const step = currentStep(state);
+  if (step) {
+    const req = choose(bot, state, step.req, step.type === "respond" ? todoList(state)[0]?.alts ?? [] : step.alts);
+    if (req && startTask(state, req) === null) return;
+    if (!req) abandonWorkflow(state);
+    return;
+  }
+  // After close: finish today's work, then go home. Tomorrow's work waits for tomorrow; someone who stayed past
+  // closing gets shown out (served, if you do everything).
+  const closed = state.time >= state.closeAt;
+  if (closed && bot.style === "ignore") return void goHome(state);
+  let items = todoList(state); // soonest due first
+  if (closed) {
+    items = items.filter((i) => {
+      const job = i.req.jobId !== undefined ? jobById(state, i.req.jobId) : undefined;
+      return !job || job.dueDay <= state.day;
+    });
+    for (const i of items) {
+      const c = i.customerId !== undefined ? customerById(state, i.customerId) : undefined;
+      if (i.req.type === "talk" && c?.lingering && bot.style !== "do_everything") i.req = { type: "usher_out", customerId: c.id };
+    }
+    if (!items.length) {
+      if (!workLeft(state).length) goHome(state); // otherwise something's still printing: wait for it
+      return;
+    }
+  }
   if (bot.style === "do_everything") items.sort((a, b) => arrivalOrder(state, a) - arrivalOrder(state, b));
   for (const item of items) {
     const req = choose(bot, state, item.req, item.alts);

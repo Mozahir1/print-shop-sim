@@ -8,6 +8,7 @@ import customers from "../data/customers.json";
 import messages from "../data/messages.json";
 import endings from "../data/endings.json";
 import events from "../data/events.json";
+import failures from "../data/failures.json";
 import { fill } from "./util";
 
 export interface Line {
@@ -23,6 +24,7 @@ export const POOLS = {
   messages: messages.lines as Line[],
   endings: endings.lines as Line[],
   events: events.lines as Line[],
+  failures: failures.lines as Line[],
 };
 
 const NOT_TAGS = new Set(["moment", "text", "subject"]);

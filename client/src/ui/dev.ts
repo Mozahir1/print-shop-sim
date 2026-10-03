@@ -6,6 +6,7 @@ import type { EventKind } from "../sim/types";
 import { DIRECTOR, HEAT } from "../sim/config";
 import { activeCount } from "../sim/todo";
 import { formatClock } from "../sim/time";
+import { currentStep } from "../sim/workflow";
 import { esc } from "./view";
 
 export const EVENT_KINDS: EventKind[] = ["printer_jam", "copier_dies", "card_reader_down", "box_rips", "wifi_drop"];
@@ -27,6 +28,8 @@ export function devPanel(sim: Sim, game: Game, bot: BotStyle | null): string {
         `active things ${activeCount(s)} (band ${DIRECTOR.floor} to ${DIRECTOR.ceiling}) · arrivals ${d.arrivals}/${DIRECTOR.maxPerDay}`,
         `next arrival ${formatClock(d.nextAt)}${d.enabled ? "" : " (held)"}`,
         `bad luck: ${e ? `${e.kind}, ${e.status}, due ${formatClock(e.at)}` : "none today"}`,
+        `workflow: ${s.workflow ? `${s.workflow.kind} (next: ${currentStep(s)?.type ?? "none"})` : "none"}`,
+        `failures today: ${s.failures.length}`,
         `printer paper runs out after ${s.printer.paperOutAt === Infinity ? "never" : Math.round(s.printer.paperOutAt) + " sheets"} (${Math.round(s.printer.sheetsToday)} so far)`,
         `truck ${s.truck.status}, due ${formatClock(s.truck.arrivesAt)}`,
         `flags:\n${flags}`,
@@ -34,7 +37,7 @@ export function devPanel(sim: Sim, game: Game, bot: BotStyle | null): string {
       ].join("\n"),
     )}</pre></section>
     <section><h2>Bot</h2><div class="btns">${BOT_STYLES.map((st) => `<button class="btn ${bot === st ? "primary" : ""}" data-act="bot" data-style="${st}">${st}</button>`).join("")}${btn("bot", "off", 'data-style=""')}</div></section>
-    <section><h2>Time</h2><div class="btns">${btn("speed", "10×", 'data-speed="10"')}${btn("speed", "30×", 'data-speed="30"')}${btn("skipDay", "Skip to end of day")}${btn("arrivals", d.enabled ? "Hold arrivals" : "Resume arrivals")}</div></section>
+    <section><h2>Time</h2><div class="btns">${btn("speed", "10×", 'data-speed="15"')}${btn("speed", "30×", 'data-speed="45"')}${btn("skipDay", "Skip to end of day")}${btn("arrivals", d.enabled ? "Hold arrivals" : "Resume arrivals")}</div></section>
     <section><h2>Bad luck</h2><div class="btns">${EVENT_KINDS.map((k) => btn("event", k.replace(/_/g, " "), `data-kind="${k}"`)).join("")}</div></section>
     <section><h2>Send in</h2><div class="btns">${SPAWN_KINDS.map((k) => btn("spawn", k.replace(/_/g, " "), `data-kind="${k}"`)).join("")}</div></section>
     <section><h2>State</h2><div class="btns">${btn("copyState", "Copy state as JSON")}</div><p class="muted small">Also: window.sim, window.game in the console.</p></section>`;

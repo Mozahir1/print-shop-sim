@@ -2,18 +2,20 @@
 // You are one employee. Everything you do is a short task at one of the stations.
 // The UI and the bot both act through canStart()/startTask()/stopTask().
 
-import type { CounterAction, Customer, EventKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
+import type { CounterAction, Customer, EventKind, Workflow, WorkflowKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
-import { ANSWER_WITHIN, DURATIONS, FINISH_SECONDS, MOOD, PRINTER, REACTIONS, RESPOND_SECONDS, SHIPPING, SMUDGE_CHANCE, TUNING } from "./config";
-import { choiceType, leave, recordChoice, runPatience } from "./mood";
+import { ANSWER_WITHIN, CLOSING, SALES, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
+import { choiceType, leave, recordChoice, resetPatience, runPatience } from "./mood";
 import { quoteFor, type CounterQuote } from "./quote";
 import { formatClock } from "./time";
-import { selfServePriceCents, selfServeSeconds } from "./orders";
+import { finishMinutes, selfServePriceCents, selfServeSeconds, walkUpMinutes } from "./orders";
+import { ALT_OF, STEP, WORKFLOWS, currentStep, isChoice, isCurrentStep, lockMessage, workflowFor } from "./workflow";
+import { recordFailure } from "./failures";
 import { closeEvents, onPacked, resolveEvent, rollEvent, runEvents, wifiBack } from "./events";
-import { createManager, deliver, onIgnore, onLate, onSmudgedHandedOver, onTapedBoxShipped, onTurnAway, onUnfinished, runConsequences } from "./consequences";
+import { addHeat, lostBusiness, createManager, deliver, onIgnore, onLate, onSmudgedHandedOver, onTapedBoxShipped, onTurnAway, onUnfinished, runConsequences } from "./consequences";
 import { createJob, createShipment, isPrintKind, morningTime, weighted } from "./customers";
 import { FINISHING_LABEL } from "./orders";
-import { customerById, jobById, log, money, packageById } from "./util";
+import { customerById, isOverdue, jobById, log, money, packageById } from "./util";
 import { createDirector, refundArrival, runDirector } from "./director";
 import { activeCount } from "./todo";
 import { pickLine, POOLS } from "./lines";
@@ -25,6 +27,7 @@ export interface SimRng {
   supply: Rng; // the paper tray running out
   dev: Rng; // dev mode spawns, so they never shift the day's own rolls
   events: Rng; // the day's bad luck
+  business: Rng; // when business clients come in
 }
 
 export interface Sim {
@@ -50,6 +53,7 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     supply: createRng(seed ^ 0x9e3779b9),
     dev: createRng(seed ^ 0x27d4eb2f),
     events: createRng(seed ^ 0x61c88647),
+    business: createRng(seed ^ 0x2545f491),
   };
   const dayLength = TUNING.dayLength;
   const day = opts.day ?? 1;
@@ -79,14 +83,17 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     cardReader: "ok",
     wifi: { down: false, backAt: 0 },
     choices: [],
+    failures: [],
+    workflow: null,
+    wentHome: null,
     captions: [],
     manager: createManager(opts.heat ?? 0, opts.flags ?? []),
-    director: createDirector(rng.director),
+    director: createDirector(rng.director, rng.business, dayLength),
     employee: { task: null, busySeconds: 0 },
     log: [],
     nextId: opts.nextId ?? 1,
     nextLineNo: 1,
-    stats: { served: 0, left: 0, happy: 0, neutral: 0, angry: 0, selfServed: 0, selfServeCents: 0, turnedAway: 0, lostSales: 0, lostSalesCents: 0, balked: 0, rushOrders: 0, lateOrders: 0, ordersTaken: 0, webOrders: 0, sheets: 0, shipments: 0, dropoffs: 0, packagePickups: 0, jams: 0, idleSeconds: 0, activeSeconds: 0, maxActive: 0 },
+    stats: { served: 0, left: 0, happy: 0, neutral: 0, angry: 0, selfServed: 0, selfServeCents: 0, turnedAway: 0, lostSales: 0, lostSalesCents: 0, balked: 0, rushOrders: 0, lateOrders: 0, refundsCents: 0, surveys: 0, badSurveys: 0, businessWon: 0, businessLost: 0, ordersTaken: 0, webOrders: 0, sheets: 0, shipments: 0, dropoffs: 0, packagePickups: 0, jams: 0, idleSeconds: 0, activeSeconds: 0, maxActive: 0 },
     over: false,
     devUsed: false,
   };
@@ -109,7 +116,7 @@ export function tick(sim: Sim, dt: number): void {
   if (state.over) return;
   const wasOpen = state.time < state.closeAt;
   state.time += dt;
-  if (wasOpen && state.time >= state.closeAt) log(state, "Closing time. No one else comes in.");
+  if (wasOpen && state.time >= state.closeAt) closeTheStore(state);
   runDirector(sim);
   runEvents(sim);
   updateEmployee(state, dt);
@@ -120,7 +127,7 @@ export function tick(sim: Sim, dt: number): void {
   runSelfServe(state);
   runTruck(state);
   if (wasOpen) sampleLoad(state, dt);
-  if (state.time >= state.closeAt) runClose(state);
+  if (!wasOpen) runOvertime(state);
 }
 
 function sampleLoad(state: GameState, dt: number): void {
@@ -130,35 +137,108 @@ function sampleLoad(state: GameState, dt: number): void {
   state.stats.maxActive = Math.max(state.stats.maxActive, n);
 }
 
-// After close: finish up with whoever's inside. Once they're gone (or the wrap-up time is up), the day is over.
-function runClose(state: GameState): void {
-  const inside = state.customers.filter((c) => c.state === "line" || c.state === "talking" || c.state === "waiting");
-  const wrapUpOver = state.time >= state.closeAt + TUNING.wrapUp;
-  const busy = inside.length > 0 || state.employee.task !== null || state.truck.status !== "gone";
-  if (busy && !wrapUpOver) return;
-  for (const c of inside) leaveAtClose(state, c);
-  for (const c of state.customers) if (c.state === "self_serve") finishSelfServe(state, c);
-  closeEvents(state);
-  // Orders due today that still aren't done (unless the customer gave up on them already).
-  for (const j of state.jobs) {
-    const owner = customerById(state, j.customerId);
-    if (j.dueDay <= state.day && !j.late && j.status !== "bagged" && j.status !== "picked_up" && owner?.state !== "gone") onUnfinished(state, j);
+// ---------- closing time ----------
+
+// 5 PM: the door's locked. People in line head out (now and then one stays anyway); people waiting on an order stay
+// until it's done or you show them out. The day ends when you go home (goHome).
+function closeTheStore(state: GameState): void {
+  log(state, "Closing time. No one else comes in.");
+  mcSay(state, "closing");
+  let lingerer = false;
+  for (const c of state.customers) {
+    if (c.state !== "line" && c.state !== "talking") continue;
+    if (state.workflow?.customerId === c.id) continue; // you're helping them
+    if (!lingerer && keyedRoll(state.seed, "linger", c.id) < CLOSING.lingerChance) {
+      lingerer = true;
+      c.lingering = true;
+      customerSay(c, "linger", {}, state.time);
+      log(state, `${c.name} isn't leaving.`);
+      continue;
+    }
+    customerSay(c, "closed", {}, state.time);
+    leave(state, c, "closed");
   }
-  state.employee.task = null;
-  state.over = true;
-  mcSay(state, "end_of_day");
-  log(state, "That's the day.");
 }
 
-// Someone still inside at the very end goes home. An order they're waiting on is still theirs: they'll be back.
-function leaveAtClose(state: GameState, c: Customer): void {
+// After close the MC wants to go home, and says so. Eventually the manager locks up and sends you home.
+function runOvertime(state: GameState): void {
+  const over = state.time - state.closeAt;
+  if (over > CLOSING.onTimeGrace && over % CLOSING.overtimeLineEvery < 1) mcSay(state, "overtime");
+  if (over >= CLOSING.sentHomeAfter) goHome(state, true);
+}
+
+// What you'd be leaving behind if you went home now.
+export function workLeft(state: GameState): string[] {
+  const left: string[] = [];
+  for (const c of state.customers) if (c.state === "line" || c.state === "talking" || c.state === "waiting") left.push(`${c.name} still in the store`);
+  for (const j of state.jobs) {
+    const owner = customerById(state, j.customerId);
+    if (j.dueDay <= state.day && !["bagged", "picked_up", "canceled"].includes(j.status) && owner?.state !== "gone") left.push(`order #${j.id} not done`);
+  }
+  for (const p of state.packages) if (p.status === "labeled" || p.status === "scanned") left.push(`package #${p.id} not in the bin`);
+  if (state.event?.status === "active") left.push("today's problem not dealt with");
+  return left;
+}
+
+export function canGoHome(state: GameState): string | null {
+  if (state.over) return "You already went home.";
+  return state.time < state.closeAt ? "It's not closing time yet." : null;
+}
+
+// Go home: the day is over. Leaving on time with everything done is rewarded; overtime annoys the manager; anything
+// left undone is penalized (and orders due today count as late).
+export function goHome(state: GameState, sentHome = false): string | null {
+  const err = canGoHome(state);
+  if (err) return err;
+  const left = workLeft(state);
+  const overtime = state.time - state.closeAt;
+  const onTime = !sentHome && left.length === 0 && overtime <= CLOSING.onTimeGrace;
+  state.employee.task = null;
+  state.workflow = null;
+  for (const c of state.customers) if (c.state === "self_serve") finishSelfServe(state, c);
+  for (const c of state.customers) if (c.state === "line" || c.state === "talking" || c.state === "waiting") showOut(state, c);
+  closeEvents(state);
+  for (const j of state.jobs) {
+    const owner = customerById(state, j.customerId);
+    if (j.dueDay <= state.day && !j.late && !["bagged", "picked_up", "canceled"].includes(j.status) && owner?.state !== "gone") {
+      onUnfinished(state, j);
+      recordFailure(state, "late_order", { name: owner?.name ?? "a customer", job: j.id }, { customerId: owner?.id, jobId: j.id });
+    }
+  }
+  const extra = Math.max(0, overtime - CLOSING.onTimeGrace);
+  if (extra > 0) addHeat(state, (extra / 10) * CLOSING.overtimeHeatPer10Min, "overtime");
+  if (left.length) {
+    addHeat(state, left.length * CLOSING.leftUndoneHeat, "ignoring");
+    recordFailure(state, "left_work", { count: `${left.length} thing${left.length === 1 ? "" : "s"}` });
+  }
+  if (onTime) addHeat(state, -CLOSING.onTimeReward, "complaints");
+  // Sales against the day's target.
+  const short = SALES.targetCents - state.revenueCents;
+  if (short > 0) addHeat(state, Math.ceil(short / 2500) * SALES.shortfallHeatPer25, "lost_sales");
+  else if (state.revenueCents >= SALES.strongDayCents) addHeat(state, -SALES.strongDayCool, "complaints");
+  state.wentHome = { at: state.time, onTime, overtime, leftUndone: left, sentHome };
+  state.over = true;
+  if (sentHome) {
+    mcSay(state, "sent_home");
+    log(state, "The manager locks up and sends you home.");
+  } else if (onTime) mcSay(state, "on_time");
+  mcSay(state, "end_of_day");
+  log(state, "That's the day.");
+  return null;
+}
+
+// Someone's shown out (or leaves because you went home). An order they're waiting on is still theirs: they'll be
+// back for it.
+function showOut(state: GameState, c: Customer): void {
+  c.lingering = false;
+  c.answerBy = null;
+  c.mood += MOOD.turnedAway;
   const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
-  if (job && job.status !== "picked_up") {
+  if (job && !["picked_up", "canceled"].includes(job.status)) {
     c.state = "away";
-    c.answerBy = null;
     return;
   }
-  leave(state, c, "left");
+  leave(state, c, "closed");
 }
 
 // You started talking to someone and then didn't answer: that's ignoring them.
@@ -169,11 +249,6 @@ function runAnswerTimeouts(state: GameState): void {
     if (t?.type === "respond" && t.customerId === c.id) continue; // you're answering
     answer(state, c, "ignore", true);
   }
-}
-
-// An order is late once it's past its promised day and time.
-export function isLate(state: GameState, job: Job): boolean {
-  return state.day > job.dueDay || (state.day === job.dueDay && state.time > job.dueAt);
 }
 
 // ---------- self-serve ----------
@@ -246,7 +321,7 @@ function runPrinter(state: GameState, dt: number): void {
   }
   if (left <= 0) return;
   const room = Math.max(0, p.paperOutAt - p.sheetsToday);
-  const n = Math.min(PRINTER.sheetsPerSecond * left, job.sheets - job.sheetsPrinted, room);
+  const n = Math.min(PRINTER.sheetsPerMinute * left, job.sheets - job.sheetsPrinted, room);
   job.sheetsPrinted += n;
   p.sheetsToday += n;
   state.stats.sheets += n;
@@ -272,43 +347,20 @@ function runTruck(state: GameState): void {
     t.status = "gone";
     log(state, "The truck left.");
     if (state.packages.some((p) => p.status === "binned")) recordChoice(state, "ignore", "truck");
+    truckGone(state);
   }
+}
+
+// Whatever's still in the outbound bin when the truck goes is a failure you see right then.
+function truckGone(state: GameState): void {
+  const left = state.packages.filter((p) => p.status === "binned").length;
+  if (left) recordFailure(state, "packages_left", { count: `${left} package${left === 1 ? " was" : "s were"}` });
 }
 
 // ---------- your actions ----------
 
-export const STATION: Record<TaskType, Station> = {
-  talk: "counter",
-  respond: "counter",
-  hand_over: "counter",
-  ring_up: "counter",
-  manual_ring_up: "counter",
-  fix_card_reader: "computer",
-  restart_router: "computer",
-  enter_order: "computer",
-  send_job: "computer",
-  open_message: "computer",
-  leave_unread: "computer",
-  collect: "printer",
-  reprint: "printer",
-  use_anyway: "printer",
-  clear_jam: "printer",
-  load_paper: "printer",
-  finish: "finishing",
-  bag: "finishing",
-  help_self_serve: "self_serve",
-  fix_copier: "self_serve",
-  out_of_order_sign: "self_serve",
-  weigh: "shipping",
-  pack: "shipping",
-  tape_shut: "shipping",
-  label: "shipping",
-  bin: "shipping",
-  scan_dropoff: "shipping",
-  find_package: "shipping",
-  hand_off: "shipping",
-  let_truck_go: "shipping",
-};
+// Where each step happens (from the workflow data).
+export const STATION = Object.fromEntries(Object.entries(STEP).map(([k, v]) => [k, v.station])) as Record<TaskType, Station>;
 
 // The customer at the front of the line: the one you're talking to, or would talk to next.
 export function currentCustomer(state: GameState): Customer | undefined {
@@ -337,7 +389,12 @@ const SMUDGED = "Some of the copies came out smudged. Reprint it, or use them an
 export function canStart(state: GameState, req: TaskRequest): string | null {
   if (state.over) return "The day is over.";
   const cur = state.employee.task;
-  if (cur) return `You're busy: ${cur.label.toLowerCase()}.`;
+  if (cur) return lockMessage(cur.type);
+  // Strict lock: in the middle of a workflow, only its current step (or that step's alternatives) can start.
+  if (state.workflow) {
+    const step = currentStep(state);
+    if (step && !isCurrentStep(state, req)) return lockMessage(step.type);
+  }
   switch (req.type) {
     case "talk": {
       const c = customerById(state, req.customerId ?? -1);
@@ -424,6 +481,27 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       if (job.status === "collected" && job.spec.finishing !== "none") return `Order #${job.id} needs to be ${FINISHING_LABEL[job.spec.finishing].toLowerCase()}d first.`;
       return job.status === "collected" || job.status === "finished" ? null : `Order #${job.id} isn't on the finishing table.`;
     }
+    case "usher_out": {
+      const c = customerById(state, req.customerId ?? -1);
+      if (state.time < state.closeAt) return "The store's still open.";
+      if (!c || !["line", "talking", "waiting"].includes(c.state)) return "They're not in the store.";
+      return null;
+    }
+    case "make_copies": {
+      const job = jobFor(state, req);
+      if (typeof job === "string") return job;
+      return job.walkUp && job.status === "new" ? null : `Order #${job.id} isn't a job to make here.`;
+    }
+    case "escort": {
+      const c = waitingCustomer(state, req);
+      if (typeof c === "string") return c;
+      return c.goingToSelfServe ? null : `${c.name} isn't going to self-serve.`;
+    }
+    case "make_good": {
+      const c = waitingCustomer(state, req);
+      if (typeof c === "string") return c;
+      return c.kind === "complaint" ? null : `${c.name} isn't here about a problem.`;
+    }
     case "help_self_serve": {
       const c = waitingCustomer(state, req);
       if (typeof c === "string") return c;
@@ -438,12 +516,13 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       return state.copier.sign ? "There's already a sign on it." : null;
     case "weigh":
     case "pack":
+    case "tape":
     case "tape_shut":
     case "label":
     case "bin": {
       const pkg = packageFor(state, req);
       if (typeof pkg === "string") return pkg;
-      const need = { weigh: ["new"], pack: ["weighed"], tape_shut: ["weighed"], label: ["packed"], bin: ["labeled", "scanned"] }[req.type];
+      const need = { weigh: ["new"], pack: ["weighed"], tape: ["boxed"], tape_shut: ["weighed"], label: ["packed"], bin: ["labeled", "scanned"] }[req.type];
       if (need.includes(pkg.status)) return null;
       return `Package #${pkg.id} isn't ready for that (${pkg.status}).`;
     }
@@ -467,13 +546,57 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
 export function startTask(state: GameState, req: TaskRequest): string | null {
   const err = canStart(state, req);
   if (err) return err;
+  if (!state.workflow) state.workflow = workflowFor(state, req);
   state.employee.task = buildTask(state, req);
   return null;
 }
 
-// Drops what you're doing. Tasks are short, so there's no partial progress to keep.
+// Drops the step you're on (you're still in the workflow). Steps are short: there's no partial progress to keep.
 export function stopTask(state: GameState): void {
   state.employee.task = null;
+}
+
+// Walks away from the workflow you're in. That's ignoring whoever (or whatever) it was for, with the usual
+// consequences: a customer keeps waiting (and loses patience), a problem stays a problem.
+export function abandonWorkflow(state: GameState): string | null {
+  const wf = state.workflow;
+  if (!wf) return "You're not in the middle of anything.";
+  state.employee.task = null;
+  const c = wf.customerId !== undefined ? customerById(state, wf.customerId) : undefined;
+  state.workflow = null;
+  if (c?.state === "talking") {
+    answer(state, c, "ignore", false);
+    return null;
+  }
+  if (c && (c.state === "waiting" || c.state === "line")) {
+    c.ignored++;
+    c.mood += MOOD.ignored;
+    onIgnore(state);
+  }
+  recordChoice(state, "ignore", "work", c?.id);
+  log(state, `Walked away from ${WORKFLOWS[wf.kind].label.toLowerCase()}.`);
+  return null;
+}
+
+// After a step: move on to the next one by itself, unless there's a choice to make there. A workflow ends when its
+// steps are done, or when the next one can't happen now (they left, it's back in the printer, ...).
+function advanceWorkflow(state: GameState, done: TaskType): void {
+  const wf = state.workflow;
+  if (!wf || state.over) return;
+  wf.done.push(done);
+  const stands = ALT_OF[done];
+  if (stands) wf.done.push(stands);
+  const step = currentStep(state);
+  if (!step) {
+    state.workflow = null;
+    return;
+  }
+  const free = canStart(state, step.req) === null || step.alts.some((a) => canStart(state, a) === null) || (step.type === "respond" && customerById(state, step.req.customerId!)?.state === "talking");
+  if (!free) {
+    state.workflow = null;
+    return;
+  }
+  if (!isChoice(step)) startTask(state, step.req);
 }
 
 // What a request would turn into (label, duration), without starting it. Only valid when canStart() is null.
@@ -482,11 +605,13 @@ export function previewTask(state: GameState, req: TaskRequest): Task {
 }
 
 export function taskDuration(state: GameState, req: TaskRequest): number {
-  if (req.type === "finish") {
-    const f = jobById(state, req.jobId!)!.spec.finishing;
-    return f === "none" ? 0 : FINISH_SECONDS[f];
+  if (req.type === "finish") return finishMinutes(jobById(state, req.jobId!)!.spec);
+  if (req.type === "make_copies") return walkUpMinutes(jobById(state, req.jobId!)!.spec);
+  if (req.type === "respond") {
+    // Writing up a print order takes a couple of minutes; saying "sure" to anything else doesn't.
+    const c = customerById(state, req.customerId!);
+    return c && isPrintKind(c.kind) ? RESPOND_MINUTES[req.choice!] : 1;
   }
-  if (req.type === "respond") return RESPOND_SECONDS[req.choice!];
   return DURATIONS[req.type];
 }
 
@@ -501,6 +626,16 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
   switch (req.type) {
     case "talk":
       return `Talk to ${name}`;
+    case "escort":
+      return `Show ${name} the copier`;
+    case "make_copies":
+      return `Make the copies for ${job}`;
+    case "usher_out":
+      return `Show ${name} out`;
+    case "make_good":
+      return `File a claim for ${name}`;
+    case "tape":
+      return `Tape ${pkg}`;
     case "respond":
       return ACTION_LABEL[req.choice ?? "take"].replace("{name}", name);
     case "hand_over":
@@ -546,7 +681,7 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
     case "weigh":
       return `Weigh ${pkg}`;
     case "pack":
-      return `Pack ${pkg}`;
+      return `Box ${pkg}`;
     case "tape_shut":
       return `Just tape ${pkg} shut`;
     case "label":
@@ -567,16 +702,49 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
 // ---------- what each task does when it's done ----------
 
 function completeTask(state: GameState, t: Task): void {
+  runStep(state, t);
+  advanceWorkflow(state, t.type);
+}
+
+function runStep(state: GameState, t: Task): void {
   const c = t.customerId !== undefined ? customerById(state, t.customerId) : undefined;
   const job = t.jobId !== undefined ? jobById(state, t.jobId) : undefined;
   const pkg = t.packageId !== undefined ? packageById(state, t.packageId) : undefined;
   switch (t.type) {
-    case "talk":
+    case "talk": {
       mcSay(state, "greeting");
-      customerSay(c!, "request");
+      const theirs = c!.jobId !== null ? jobById(state, c!.jobId) : undefined;
+      if (c!.kind === "order_pickup" && theirs && theirs.status !== "bagged") {
+        customerSay(c!, "request", { scene: "missing_order" }, state.time); // "Where's my order?"
+        recordFailure(state, "missing_order", { name: c!.name, job: theirs.id }, { customerId: c!.id, jobId: theirs.id });
+      } else if (c!.kind === "self_serve_help" && state.copier.status === "broken") {
+        customerSay(c!, "request", { scene: "copier_broken" }, state.time);
+        recordFailure(state, "copier_broken", { name: c!.name }, { customerId: c!.id });
+      } else customerSay(c!, "request", {}, state.time);
       c!.state = "talking";
       c!.answerBy = state.time + ANSWER_WITHIN;
       return;
+    }
+    case "make_copies":
+      job!.status = "bagged";
+      job!.sheetsPrinted = job!.sheets;
+      state.stats.sheets += job!.sheets;
+      log(state, `Made the copies for order #${job!.id}.`);
+      return;
+    case "usher_out":
+      if (!["line", "talking", "waiting"].includes(c!.state)) return;
+      customerSay(c!, "ushered", {}, state.time);
+      log(state, `Showed ${c!.name} out.`);
+      return showOut(state, c!);
+    case "escort":
+      c!.goingToSelfServe = false;
+      refundArrival(state, c!);
+      startSelfServe(state, c!);
+      return;
+    case "make_good":
+      c!.mood = Math.max(c!.mood, 0); // sorted out
+      log(state, `Sorted out ${c!.name}'s damaged package.`);
+      return leave(state, c!, "served");
     case "respond":
       if (c!.state === "talking") answer(state, c!, t.choice!, false);
       return;
@@ -672,7 +840,11 @@ function completeTask(state: GameState, t: Task): void {
       return;
     case "bag":
       job!.status = "bagged";
-      if (isLate(state, job!)) onLate(state, job!);
+      if (isOverdue(state, job!) && !job!.late) {
+        onLate(state, job!);
+        const owner = customerById(state, job!.customerId);
+        recordFailure(state, "late_order", { name: owner?.name ?? "a customer", job: job!.id }, { customerId: owner?.id, jobId: job!.id });
+      }
       log(state, `Order #${job!.id} is bagged and ready.`);
       return;
     case "help_self_serve":
@@ -698,9 +870,12 @@ function completeTask(state: GameState, t: Task): void {
     case "weigh":
       pkg!.status = "weighed";
       return;
+    case "tape":
+      pkg!.status = "packed";
+      return;
     case "pack":
     case "tape_shut": {
-      pkg!.status = "packed";
+      pkg!.status = t.type === "pack" ? "boxed" : "packed";
       if (onPacked(state, pkg!)) return; // ripped: pack it again
       resolveEvent(state, "box_rips", t.type === "pack" ? "fixed" : "worked_around");
       const owner = customerById(state, pkg!.customerId);
@@ -728,6 +903,7 @@ function completeTask(state: GameState, t: Task): void {
       if (c!.state !== "waiting") return;
       const id = state.nextId++;
       state.packages.push({ id, customerId: c!.id, kind: "dropoff", weightLb: 2, service: null, box: null, priceCents: 0, status: "scanned", taped: false });
+      c!.packageId = id; // so the drop-off workflow can bin it
       state.stats.dropoffs++;
       log(state, `Scanned ${c!.name}'s drop-off.`);
       return leave(state, c!, "served");
@@ -748,6 +924,7 @@ function completeTask(state: GameState, t: Task): void {
       state.truck.status = "gone";
       recordChoice(state, "dont", "truck");
       log(state, "Let the driver leave.");
+      truckGone(state);
       return;
   }
 }
@@ -780,10 +957,14 @@ export const ACTION_LABEL: Record<CounterAction, string> = {
 
 // Why this answer isn't on the table for this customer, or null.
 export function actionBlocker(state: GameState, c: Customer, action: CounterAction): string | null {
-  if (action === "ignore" || action === "turn_away") {
-    return action === "turn_away" && c.kind === "order_pickup" && c.jobId !== null && jobById(state, c.jobId)?.prepaid ? "They already paid online. Online orders can't be turned away." : null;
+  const scene = sceneOf(state, c);
+  if (action === "ignore") return null;
+  if (action === "turn_away") {
+    if (scene) return null; // apologize (and refund, for a missing order)
+    return c.kind === "order_pickup" && c.jobId !== null && jobById(state, c.jobId)?.prepaid ? "They already paid online. Online orders can't be turned away." : null;
   }
   if (action === "take") return null;
+  if (scene) return "Do is the only way to make this right.";
   if (!isPrintKind(c.kind)) return "That's only for print orders.";
   const q = quoteFor(state, c);
   if (action === "rush") return q.rush ? null : "Standard turnaround is soon enough for them.";
@@ -799,11 +980,26 @@ function say(c: Customer, reaction: Reaction): void {
   customerSay(c, "reaction", { reaction });
 }
 
-// Your answer to the customer at the counter.
+// What's going on at the counter, when it's not a plain request.
+export type Scene = "missing_order" | "copier_broken" | "complaint";
+
+export function sceneOf(state: GameState, c: Customer): Scene | null {
+  const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
+  if (c.kind === "order_pickup" && job && job.status !== "bagged") return "missing_order";
+  if (c.kind === "self_serve_help" && state.copier.status === "broken") return "copier_broken";
+  if (c.kind === "complaint") return "complaint";
+  return null;
+}
+
+// Your answer to the customer at the counter. Do leads into the workflow for what they need.
 export function answer(state: GameState, c: Customer, action: CounterAction, auto: boolean): void {
   const q = quoteFor(state, c);
+  const scene = sceneOf(state, c);
   recordChoice(state, choiceType(action), "counter", c.id, { action, auto });
   c.answerBy = null;
+  const follow = (kind: WorkflowKind, extra: Partial<Workflow> = {}) => {
+    if (state.workflow?.customerId === c.id) Object.assign(state.workflow, { kind, ...extra });
+  };
   switch (action) {
     case "ignore":
       c.ignored++;
@@ -812,13 +1008,15 @@ export function answer(state: GameState, c: Customer, action: CounterAction, aut
       onIgnore(state);
       break;
     case "turn_away":
-      turnAway(state, c, q);
+      if (scene === "missing_order") apologizeAndRefund(state, c);
+      else turnAway(state, c, q);
       break;
     case "self_serve":
       if (reacts(state, c, "self-serve") < REACTIONS.acceptSelfServe) {
         say(c, "accept_self_serve");
-        refundArrival(state, c);
-        startSelfServe(state, c);
+        c.state = "waiting";
+        c.goingToSelfServe = true;
+        follow("self_serve"); // walk them over
       } else {
         // They want full service: back to you for a do or a don't.
         c.refusedSelfServe = true;
@@ -830,18 +1028,82 @@ export function answer(state: GameState, c: Customer, action: CounterAction, aut
       break;
     case "take":
     case "rush":
-      if (isPrintKind(c.kind)) takeOrder(state, c, q, action === "rush");
-      else takeRequest(state, c);
+      if (scene === "missing_order") {
+        rushTheirOrder(state, c);
+        follow("missing_order", { jobId: c.jobId! });
+      } else if (scene === "complaint") {
+        makeItRight(state, c);
+        follow("complaint", { jobId: c.jobId ?? undefined });
+      } else if (isPrintKind(c.kind)) {
+        takeOrder(state, c, q, action === "rush");
+        const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
+        if (job && c.state !== "gone") follow(job.walkUp ? "walk_up" : "take_order", { jobId: job.id });
+      } else {
+        takeRequest(state, c);
+        if (c.kind === "ship") follow("ship", { packageId: c.packageId! });
+        if (c.kind === "dropoff") follow("dropoff");
+        if (c.kind === "package_pickup") follow("release_package", { packageId: c.packageId! });
+        if (c.kind === "order_pickup") follow("pickup", { jobId: c.jobId! });
+        if (c.kind === "self_serve_help") follow("self_serve_help", { fixFirst: scene === "copier_broken" });
+      }
       break;
   }
+  // Nothing more to do for them (turned away, ignored, they left): the counter workflow is over.
+  if (state.workflow?.customerId === c.id && state.workflow.kind === "counter" && c.state !== "talking") state.workflow = null;
   c.choices++;
 }
 
+// "Where's my order?" Do: rush it now while they wait.
+function rushTheirOrder(state: GameState, c: Customer): void {
+  const job = jobById(state, c.jobId!)!;
+  job.rush = true; // no rush fee: it's on us
+  const q = state.printer.queue;
+  if (q.includes(job.id)) {
+    state.printer.queue = q.filter((id) => id !== job.id);
+    queueJob(state, job);
+  }
+  c.state = "waiting";
+  resetPatience(state, c);
+  log(state, `Rushing ${c.name}'s order #${job.id} while they wait.`);
+}
+
+// "Where's my order?" Don't: apologize and give their money back.
+function apologizeAndRefund(state: GameState, c: Customer): void {
+  const job = jobById(state, c.jobId!)!;
+  if (job.prepaid && job.priceCents > 0) {
+    state.revenueCents -= job.priceCents;
+    state.stats.refundsCents += job.priceCents;
+  }
+  if (isOverdue(state, job)) onLate(state, job);
+  job.status = "canceled";
+  job.closedAt = state.time;
+  state.printer.queue = state.printer.queue.filter((id) => id !== job.id);
+  c.mood += MOOD.turnedAway;
+  say(c, "turned_away");
+  log(state, `Apologized to ${c.name} and refunded order #${job.id}.`);
+  leave(state, c, "turned_away");
+}
+
+// A complaint, Do: a damaged box gets a claim filed (make_good); smudged copies get reprinted free while they wait.
+function makeItRight(state: GameState, c: Customer): void {
+  c.state = "waiting";
+  if (c.about !== "smudged_return") return;
+  c.spec = { item: "document", originals: 2, copies: 10, color: "bw", media: "letter", duplex: false, finishing: "none" };
+  const job = createJob(state, c, "counter", { rush: true, dueDay: state.day, dueAt: state.time + STANDARD_LEAD });
+  job.priceCents = job.printCents = job.serviceFeeCents = job.rushCents = 0; // on us
+  job.prepaid = true;
+  resetPatience(state, c);
+  log(state, `Reprinting ${c.name}'s copies for free.`);
+}
+
 function turnAway(state: GameState, c: Customer, q: CounterQuote): void {
-  // People here for something that's already theirs (or to complain) take it badly.
-  const theirs = c.kind === "order_pickup" || c.kind === "package_pickup" || c.kind === "complaint";
+  // People here for something that's already theirs, to complain, or about a broken copier take it badly.
+  const theirs = c.kind === "order_pickup" || c.kind === "package_pickup" || c.kind === "complaint" || (c.kind === "self_serve_help" && state.copier.status === "broken");
   c.mood += theirs ? MOOD.badWork : MOOD.turnedAway;
+  c.couldSelfServe = q.selfServeCents !== null; // they could have done it themselves: that's survey material
   onTurnAway(state, q);
+  if (c.kind === "business") lostBusiness(state, c, q.valueCents);
+  if (state.stats.lostSales > 0 && q.doable && q.worth && isPrintKind(c.kind)) recordFailure(state, "lost_sale", { name: c.name, money: money(q.valueCents) }, { customerId: c.id });
   refundArrival(state, c);
   say(c, "turned_away");
   log(state, `Turned ${c.name} away.`);
@@ -862,7 +1124,7 @@ function balk(state: GameState, c: Customer, q: CounterQuote, rush: boolean): vo
   say(c, rush ? "balk_rush" : "balk_fee");
   if (instead === "standard") return agreeOnTime(state, c, q, false);
   refundArrival(state, c);
-  if (instead === "self_serve") return startSelfServe(state, c);
+  if (instead === "self_serve") return startSelfServe(state, c); // they know where it is
   state.stats.balked++;
   log(state, `${c.name} didn't want to pay the fee and left.`);
   leave(state, c, "balked");
@@ -884,13 +1146,17 @@ function agreeOnTime(state: GameState, c: Customer, q: CounterQuote, rush: boole
   }
   const tomorrow = rush ? false : q.tomorrow;
   const dueAt = tomorrow ? morningTime(state.seed, c.id) : c.timing === "back" ? Math.max(promise, c.needBy ?? promise) : promise;
-  const job = createJob(state, c, "counter", { rush, dueDay: tomorrow ? state.day + 1 : state.day, dueAt });
+  const walkUp = q.walkUp && !rush;
+  const job = createJob(state, c, "counter", { rush, walkUp, dueDay: tomorrow ? state.day + 1 : state.day, dueAt });
   state.stats.ordersTaken++;
+  if (c.kind === "business") {
+    state.revenueCents += job.priceCents; // billed on account
+    state.stats.businessWon++;
+  }
   if (rush) state.stats.rushOrders++;
   if (c.timing === "wait" && !tomorrow) {
     c.state = "waiting";
-    c.waited = 0; // happy to wait until it's due; past that, their patience runs out
-    c.patience = Math.max(30, dueAt - state.time);
+    resetPatience(state, c); // happy to wait until it's due; past that, their patience runs out
   } else c.state = "away"; // (if it's tomorrow now, they'll pick it up tomorrow)
   log(state, `Took ${c.name}'s ${rush ? "rush " : ""}order #${job.id}, due ${tomorrow ? "tomorrow" : formatClock(dueAt)}.`);
 }

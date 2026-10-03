@@ -1,0 +1,139 @@
+{
+  "lines": [
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "walked_out",
+      "text": "{name} gave up waiting and left."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "walked_out",
+      "job": "yes",
+      "text": "{name} gave up waiting and left without order #{job}."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "missing_order",
+      "text": "{name} came for order #{job} and it wasn't ready."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "never_ready",
+      "text": "Order #{job} was never finished. {name} left without it."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "late_order",
+      "text": "Order #{job} for {name} was late."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "damaged_package",
+      "text": "{name}'s box came back damaged."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "smudged_return",
+      "text": "{name} brought back smudged copies."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "copier_broken",
+      "text": "The self-serve copier was broken when {name} needed it."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "packages_left",
+      "text": "{count} left in the outbound bin when the truck went."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "lost_sale",
+      "text": "Turned away {name}'s order ({money})."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "left_broken",
+      "text": "The {thing} was still broken at close."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "walked_out",
+      "subject": "Saw that",
+      "text": "Someone just walked out. Can we not?"
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "missing_order",
+      "subject": "Order pickup",
+      "text": "A customer came for their order and it wasn't ready. Please keep an eye on due times."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "never_ready",
+      "subject": "Order pickup",
+      "text": "A customer left without their order. That's a refund we didn't need."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "packages_left",
+      "subject": "The truck",
+      "text": "Packages missed the truck today. Customers track these."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "copier_broken",
+      "subject": "Self-serve",
+      "text": "Heard the copier is down. That's free money we're not making."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "lost_sale",
+      "subject": "Sales",
+      "text": "Did we just turn away an order? We're a print shop."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "left_work",
+      "text": "Went home with {count} left undone."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "left_work",
+      "subject": "Last night",
+      "text": "Came in to find work left over from yesterday. Please finish up before you leave."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "lost_business",
+      "text": "{name}, a business client, left with a {money} order."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "lost_business",
+      "subject": "That client",
+      "text": "A business client walked out today. Those are the orders that pay for everything else."
+    }
+  ]
+}

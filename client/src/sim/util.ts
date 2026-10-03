@@ -29,3 +29,8 @@ export function customerById(state: GameState, id: number): Customer | undefined
 export function packageById(state: GameState, id: number): Package | undefined {
   return state.packages.find((p) => p.id === id);
 }
+
+// An order is overdue once it's past its promised day and time.
+export function isOverdue(state: GameState, job: Job): boolean {
+  return state.day > job.dueDay || (state.day === job.dueDay && state.time > job.dueAt);
+}

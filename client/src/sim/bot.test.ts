@@ -38,16 +38,15 @@ describe("bot playstyles", () => {
     expect(counterActions("random").size).toBeGreaterThan(2);
   });
 
-  it("on the work: smart and do-everything always Do; turn-away cuts corners", () => {
+  it("on the work: smart and do-everything always Do", () => {
     const tasks = (style: BotStyle) => {
       const game = newGame(9);
       const all = [];
-      for (let d = 0; d < 3; d++) all.push(...playDay(game, style).sim.state.choices.filter((c) => c.what !== "counter" && c.what !== "event" && c.what !== "inbox"));
+      for (let d = 0; d < 3; d++) all.push(...playDay(game, style).sim.state.choices.filter((c) => c.what !== "counter" && c.what !== "event" && c.what !== "inbox" && c.what !== "truck"));
       return new Set(all.map((c) => c.type));
     };
     expect(tasks("smart")).toEqual(new Set(["do"]));
     expect(tasks("do_everything")).toEqual(new Set(["do"]));
-    expect(tasks("turn_away")).toContain("dont");
   });
 
   it("smart only turns away what couldn't be done in time or wasn't worth it", () => {

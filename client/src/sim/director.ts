@@ -1,9 +1,9 @@
 // The flow director: brings in the next customer (or the truck) so there's always something to do, but rarely
 // more than two or three things at once. Every roll comes from its own stream.
 import type { Customer, GameState } from "./types";
-import { DIRECTOR, MOOD, REACTIONS, SHIPPING, type Arrival } from "./config";
+import { BUSINESS, DIRECTOR, MOOD, REACTIONS, SHIPPING, type Arrival } from "./config";
 import { keyedRoll, randInt } from "./rng";
-import { isPrintKind, placeWebOrder, returnCustomer, spawnCustomer } from "./customers";
+import { isPrintKind, placeWebOrder, returnCustomer, spawnCustomer, weighted } from "./customers";
 import { activeCount, isActive } from "./todo";
 import { selfServeBlocker } from "./orders";
 import { leave } from "./mood";
@@ -16,10 +16,14 @@ export interface DirectorState {
   nextAt: number; // the next arrival at the regular pace
   floorAt: number | null; // set when active things dropped below the floor: arrive at this time instead
   arrivals: number; // new customers today (see DIRECTOR.maxPerDay)
+  businessAt: number[]; // when today's business clients show up (on their own schedule, whatever you're doing)
 }
 
-export function createDirector(rng: () => number): DirectorState {
-  return { enabled: true, nextAt: randInt(rng, ...DIRECTOR.firstArrival), floorAt: null, arrivals: 0 };
+export function createDirector(rng: () => number, business: () => number, dayLength: number): DirectorState {
+  const count = Number(weighted(business(), BUSINESS.perDay as Record<string, number>));
+  const [lo, hi] = BUSINESS.window;
+  const businessAt = Array.from({ length: count }, () => Math.round(dayLength * (lo + business() * (hi - lo)))).sort((a, b) => a - b);
+  return { enabled: true, nextAt: randInt(rng, ...DIRECTOR.firstArrival), floorAt: null, arrivals: 0, businessAt };
 }
 
 // Someone who turned out to be hardly any work (turned away, balked, sent to self-serve) doesn't use up one of the
@@ -60,6 +64,13 @@ export function runDirector(sim: Sim): void {
   const truckDue = t.status === "coming" && state.time >= t.arrivesAt - DIRECTOR.truckHold; // make room for it
   const full = d.arrivals >= DIRECTOR.maxPerDay && state.manager.visitsDue.length === 0;
   if (!d.enabled || !open) return;
+  // A business client comes in when they come in: busy or not (just never into a full store).
+  if (d.businessAt.length && state.time >= d.businessAt[0] && active < DIRECTOR.ceiling) {
+    d.businessAt.shift();
+    const c = spawnCustomer(state, rng.director, "business");
+    log(state, `${c.name}, a business client, came in.`);
+    return;
+  }
   if (full || active >= DIRECTOR.ceiling || truckDue) {
     d.floorAt = null;
     // Someone coming back for an order that isn't done yet doesn't add to the load (the order already counts),

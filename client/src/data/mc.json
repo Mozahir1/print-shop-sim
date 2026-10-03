@@ -54,6 +54,36 @@
       "speaker": "mc",
       "moment": "fired",
       "text": "Okay."
+    },
+    {
+      "speaker": "mc",
+      "moment": "closing",
+      "text": "Five. Finally."
+    },
+    {
+      "speaker": "mc",
+      "moment": "overtime",
+      "text": "I want to go home."
+    },
+    {
+      "speaker": "mc",
+      "moment": "overtime",
+      "text": "Why am I still here."
+    },
+    {
+      "speaker": "mc",
+      "moment": "overtime",
+      "text": "Is it still today?"
+    },
+    {
+      "speaker": "mc",
+      "moment": "on_time",
+      "text": "Out the door."
+    },
+    {
+      "speaker": "mc",
+      "moment": "sent_home",
+      "text": "Fine by me."
     }
   ]
 }

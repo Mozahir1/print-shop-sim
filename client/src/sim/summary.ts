@@ -3,6 +3,8 @@
 import type { GameState, Job } from "./types";
 import type { DayResult } from "./game";
 import { POOLS, say } from "./lines";
+import { CLOSING } from "./config";
+import { formatClock } from "./time";
 
 export interface JobRecord {
   customerType: string;
@@ -82,6 +84,8 @@ export interface DayReport {
   revenueCents: number;
   sheets: number;
   tone: string; // a line from the manager outcome; never the heat itself
+  failures: string[]; // what went wrong, by name
+  wentHome: string; // when you left, and how
 }
 
 export function report(state: GameState, result: DayResult): DayReport {
@@ -100,5 +104,17 @@ export function report(state: GameState, result: DayResult): DayReport {
     revenueCents: state.revenueCents,
     sheets: Math.round(state.stats.sheets),
     tone: say(POOLS.messages, "tone", { outcome: result.outcome }),
+    failures: state.failures.map((f) => f.text),
+    wentHome: wentHomeText(state),
   };
+}
+
+function wentHomeText(state: GameState): string {
+  const w = state.wentHome;
+  if (!w) return "";
+  const at = formatClock(w.at);
+  if (w.sentHome) return `The manager sent you home at ${at}.`;
+  if (w.onTime) return `Left on time (${at}) with everything done.`;
+  const late = w.overtime > CLOSING.onTimeGrace ? `Stayed late (left at ${at})` : `Left at ${at}`;
+  return w.leftUndone.length ? `${late}, with ${w.leftUndone.length} thing${w.leftUndone.length === 1 ? "" : "s"} left undone.` : `${late}.`;
 }

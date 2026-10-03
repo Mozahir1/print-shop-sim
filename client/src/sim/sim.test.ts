@@ -27,7 +27,7 @@ describe("the task system", () => {
     const b = spawnCustomer(sim.state, sim.rng.director, "ship");
     expect(startTask(sim.state, { type: "talk", customerId: b.id })).toMatch(/front of the line/);
     expect(startTask(sim.state, { type: "talk", customerId: a.id })).toBeNull();
-    expect(startTask(sim.state, { type: "fix_copier" })).toMatch(/busy/);
+    expect(startTask(sim.state, { type: "fix_copier" })).toBe("You can't do that, you're talking to a customer.");
   });
 });
 

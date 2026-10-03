@@ -7,6 +7,7 @@ import { placeWebOrder } from "./customers";
 import { activeCount } from "./todo";
 import { recordChoice } from "./mood";
 import { addHeat } from "./consequences";
+import { recordFailure } from "./failures";
 import { log } from "./util";
 import type { Sim } from "./sim";
 import { pickLine, POOLS } from "./lines";
@@ -129,4 +130,6 @@ export function closeEvents(state: GameState): void {
   e.status = "ignored";
   recordChoice(state, "ignore", "event");
   addHeat(state, EVENTS.unhandledHeat, "ignoring");
+  const thing = { printer_jam: "printer", copier_dies: "self-serve copier", card_reader_down: "card reader", box_rips: "packing station", wifi_drop: "Wi-Fi" }[e.kind];
+  recordFailure(state, "left_broken", { thing });
 }
