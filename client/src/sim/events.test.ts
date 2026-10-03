@@ -1,12 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { canStart, createSim, isDayOver, tick, type Sim } from "./sim";
 import { devEvent } from "./dev";
 import { botAct, createBot } from "./bot";
 import { spawnCustomer } from "./customers";
 import { activeCount, todoList } from "./todo";
 import { EVENTS } from "./config";
-import { collect, doTask, runUntil, talkTo } from "./testkit";
+import { collect, doTask, runUntil, talkTo, calm } from "./testkit";
 import type { JobSpec } from "./types";
+
+// These are about the work, not how customers react: nobody balks.
+let restore: () => void;
+beforeEach(() => (restore = calm()));
+afterEach(() => restore());
 
 const plain = (s: Partial<JobSpec> = {}): JobSpec => ({ item: "document", originals: 1, copies: 1, color: "bw", media: "letter", duplex: false, finishing: "none", ...s });
 
@@ -94,7 +99,7 @@ describe("printer jam", () => {
     expect(todoList(s)[0].req).toEqual({ type: "clear_jam" });
     doTask(sim, { type: "clear_jam" });
     expect(s.event!.status).toBe("fixed");
-    expect(s.choices.at(-1)).toMatchObject({ type: "proper", what: "event" });
+    expect(s.choices.at(-1)).toMatchObject({ type: "do", what: "event" });
     runUntil(sim, () => job.status === "printed");
   });
 
@@ -139,7 +144,7 @@ describe("self-serve copier dies", () => {
 });
 
 describe("card reader down", () => {
-  it("ring-ups need the manual workaround until you fix the reader", () => {
+  it("ring-ups need the manual workaround (a Don't) until you fix the reader", () => {
     const sim = quiet();
     const s = sim.state;
     const { c, job } = printing(sim, 5);
@@ -151,9 +156,18 @@ describe("card reader down", () => {
     doTask(sim, { type: "manual_ring_up", customerId: c.id });
     expect(c.outcome).toBe("served");
     expect(s.revenueCents).toBe(job.priceCents);
+    expect(s.event!.status).toBe("worked_around");
+    expect(s.choices.at(-1)).toMatchObject({ type: "dont", what: "event" });
     doTask(sim, { type: "fix_card_reader" });
     expect(s.cardReader).toBe("ok");
-    expect(s.event!.status).toBe("fixed");
+  });
+
+  it("fixing it straight away is a Do", () => {
+    const sim = quiet();
+    devEvent(sim, "card_reader_down");
+    doTask(sim, { type: "fix_card_reader" });
+    expect(sim.state.event!.status).toBe("fixed");
+    expect(sim.state.choices.at(-1)).toMatchObject({ type: "do", what: "event" });
   });
 
   it("left broken at close: heat", () => {

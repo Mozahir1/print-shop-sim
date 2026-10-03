@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { canStart, createSim, tick, type Sim } from "./sim";
 import { placeWebOrder, returnCustomer, spawnCustomer } from "./customers";
 import { DURATIONS, FINISH_SECONDS, PRINTER } from "./config";
-import { collect, doTask, runUntil, talkTo } from "./testkit";
+import { collect, doTask, runUntil, talkTo, calm } from "./testkit";
 import type { Customer, JobSpec } from "./types";
+
+// These are about the work, not how customers react: nobody balks.
+let restore: () => void;
+beforeEach(() => (restore = calm()));
+afterEach(() => restore());
 
 const plain = (s: Partial<JobSpec> = {}): JobSpec => ({ item: "document", originals: 1, copies: 1, color: "bw", media: "letter", duplex: false, finishing: "none", ...s });
 
@@ -44,7 +49,7 @@ describe("each request, arrival to done, using only tasks", () => {
   it("a larger job: they come back later for it", () => {
     const sim = quiet();
     const s = sim.state;
-    const c = spawnCustomer(s, sim.rng.director, "large_job", { spec: plain({ originals: 4, copies: 30, duplex: true, finishing: "cut" }), waits: false });
+    const c = spawnCustomer(s, sim.rng.director, "large_job", { spec: plain({ originals: 4, copies: 30, duplex: true, finishing: "cut" }), timing: "back", needIn: 400 });
     talkTo(sim, c);
     expect(c.state).toBe("away");
     makeIt(sim, c);
@@ -57,7 +62,7 @@ describe("each request, arrival to done, using only tasks", () => {
 
   it("poster: printed big and laminated", () => {
     const sim = quiet();
-    const c = spawnCustomer(sim.state, sim.rng.director, "poster");
+    const c = spawnCustomer(sim.state, sim.rng.director, "poster", { timing: "wait" });
     expect(c.spec!.finishing).toBe("laminate");
     talkTo(sim, c);
     makeIt(sim, c);

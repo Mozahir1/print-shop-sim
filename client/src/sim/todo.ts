@@ -1,6 +1,6 @@
 // The to-do list: the obvious next things to do, and how many things need you right now.
 // The UI shows it, the bot works from it, and the flow director keeps its size in a band.
-import type { CounterChoice, Customer, GameState, Station, TaskRequest, TaskType } from "./types";
+import type { CounterAction, Customer, GameState, Station, TaskRequest, TaskType } from "./types";
 import { canStart, currentCustomer, STATION } from "./sim";
 import { jobById, packageById } from "./util";
 import { eventIsActive } from "./events";
@@ -8,8 +8,8 @@ import { eventIsActive } from "./events";
 export interface TodoItem {
   text: string;
   station: Station;
-  req: TaskRequest; // doing it properly
-  alts: TaskRequest[]; // the other ways to handle it (the lazy option, or for a customer: minimum, rude, ignore)
+  req: TaskRequest; // doing it (properly)
+  alts: TaskRequest[]; // the other ways to handle it: cutting the corner, or at the counter, the other answers
   customerId?: number;
 }
 
@@ -80,8 +80,9 @@ export function todoList(state: GameState): TodoItem[] {
   const front = currentCustomer(state);
   if (front?.state === "line") add(`${front.name} is at the counter`, "counter", { type: "talk", customerId: front.id }, front.id);
   if (front?.state === "talking") {
-    const reply = (choice: CounterChoice): TaskRequest => ({ type: "respond", customerId: front.id, choice });
-    add(`${front.name} is waiting for an answer`, "counter", reply("proper"), front.id, [reply("minimum"), reply("rude"), reply("ignore")]);
+    const reply = (choice: CounterAction): TaskRequest => ({ type: "respond", customerId: front.id, choice });
+    const alts = (["rush", "self_serve", "turn_away", "ignore"] as const).map(reply).filter((r) => canStart(free, r) === null);
+    add(`${front.name} is waiting for an answer`, "counter", reply("take"), front.id, alts);
   }
 
   for (const job of state.jobs) {
@@ -105,19 +106,26 @@ export function todoList(state: GameState): TodoItem[] {
   for (const pkg of state.packages) {
     if (pkg.status === "labeled" || pkg.status === "scanned") add(`Put package #${pkg.id} in the outbound bin`, "shipping", { type: "bin", packageId: pkg.id });
   }
-  // Someone waiting for your answer first (walking away from them is ignoring them); then machines, the truck,
-  // and quick chores; then whoever has been in the store longest; then orders for people who'll be back later.
+  // Someone waiting for your answer first (walking away from them is ignoring them); then machines, the truck, and
+  // quick chores; then whatever's due soonest: an order by its due time, someone in the store by when they came in
+  // (plus a minute). Orders for tomorrow go last.
   const rank = (item: TodoItem): number => {
     if (item.req.type === "respond") return -2;
+    const job = item.req.jobId !== undefined ? jobById(state, item.req.jobId) : undefined;
+    if (job) return job.dueDay > state.day ? state.closeAt * 3 : job.dueAt;
     const c = item.customerId !== undefined ? state.customers.find((x) => x.id === item.customerId) : undefined;
     if (!c) return -1;
-    return c.state === "away" ? state.closeAt * 2 + c.arrivedAt : c.arrivedAt;
+    const theirs = c.jobId !== null ? jobById(state, c.jobId) : undefined;
+    if (c.state === "away" && theirs) return theirs.dueDay > state.day ? state.closeAt * 3 : theirs.dueAt;
+    return c.arrivedAt + 60;
   };
   return items.map((item, i) => ({ item, i, r: rank(item) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.item);
 }
 
-// The faster, sloppier way to do something.
-export const LAZY: ReadonlySet<TaskType> = new Set(["use_anyway", "out_of_order_sign", "tape_shut", "leave_unread", "let_truck_go"]);
+// Cutting the corner (Don't): the faster, sloppier way to do something.
+export const DONT: ReadonlySet<TaskType> = new Set(["use_anyway", "out_of_order_sign", "tape_shut", "let_truck_go", "manual_ring_up"]);
+// Leaving it (Ignore).
+export const IGNORE: ReadonlySet<TaskType> = new Set(["leave_unread"]);
 
 // Everything you could start at a station right now (ignoring that you might be busy). Answering the customer at
 // the counter isn't here: that's the counter's choice menu.

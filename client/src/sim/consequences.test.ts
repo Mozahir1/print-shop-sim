@@ -40,26 +40,24 @@ function finishDay(game: Game, sim: Sim) {
 }
 
 describe("playstyles and the manager", () => {
-  it("rude to everyone: three write-ups and fired within a few days", () => {
-    for (const seed of [1, 2, 3, 4, 5]) {
-      const day = daysUntilFired(seed, "rude");
-      expect(day).not.toBeNull();
-      expect(day!).toBeLessThanOrEqual(6);
-    }
-  });
-
-  it("ignoring everyone: fired too", () => {
+  it("ignoring everyone: three write-ups and fired within a few days", () => {
     for (const seed of [1, 2, 3, 4, 5]) {
       const day = daysUntilFired(seed, "ignore");
       expect(day).not.toBeNull();
-      expect(day!).toBeLessThanOrEqual(6);
+      expect(day!).toBeLessThanOrEqual(8);
     }
   });
 
-  it("doing it properly: never a write-up", () => {
+  it("turning away everything you could have done: fired, but slowly", () => {
+    const day = daysUntilFired(1, "turn_away");
+    expect(day).not.toBeNull();
+    expect(day!).toBeGreaterThan(5);
+  });
+
+  it("doing it smart: never a write-up", () => {
     for (const seed of [1, 2, 3]) {
       const game = newGame(seed);
-      for (let d = 0; d < 20; d++) playDay(game, "proper");
+      for (let d = 0; d < 20; d++) playDay(game, "smart");
       expect(game.writeUps).toBe(0);
       expect(game.results.every((r) => r.outcome === "none")).toBe(true);
       expect(game.fired).toBe(false);
@@ -92,22 +90,22 @@ describe("playstyles and the manager", () => {
 });
 
 describe("complaints", () => {
-  it("angry customers usually complain, happy ones never; complaints arrive in the inbox and add heat", () => {
-    let angry = 0;
+  it("bad work usually ends in a complaint (here: the copier left broken with a sign on it); happy customers never complain", () => {
     let complained = 0;
     for (let seed = 1; seed <= 100; seed++) {
       const sim = createSim(seed);
       sim.state.director.enabled = false;
+      sim.state.copier = { status: "broken", sign: true };
       const c = spawnCustomer(sim.state, sim.rng.dev, "self_serve_help");
-      talkTo(sim, c, "rude");
+      talkTo(sim, c);
       doTask(sim, { type: "help_self_serve", customerId: c.id });
-      if (c.mood <= -1) angry++;
+      expect(c.mood).toBeLessThanOrEqual(-1);
       complained += sim.state.manager.complaints;
     }
-    expect(complained / angry).toBeGreaterThan(COMPLAINT_CHANCE.angry - 0.15);
+    expect(complained / 100).toBeGreaterThan(COMPLAINT_CHANCE.angry - 0.15);
 
     const game = newGame(7);
-    const { sim } = playDay(game, "proper");
+    const { sim } = playDay(game, "smart");
     expect(sim.state.manager.complaints).toBe(0);
   });
 
@@ -144,25 +142,6 @@ describe("delayed consequences", () => {
     expect(back.mood).toBe(-1);
   });
 
-  it("a rude answer usually turns into a bad review the next morning", () => {
-    let reviews = 0;
-    for (let seed = 1; seed <= 30; seed++) {
-      const game = newGame(seed);
-      const sim = quietDay(game);
-      const c = spawnCustomer(sim.state, sim.rng.dev, "dropoff");
-      talkTo(sim, c, "rude");
-      doTask(sim, { type: "scan_dropoff", customerId: c.id });
-      const flagged = sim.state.manager.flags.some((f) => f.kind === "bad_review");
-      finishDay(game, sim);
-      const next = quietDay(game);
-      tick(next, 1);
-      const got = next.state.messages.some((m) => m.kind === "review");
-      expect(got).toBe(flagged);
-      if (got) reviews++;
-    }
-    expect(reviews).toBeGreaterThan(10);
-  });
-
   it("packages left in the bin are a complaint the next day", () => {
     const game = newGame(1);
     const sim = quietDay(game);
@@ -186,7 +165,7 @@ describe("delayed consequences", () => {
 describe("hollow rewards", () => {
   it("a clean day gets a reward message the next morning, and nothing else changes", () => {
     const game = newGame(1);
-    const { result } = playDay(game, "proper");
+    const { result } = playDay(game, "smart");
     expect(result.clean).toBe(true);
     const next = startDay(game);
     const reward = next.state.messages.find((m) => m.kind === "reward");
@@ -197,7 +176,7 @@ describe("hollow rewards", () => {
 
   it("a day with complaints gets none", () => {
     const game = newGame(1);
-    const { result } = playDay(game, "rude");
+    const { result } = playDay(game, "ignore");
     expect(result.clean).toBe(false);
     expect(startDay(game).state.messages.some((m) => m.kind === "reward")).toBe(false);
   });

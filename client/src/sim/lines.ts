@@ -1,5 +1,5 @@
 // All dialogue, MC lines, messages, event text, and endings live in src/data/*.json as tagged lines:
-//   { "speaker": "mc", "moment": "rude", "request": "ship", "text": "..." }
+//   { "speaker": "customer", "moment": "request", "request": "ship", "text": "..." }
 // A line fits a situation when every tag it has matches (a tag it doesn't have matches anything). The most specific
 // fitting lines win, and n picks among them, so the same situation always gets the same line. New tags (a customer
 // trait, a coworker as speaker) need only data, no code. Speaker only filters when the situation names one.

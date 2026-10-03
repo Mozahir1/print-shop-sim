@@ -3,7 +3,6 @@ import { isDayOver, tick } from "./sim";
 import { BOT_STYLES, botAct, createBot, type BotStyle } from "./bot";
 import { endDay, newGame, startDay, type Game } from "./game";
 import { summarize } from "./summary";
-import type { ChoiceType } from "./types";
 
 function playDay(game: Game, style: BotStyle) {
   const sim = startDay(game);
@@ -22,62 +21,66 @@ function lasts(seed: number, style: BotStyle, days = 20): number {
   return game.fired ? game.day : days + 1;
 }
 
-describe("bot playstyles pick their choice type consistently", () => {
-  const counterTypes = (style: BotStyle): Set<ChoiceType> => {
-    const { sim } = playDay(newGame(5), style);
-    return new Set(sim.state.choices.filter((c) => c.what === "counter" && !c.auto).map((c) => c.type));
+describe("bot playstyles", () => {
+  const counterActions = (style: BotStyle, days = 2) => {
+    const game = newGame(5);
+    const all = [];
+    for (let d = 0; d < days; d++) all.push(...playDay(game, style).sim.state.choices.filter((c) => c.what === "counter" && !c.auto));
+    return new Set(all.map((c) => c.action));
   };
 
-  it("at the counter", () => {
-    expect(counterTypes("proper")).toEqual(new Set(["proper"]));
-    expect(counterTypes("minimum")).toEqual(new Set(["minimum"]));
-    expect(counterTypes("rude")).toEqual(new Set(["rude"]));
-    expect(counterTypes("ignore")).toEqual(new Set(["ignore"]));
-    expect(counterTypes("lazy")).toEqual(new Set(["proper"])); // polite enough; it cuts corners on the work
-    expect(counterTypes("random").size).toBeGreaterThan(2);
+  it("pick their answers consistently", () => {
+    expect(counterActions("ignore")).toEqual(new Set(["ignore"]));
+    expect(counterActions("do_everything")).not.toContain("turn_away");
+    expect(counterActions("do_everything")).not.toContain("self_serve");
+    expect(counterActions("turn_away")).toContain("turn_away");
+    expect(counterActions("smart", 4).has("self_serve")).toBe(true);
+    expect(counterActions("random").size).toBeGreaterThan(2);
   });
 
-  it("on the work: lazy takes every shortcut, proper none", () => {
+  it("on the work: smart and do-everything always Do; turn-away cuts corners", () => {
     const tasks = (style: BotStyle) => {
       const game = newGame(9);
       const all = [];
-      for (let d = 0; d < 3; d++) all.push(...playDay(game, style).sim.state.choices.filter((c) => c.what !== "counter" && c.what !== "event"));
+      for (let d = 0; d < 3; d++) all.push(...playDay(game, style).sim.state.choices.filter((c) => c.what !== "counter" && c.what !== "event" && c.what !== "inbox"));
       return new Set(all.map((c) => c.type));
     };
-    expect(tasks("proper")).toEqual(new Set(["proper"]));
-    expect(tasks("lazy")).toEqual(new Set(["lazy"]));
+    expect(tasks("smart")).toEqual(new Set(["do"]));
+    expect(tasks("do_everything")).toEqual(new Set(["do"]));
+    expect(tasks("turn_away")).toContain("dont");
+  });
+
+  it("smart only turns away what couldn't be done in time or wasn't worth it", () => {
+    const game = newGame(3);
+    for (let d = 0; d < 5; d++) expect(playDay(game, "smart").sim.state.stats.lostSales).toBe(0);
   });
 
   it("every style is in the list", () => {
-    expect(BOT_STYLES).toEqual(["proper", "minimum", "lazy", "rude", "ignore", "random"]);
+    expect(BOT_STYLES).toEqual(["smart", "do_everything", "turn_away", "ignore", "random"]);
   });
 });
 
 describe("balance targets (the batch checks these over more games)", () => {
-  it("proper and minimum last 20 days", () => {
+  it("smart and do-everything last 20 days", () => {
     for (const seed of [1, 1001]) {
-      expect(lasts(seed, "proper")).toBe(21);
-      expect(lasts(seed, "minimum")).toBe(21);
+      expect(lasts(seed, "smart")).toBe(21);
+      expect(lasts(seed, "do_everything")).toBe(21);
     }
   });
 
-  it("rude and ignore are fired within 2 to 6 days; lazy lands in between", () => {
+  it("ignoring gets you fired fast; turning business away gets you fired slowly", () => {
     for (const seed of [1, 1001]) {
-      for (const style of ["rude", "ignore"] as const) {
-        const day = lasts(seed, style);
-        expect(day).toBeGreaterThanOrEqual(2);
-        expect(day).toBeLessThanOrEqual(6);
-      }
-      const lazy = lasts(seed, "lazy");
-      expect(lazy).toBeGreaterThan(6);
-      expect(lazy).toBeLessThanOrEqual(20);
+      expect(lasts(seed, "ignore")).toBeLessThanOrEqual(8);
+      const slow = lasts(seed, "turn_away");
+      expect(slow).toBeGreaterThan(5);
+      expect(slow).toBeLessThanOrEqual(20);
     }
   });
 });
 
 describe("the server summary", () => {
   it("keeps the shape the server accepts, mapped from the new day", () => {
-    const { sim } = playDay(newGame(3), "minimum");
+    const { sim } = playDay(newGame(3), "do_everything");
     const s = sim.state;
     const sum = summarize(s, "Tester", "human");
     expect(Object.keys(sum).sort()).toEqual(["cashCents", "customersLost", "customersServed", "jams", "jobs", "playerName", "satisfaction", "score", "seed", "source"]);

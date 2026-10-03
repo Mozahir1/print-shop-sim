@@ -38,12 +38,6 @@
     },
     {
       "speaker": "customer",
-      "moment": "review",
-      "subject": "New online review",
-      "text": "One star. Would not print again. ({name})"
-    },
-    {
-      "speaker": "customer",
       "moment": "packages_left",
       "subject": "Customer feedback: packages",
       "text": "My package was supposed to go out yesterday. It is still sitting in your store."

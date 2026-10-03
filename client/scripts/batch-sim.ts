@@ -1,5 +1,5 @@
 // Plays whole games headless in Node with a bot, for balancing. No browser needed.
-//   npm run batch -- --days 20 --style proper
+//   npm run batch -- --days 20 --style smart
 //   npm run batch -- --days 20 --style all --games 20
 //   npm run batch -- --days 20 --style all --post http://localhost:8080   (stores each day in Postgres)
 import { isDayOver, tick } from "../src/sim/sim";
@@ -27,13 +27,15 @@ interface Row {
   active: number;
   maxActive: number;
   complaints: number;
+  late: number;
+  lostSales: number;
   warnings: number;
   writeUps: number;
   served: number;
 }
 
 async function run(style: BotStyle): Promise<Row> {
-  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, warnings: 0, writeUps: 0, served: 0 };
+  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, late: 0, lostSales: 0, warnings: 0, writeUps: 0, served: 0 };
   for (let g = 0; g < games; g++) {
     const game = newGame(seed + g * 1000);
     while (!game.fired && game.day <= days) {
@@ -50,6 +52,8 @@ async function run(style: BotStyle): Promise<Row> {
       row.active += s.stats.activeSeconds;
       row.maxActive = Math.max(row.maxActive, s.stats.maxActive);
       row.complaints += s.manager.complaints;
+      row.late += s.stats.lateOrders;
+      row.lostSales += s.stats.lostSales;
       row.served += s.stats.served;
       const r = endDay(game, sim);
       if (r.outcome === "warning") row.warnings++;
@@ -70,20 +74,22 @@ async function run(style: BotStyle): Promise<Row> {
 
 async function main() {
   console.log(`${games} games per style, up to ${days} days, seeds ${seed}, ${seed + 1000}, ...`);
-  console.log(["style".padEnd(8), "survived 20", "fired on day (median, range)", "idle %", "avg active", "max", "complaints/day", "warnings", "write-ups", "served/day"].join("  "));
+  console.log(["style".padEnd(13), "survived 20", "fired on day (median, range)", "idle %", "avg active", "max", "complaints/day", "late/day", "lost sales/day", "warnings", "write-ups", "served/day"].join("  "));
   for (const style of styles) {
     const r = await run(style);
     const fired = r.survived.filter((d) => d <= days).sort((a, b) => a - b);
     const firedText = fired.length ? `${fired[Math.floor(fired.length / 2)]} (${fired[0]} to ${fired.at(-1)})` : "never";
     console.log(
       [
-        style.padEnd(8),
+        style.padEnd(13),
         `${r.survived.length - fired.length}/${games}`.padStart(11),
         firedText.padStart(28),
         ((r.idle / r.open) * 100).toFixed(1).padStart(6),
         (r.active / r.open).toFixed(2).padStart(10),
         String(r.maxActive).padStart(3),
         (r.complaints / r.dayCount).toFixed(1).padStart(14),
+        (r.late / r.dayCount).toFixed(1).padStart(8),
+        (r.lostSales / r.dayCount).toFixed(1).padStart(14),
         String(r.warnings).padStart(8),
         String(r.writeUps).padStart(9),
         (r.served / r.dayCount).toFixed(1).padStart(10),

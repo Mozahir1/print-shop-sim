@@ -5,7 +5,7 @@ import { daySeed, endDay, loadGame, newGame, saveGame, startDay } from "./game";
 import { activeCount } from "./todo";
 import { spawnCustomer } from "./customers";
 import { DIRECTOR, TUNING } from "./config";
-import { doTask, talkTo } from "./testkit";
+import { calm, doTask, talkTo } from "./testkit";
 
 function playDay(sim: Sim, onTick?: () => void): void {
   const bot = createBot();
@@ -29,12 +29,13 @@ describe("the flow director", () => {
     expect(idle / open).toBeLessThan(0.05);
   });
 
-  it("brings in about 10 to 15 customers a day", () => {
+  it("you deal with about 10 to 20 people at the counter a day (plus whoever goes straight to self-serve)", () => {
     for (let seed = 1; seed <= 10; seed++) {
       const sim = createSim(seed);
       playDay(sim);
-      expect(sim.state.director.arrivals).toBeGreaterThanOrEqual(10);
-      expect(sim.state.director.arrivals).toBeLessThanOrEqual(15);
+      const helped = new Set(sim.state.choices.filter((c) => c.what === "counter").map((c) => c.customerId)).size;
+      expect(helped).toBeGreaterThanOrEqual(10);
+      expect(helped).toBeLessThanOrEqual(22);
     }
   });
 
@@ -64,7 +65,7 @@ describe("the flow director", () => {
         playDay(sim);
         for (const c of sim.state.customers) {
           all++;
-          if (c.kind === "large_job" || c.kind === "poster" || c.kind === "ship" || (c.kind === "order_pickup" && c.spec && c.waits === false)) n++;
+          if (c.kind === "large_job" || c.kind === "poster" || c.kind === "ship" || (c.kind === "order_pickup" && c.spec && c.timing !== "wait")) n++;
         }
       }
       return n / all;
@@ -109,8 +110,10 @@ describe("multiple days", () => {
     const sim = startDay(game);
     const s = sim.state;
     s.director.enabled = false;
-    const c = spawnCustomer(s, sim.rng.dev, "large_job", { waits: false });
+    const c = spawnCustomer(s, sim.rng.dev, "large_job", { timing: "back", needIn: 400 });
+    const restore = calm();
     talkTo(sim, c);
+    restore();
     doTask(sim, { type: "enter_order", jobId: c.jobId! });
     doTask(sim, { type: "send_job", jobId: c.jobId! });
     const shipper = spawnCustomer(s, sim.rng.dev, "ship");

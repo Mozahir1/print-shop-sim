@@ -1,17 +1,21 @@
 // Consequences: manager heat (hidden), complaints, and things you did that come back later.
+// The manager cares about the work getting done and sales, not manners. Heat comes from ignoring people and
+// problems, late or unfinished orders, complaints about bad work, and lost sales.
 // "Usually" outcomes are keyed rolls, so the same choices always lead to the same consequences.
-import type { CounterChoice, Customer, Flag, GameState, HeatCause, ManagerState, MessageDraft, MessageKind } from "./types";
+import type { Customer, Flag, GameState, HeatCause, Job, ManagerState, MessageDraft, MessageKind } from "./types";
+import type { CounterQuote } from "./quote";
 import { COMPLAINT_CHANCE, COMPLAINT_DELAY, COMPLAINT_SAME_DAY, FLAGS, HEAT } from "./config";
 import { keyedRoll } from "./rng";
 import { fill, log } from "./util";
 import { moodOf } from "./mood";
 import { pickLine, POOLS } from "./lines";
 import { mcSay } from "./mc";
+import { morningTime } from "./customers";
 
 type MessagePool = Exclude<MessageKind, "web_order" | "note"> | "packages_left";
 
 export function createManager(heat = 0, flags: Flag[] = [], morning: MessageDraft[] = []): ManagerState {
-  return { heat, heatBy: { complaints: 0, ignoring: 0, rude: 0 }, complaints: 0, flags, scheduled: [], morning, visitsDue: [] };
+  return { heat, heatBy: { complaints: 0, ignoring: 0, lost_sales: 0 }, complaints: 0, flags, scheduled: [], morning, visitsDue: [] };
 }
 
 export function addHeat(state: GameState, amount: number, cause: HeatCause): void {
@@ -41,25 +45,42 @@ function between(roll: number, [lo, hi]: [number, number]): number {
 
 // ---------- hooks: called where things happen ----------
 
-export function onAnswer(state: GameState, c: Customer, choice: CounterChoice): void {
-  if (choice === "ignore") addHeat(state, HEAT.ignore, "ignoring");
-  if (choice === "rude") {
-    addHeat(state, HEAT.rude, "rude");
-    if (keyedRoll(state.seed, "review", c.id, c.choices) < FLAGS.rudeReviewChance) {
-      addFlag(state, { kind: "bad_review", dueDay: state.day + 1, dueAt: 0, name: c.name });
-    }
-  }
+export function onIgnore(state: GameState): void {
+  addHeat(state, HEAT.ignore, "ignoring");
+}
+
+// Turning someone away costs nothing if it couldn't be done in time or wasn't worth doing. Otherwise it's a lost sale.
+export function onTurnAway(state: GameState, q: CounterQuote): void {
+  state.stats.turnedAway++;
+  if (!q.doable || !q.worth) return;
+  state.stats.lostSales++;
+  state.stats.lostSalesCents += q.valueCents;
+  addHeat(state, HEAT.lostSale, "lost_sales");
+}
+
+// An order wasn't ready when promised.
+export function onLate(state: GameState, job: Job): void {
+  if (job.late) return;
+  job.late = true;
+  state.stats.lateOrders++;
+  addHeat(state, HEAT.late, "complaints");
+}
+
+// At close: orders due today that still aren't done.
+export function onUnfinished(state: GameState, job: Job): void {
+  job.late = true;
+  state.stats.lateOrders++;
+  addHeat(state, HEAT.unfinished, "complaints");
 }
 
 // A customer left the store for good: how they felt decides whether the manager hears about it.
 export function onLeave(state: GameState, c: Customer, walkedOut: boolean): void {
   const mood = moodOf(c);
-  if (walkedOut) addHeat(state, HEAT.walkout, "ignoring");
-  if (mood === "angry") addHeat(state, HEAT.angryLeft, angerCause(state, c));
+  if (walkedOut) addHeat(state, HEAT.walkout, angerCause(c));
   const roll = keyedRoll(state.seed, "complaint", c.id, state.day);
   if (roll >= COMPLAINT_CHANCE[mood]) return;
   state.manager.complaints++;
-  const cause = angerCause(state, c);
+  const cause = angerCause(c);
   const timing = keyedRoll(state.seed, "complaint-when", c.id, state.day);
   const at = state.time + between(keyedRoll(state.seed, "complaint-delay", c.id), COMPLAINT_DELAY);
   const msg = draft("complaint", { name: c.name }, at, HEAT.complaint, cause);
@@ -68,11 +89,8 @@ export function onLeave(state: GameState, c: Customer, walkedOut: boolean): void
 }
 
 // What a customer is mostly unhappy about, for when getting fired needs a reason.
-function angerCause(state: GameState, c: Customer): HeatCause {
-  const mine = state.choices.filter((x) => x.customerId === c.id);
-  if (mine.some((x) => x.type === "rude")) return "rude";
-  if (c.ignored > 0 || c.outcome === "left") return "ignoring";
-  return "complaints";
+function angerCause(c: Customer): HeatCause {
+  return c.ignored > 0 ? "ignoring" : "complaints";
 }
 
 // Smudged copies went out the door: they come back, today or tomorrow.
@@ -90,7 +108,7 @@ export function onTapedBoxShipped(state: GameState, packageId: number, name: str
 }
 
 function morningAt(state: GameState, key: number): number {
-  return between(keyedRoll(state.seed, "morning", key), FLAGS.morningAt);
+  return morningTime(state.seed, key);
 }
 
 function addFlag(state: GameState, f: Flag): void {
@@ -114,8 +132,6 @@ export function runConsequences(state: GameState): void {
 
 function fire(state: GameState, f: Flag): void {
   switch (f.kind) {
-    case "bad_review":
-      return deliver(state, draft("review", { name: f.name }, state.time, HEAT.complaint, "rude"));
     case "packages_left":
       return deliver(state, draft("packages_left", { name: f.name }, state.time, HEAT.flag, "ignoring"));
     case "damaged_box":

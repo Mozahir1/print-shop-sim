@@ -1,10 +1,13 @@
 // The flow director: brings in the next customer (or the truck) so there's always something to do, but rarely
 // more than two or three things at once. Every roll comes from its own stream.
 import type { Customer, GameState } from "./types";
-import { DIRECTOR, SHIPPING, type Arrival } from "./config";
-import { randInt } from "./rng";
-import { placeWebOrder, returnCustomer, spawnCustomer } from "./customers";
+import { DIRECTOR, MOOD, REACTIONS, SHIPPING, type Arrival } from "./config";
+import { keyedRoll, randInt } from "./rng";
+import { isPrintKind, placeWebOrder, returnCustomer, spawnCustomer } from "./customers";
 import { activeCount, isActive } from "./todo";
+import { selfServeBlocker } from "./orders";
+import { leave } from "./mood";
+import { startSelfServe } from "./sim";
 import { jobById, log } from "./util";
 import type { Sim } from "./sim";
 
@@ -19,13 +22,21 @@ export function createDirector(rng: () => number): DirectorState {
   return { enabled: true, nextAt: randInt(rng, ...DIRECTOR.firstArrival), floorAt: null, arrivals: 0 };
 }
 
+// Someone who turned out to be hardly any work (turned away, balked, sent to self-serve) doesn't use up one of the
+// day's customers: the director brings in someone else instead.
+export function refundArrival(state: GameState, c: Customer): void {
+  if (c.kind === "order_pickup" || c.kind === "complaint") return; // they never counted
+  state.director.arrivals = Math.max(0, state.director.arrivals - 1);
+}
+
 // Customers who left an order and could come back for it now: it's ready, or it's past when they said they'd come.
 // Oldest first.
 export function readyToReturn(state: GameState): Customer[] {
   return state.customers.filter((c) => {
     if (c.state !== "away" || c.jobId === null) return false;
     const job = jobById(state, c.jobId);
-    return job !== undefined && job.status !== "picked_up" && (job.status === "bagged" || state.time >= job.pickupAt);
+    if (!job || job.status === "picked_up" || job.dueDay > state.day) return false; // not due back today
+    return job.status === "bagged" || state.time >= job.pickupAt;
   });
 }
 
@@ -36,9 +47,10 @@ export function runDirector(sim: Sim): void {
   const active = activeCount(state);
 
   // The truck comes at its time, unless you're at the ceiling; then it waits for room, or comes just after close
-  // (the day doesn't end until it's been and gone).
+  // (the day doesn't end until it's been and gone). If things go quiet just before it's due, it comes a bit early.
   const t = state.truck;
-  if (t.status === "coming" && state.time >= t.arrivesAt && (active < DIRECTOR.ceiling || state.time > state.closeAt)) {
+  const early = state.time >= t.arrivesAt - DIRECTOR.truckHold && active < DIRECTOR.floor; // quiet while we wait for it
+  if (t.status === "coming" && (early || (state.time >= t.arrivesAt && (active < DIRECTOR.ceiling || state.time > state.closeAt)))) {
     t.status = "waiting";
     t.leavesAt = state.time + SHIPPING.truckWaits;
     log(state, "The carrier truck is here.");
@@ -73,8 +85,8 @@ export function runDirector(sim: Sim): void {
     log(state, `${overdue[0].name} came back for their order.`);
   } else {
     const what = pickArrival(sim);
-    arrive(sim, what);
-    if (what !== "order_pickup") d.arrivals++;
+    const counted = arrive(sim, what);
+    if (counted) d.arrivals++;
   }
   d.floorAt = null;
   d.nextAt = state.time + randInt(rng.director, ...DIRECTOR.pace);
@@ -96,17 +108,42 @@ function pickArrival(sim: Sim): Arrival {
   return "quick_copies";
 }
 
-function arrive(sim: Sim, what: Arrival): void {
+// Brings them in. Returns whether they count toward the day's customers.
+function arrive(sim: Sim, what: Arrival): boolean {
   const { state, rng } = sim;
   if (what === "order_pickup") {
     const c = readyToReturn(state)[0];
     returnCustomer(state, c);
     log(state, `${c.name} came back for their order.`);
-  } else if (what === "web_order") {
+    return false;
+  }
+  if (what === "web_order") {
     const job = placeWebOrder(state, rng.director);
     log(state, `Web order #${job.id} came in.`);
-  } else {
-    const c = spawnCustomer(state, rng.director, what);
-    log(state, `${c.name} came in.`);
+    return true;
   }
+  const c = spawnCustomer(state, rng.director, what);
+  log(state, `${c.name} came in.`);
+  return !goStraightToSelfServe(state, c);
+}
+
+// Some people with a simple job don't come to the counter at all: they go straight to the self-serve copier.
+// If it's broken, they come and ask about it; if there's an out of order sign on it, they leave unhappy.
+// Returns whether they went (they don't count toward the day's customers then: they're no work for you).
+function goStraightToSelfServe(state: GameState, c: Customer): boolean {
+  if (!isPrintKind(c.kind) || c.timing !== "wait" || selfServeBlocker(c.spec!) !== null) return false;
+  if (keyedRoll(state.seed, "go-alone", c.id) >= REACTIONS.goAlone) return false;
+  if (state.copier.status === "ok") {
+    startSelfServe(state, c);
+    return true;
+  }
+  if (state.copier.sign) {
+    c.mood += MOOD.badWork;
+    leave(state, c, "balked");
+    log(state, `${c.name} saw the out of order sign and left.`);
+    return true;
+  }
+  c.kind = "self_serve_help"; // "this machine isn't doing anything"
+  c.spec = null;
+  return false;
 }

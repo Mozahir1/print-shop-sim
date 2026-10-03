@@ -1,19 +1,9 @@
-// The MC: apathetic, dry, and exactly the same no matter what you do. You choose actions, not attitude.
-// Monologue lines show as captions; which variant is said is picked deterministically.
-import type { CounterChoice, Customer, GameState } from "./types";
+// The MC: apathetic, dry, and exactly the same no matter what you do. You choose actions, not attitude, and the MC's
+// lines are reactions and monologue only. Which variant is said is picked deterministically.
+import type { Customer, GameState } from "./types";
 import { POOLS, say } from "./lines";
 
-export type Moment =
-  | "greeting"
-  | CounterChoice
-  | "lazy"
-  | "bad_luck"
-  | "hollow_reward"
-  | "warning"
-  | "write_up"
-  | "start_of_day"
-  | "end_of_day"
-  | "fired";
+export type Moment = "greeting" | "bad_luck" | "hollow_reward" | "warning" | "write_up" | "start_of_day" | "end_of_day" | "fired";
 
 export function mcSay(state: GameState, moment: Moment, ctx: Record<string, string | undefined> = {}): string {
   // Variant by day and by how often this moment has come up: never by how you've been playing.
@@ -23,14 +13,12 @@ export function mcSay(state: GameState, moment: Moment, ctx: Record<string, stri
   return text;
 }
 
-// What the MC would say for each answer to this customer (the choice buttons read exactly this).
-export function answerLine(state: GameState, c: Customer, choice: CounterChoice): string {
-  return say(POOLS.mc, choice, { request: c.kind }, c.id + c.choices);
-}
+export type CustomerMoment = "request" | "waiting_too_long" | "mood" | "leaving_angry" | "reaction";
 
-export type CustomerMoment = "request" | "waiting_too_long" | "mood" | "leaving_angry";
+// How a customer responds at the counter.
+export type Reaction = "accept_self_serve" | "refuse_self_serve" | "balk_fee" | "balk_rush" | "too_late" | "accept_later" | "turned_away";
 
 // The customer says something. Their mood only ever shows through what they say.
-export function customerSay(c: Customer, moment: CustomerMoment, mood?: string): void {
-  c.said = say(POOLS.customers, moment, { request: c.kind, about: c.about ?? undefined, mood }, c.id);
+export function customerSay(c: Customer, moment: CustomerMoment, extra: { mood?: string; reaction?: Reaction } = {}): void {
+  c.said = say(POOLS.customers, moment, { request: c.kind, about: c.about ?? undefined, ...extra }, c.id);
 }

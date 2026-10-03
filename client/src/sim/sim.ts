@@ -2,19 +2,22 @@
 // You are one employee. Everything you do is a short task at one of the stations.
 // The UI and the bot both act through canStart()/startTask()/stopTask().
 
-import type { CounterChoice, Customer, EventKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
+import type { CounterAction, Customer, EventKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
-import { ANSWER_WITHIN, DURATIONS, FINISH_SECONDS, MOOD, PACKING_FEE_CENTS, PRINTER, RESPOND_SECONDS, SHIPPING, SMUDGE_CHANCE, TUNING } from "./config";
-import { counterMoodChange, leave, recordChoice, runPatience } from "./mood";
+import { ANSWER_WITHIN, DURATIONS, FINISH_SECONDS, MOOD, PRINTER, REACTIONS, RESPOND_SECONDS, SHIPPING, SMUDGE_CHANCE, TUNING } from "./config";
+import { choiceType, leave, recordChoice, runPatience } from "./mood";
+import { quoteFor, type CounterQuote } from "./quote";
+import { formatClock } from "./time";
+import { selfServePriceCents, selfServeSeconds } from "./orders";
 import { closeEvents, onPacked, resolveEvent, rollEvent, runEvents, wifiBack } from "./events";
-import { createManager, deliver, onAnswer, onSmudgedHandedOver, onTapedBoxShipped, runConsequences } from "./consequences";
-import { createJob, isPrintKind, shipPriceCents } from "./customers";
+import { createManager, deliver, onIgnore, onLate, onSmudgedHandedOver, onTapedBoxShipped, onTurnAway, onUnfinished, runConsequences } from "./consequences";
+import { createJob, createShipment, isPrintKind, morningTime, weighted } from "./customers";
 import { FINISHING_LABEL } from "./orders";
 import { customerById, jobById, log, money, packageById } from "./util";
-import { createDirector, runDirector } from "./director";
+import { createDirector, refundArrival, runDirector } from "./director";
 import { activeCount } from "./todo";
 import { pickLine, POOLS } from "./lines";
-import { answerLine, customerSay, mcSay } from "./mc";
+import { customerSay, mcSay, type Reaction } from "./mc";
 
 // Separate random streams, so adding a system never changes what the others roll.
 export interface SimRng {
@@ -83,7 +86,7 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     log: [],
     nextId: opts.nextId ?? 1,
     nextLineNo: 1,
-    stats: { served: 0, left: 0, happy: 0, neutral: 0, angry: 0, upsellsMissed: 0, ordersTaken: 0, webOrders: 0, sheets: 0, shipments: 0, dropoffs: 0, packagePickups: 0, jams: 0, idleSeconds: 0, activeSeconds: 0, maxActive: 0 },
+    stats: { served: 0, left: 0, happy: 0, neutral: 0, angry: 0, selfServed: 0, selfServeCents: 0, turnedAway: 0, lostSales: 0, lostSalesCents: 0, balked: 0, rushOrders: 0, lateOrders: 0, ordersTaken: 0, webOrders: 0, sheets: 0, shipments: 0, dropoffs: 0, packagePickups: 0, jams: 0, idleSeconds: 0, activeSeconds: 0, maxActive: 0 },
     over: false,
     devUsed: false,
   };
@@ -114,6 +117,7 @@ export function tick(sim: Sim, dt: number): void {
   runAnswerTimeouts(state);
   runConsequences(state);
   runPrinter(state, dt);
+  runSelfServe(state);
   runTruck(state);
   if (wasOpen) sampleLoad(state, dt);
   if (state.time >= state.closeAt) runClose(state);
@@ -133,7 +137,13 @@ function runClose(state: GameState): void {
   const busy = inside.length > 0 || state.employee.task !== null || state.truck.status !== "gone";
   if (busy && !wrapUpOver) return;
   for (const c of inside) leaveAtClose(state, c);
+  for (const c of state.customers) if (c.state === "self_serve") finishSelfServe(state, c);
   closeEvents(state);
+  // Orders due today that still aren't done (unless the customer gave up on them already).
+  for (const j of state.jobs) {
+    const owner = customerById(state, j.customerId);
+    if (j.dueDay <= state.day && !j.late && j.status !== "bagged" && j.status !== "picked_up" && owner?.state !== "gone") onUnfinished(state, j);
+  }
   state.employee.task = null;
   state.over = true;
   mcSay(state, "end_of_day");
@@ -159,6 +169,43 @@ function runAnswerTimeouts(state: GameState): void {
     if (t?.type === "respond" && t.customerId === c.id) continue; // you're answering
     answer(state, c, "ignore", true);
   }
+}
+
+// An order is late once it's past its promised day and time.
+export function isLate(state: GameState, job: Job): boolean {
+  return state.day > job.dueDay || (state.day === job.dueDay && state.time > job.dueAt);
+}
+
+// ---------- self-serve ----------
+
+function runSelfServe(state: GameState): void {
+  for (const c of state.customers) {
+    if (c.state !== "self_serve") continue;
+    if (state.copier.status === "broken") {
+      // It died on them: they give up on it (they got some of their copies).
+      c.mood += MOOD.turnedAway;
+      c.selfServeUntil = null;
+      leave(state, c, "balked");
+      log(state, `${c.name} gave up on the dead copier.`);
+    } else if (state.time >= (c.selfServeUntil ?? 0)) finishSelfServe(state, c);
+  }
+}
+
+function finishSelfServe(state: GameState, c: Customer): void {
+  const cents = selfServePriceCents(c.spec!);
+  state.revenueCents += cents;
+  state.stats.selfServed++;
+  state.stats.selfServeCents += cents;
+  c.selfServeUntil = null;
+  leave(state, c, "served");
+}
+
+// Sends someone to the self-serve copier (they agreed to go, or went on their own).
+export function startSelfServe(state: GameState, c: Customer): void {
+  c.state = "self_serve";
+  c.answerBy = null;
+  c.selfServeUntil = state.time + selfServeSeconds(c.spec!);
+  log(state, `${c.name} is using the self-serve copier.`);
 }
 
 function updateEmployee(state: GameState, dt: number): void {
@@ -302,7 +349,8 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
     case "respond": {
       const c = customerById(state, req.customerId ?? -1);
       if (!c || c.state !== "talking") return "You're not talking to them.";
-      return req.choice ? null : "Answer how?";
+      if (!req.choice) return "Answer how?";
+      return actionBlocker(state, c, req.choice);
     }
     case "hand_over":
     case "ring_up":
@@ -454,7 +502,7 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
     case "talk":
       return `Talk to ${name}`;
     case "respond":
-      return `Answer ${name}`;
+      return ACTION_LABEL[req.choice ?? "take"].replace("{name}", name);
     case "hand_over":
       return `Hand over to ${name}`;
     case "ring_up":
@@ -546,8 +594,13 @@ function completeTask(state: GameState, t: Task): void {
       j.status = "picked_up";
       j.closedAt = state.time;
       if (j.smudge === "accepted") {
-        c!.mood += MOOD.lazyNoticed; // they look through it
+        c!.mood += MOOD.badWork; // they look through it
         onSmudgedHandedOver(state, c!);
+      }
+      if (j.late) c!.mood += MOOD.late;
+      if (t.type === "manual_ring_up" && state.event?.kind === "card_reader_down" && state.event.status === "active") {
+        resolveEvent(state, "card_reader_down", "worked_around"); // you'll keep doing it by hand
+        recordChoice(state, "dont", "event");
       }
       if (t.type !== "hand_over") {
         state.revenueCents += j.priceCents;
@@ -560,7 +613,7 @@ function completeTask(state: GameState, t: Task): void {
       return;
     case "send_job":
       job!.status = "queued";
-      state.printer.queue.push(job!.id);
+      queueJob(state, job!);
       return;
     case "open_message": {
       const m = state.messages.find((x) => x.id === t.messageId)!;
@@ -569,7 +622,7 @@ function completeTask(state: GameState, t: Task): void {
       if (m.kind === "web_order" && j?.status === "unread") {
         j.status = "entered";
         state.revenueCents += j.priceCents; // paid online
-        if (!m.snoozed) recordChoice(state, "proper", "inbox", j.customerId); // opening it once they're here doesn't count
+        if (!m.snoozed) recordChoice(state, "do", "inbox", j.customerId); // opening it once they're here doesn't count
         log(state, `Opened web order #${j.id}.`);
       }
       return;
@@ -577,8 +630,7 @@ function completeTask(state: GameState, t: Task): void {
     case "leave_unread": {
       const m = state.messages.find((x) => x.id === t.messageId)!;
       m.snoozed = true;
-      mcSay(state, "lazy");
-      recordChoice(state, "lazy", "inbox", m.jobId !== null ? jobById(state, m.jobId)?.customerId : undefined);
+      recordChoice(state, "ignore", "inbox", m.jobId !== null ? jobById(state, m.jobId)?.customerId : undefined);
       return;
     }
     case "collect":
@@ -589,13 +641,12 @@ function completeTask(state: GameState, t: Task): void {
       job!.status = "queued";
       job!.sheetsPrinted = 0;
       job!.smudge = "none";
-      state.printer.queue.push(job!.id);
-      recordChoice(state, "proper", "smudge", job!.customerId);
+      queueJob(state, job!);
+      recordChoice(state, "do", "smudge", job!.customerId);
       return;
     case "use_anyway":
       job!.smudge = "accepted";
-      mcSay(state, "lazy");
-      recordChoice(state, "lazy", "smudge", job!.customerId);
+      recordChoice(state, "dont", "smudge", job!.customerId);
       return;
     case "clear_jam":
       state.printer.status = state.printer.currentJobId !== null ? "printing" : "idle";
@@ -608,7 +659,7 @@ function completeTask(state: GameState, t: Task): void {
       log(state, "The card reader works again.");
       return;
     case "restart_router":
-      recordChoice(state, "proper", "event");
+      recordChoice(state, "do", "event");
       wifiBack(state, true);
       return;
     case "load_paper":
@@ -621,26 +672,26 @@ function completeTask(state: GameState, t: Task): void {
       return;
     case "bag":
       job!.status = "bagged";
+      if (isLate(state, job!)) onLate(state, job!);
       log(state, `Order #${job!.id} is bagged and ready.`);
       return;
     case "help_self_serve":
       if (c!.state !== "waiting") return;
       if (state.copier.status === "broken") {
-        c!.mood += MOOD.lazyNoticed; // pointed at the sign
+        c!.mood += MOOD.badWork; // pointed at the sign
         log(state, `Pointed ${c!.name} at the out of order sign.`);
       } else log(state, `Helped ${c!.name} at self-serve.`);
       return leave(state, c!, "served");
     case "fix_copier":
       state.copier.status = "ok";
       state.copier.sign = false;
-      recordChoice(state, "proper", "copier");
+      recordChoice(state, "do", "copier");
       resolveEvent(state, "copier_dies", "fixed");
       log(state, "Fixed the copier.");
       return;
     case "out_of_order_sign":
       state.copier.sign = true;
-      mcSay(state, "lazy");
-      recordChoice(state, "lazy", "copier");
+      recordChoice(state, "dont", "copier");
       resolveEvent(state, "copier_dies", "worked_around");
       log(state, "Taped an out of order sign on the copier.");
       return;
@@ -655,10 +706,9 @@ function completeTask(state: GameState, t: Task): void {
       const owner = customerById(state, pkg!.customerId);
       if (t.type === "tape_shut") {
         pkg!.taped = true;
-        mcSay(state, "lazy");
-        if (owner?.state === "waiting") owner.mood += MOOD.lazyNoticed; // they're standing right there
+        if (owner?.state === "waiting") owner.mood += MOOD.badWork; // they're standing right there
       }
-      recordChoice(state, t.type === "pack" ? "proper" : "lazy", "pack", pkg!.customerId);
+      recordChoice(state, t.type === "pack" ? "do" : "dont", "pack", pkg!.customerId);
       return;
     }
     case "label": {
@@ -677,7 +727,7 @@ function completeTask(state: GameState, t: Task): void {
     case "scan_dropoff": {
       if (c!.state !== "waiting") return;
       const id = state.nextId++;
-      state.packages.push({ id, customerId: c!.id, kind: "dropoff", weightLb: 2, priceCents: 0, status: "scanned", taped: false });
+      state.packages.push({ id, customerId: c!.id, kind: "dropoff", weightLb: 2, service: null, box: null, priceCents: 0, status: "scanned", taped: false });
       state.stats.dropoffs++;
       log(state, `Scanned ${c!.name}'s drop-off.`);
       return leave(state, c!, "served");
@@ -690,14 +740,13 @@ function completeTask(state: GameState, t: Task): void {
       for (const p of out) p.status = "shipped";
       state.truck.handedOff = true;
       state.truck.status = "gone";
-      recordChoice(state, "proper", "truck");
+      recordChoice(state, "do", "truck");
       log(state, `Handed ${out.length} package${out.length === 1 ? "" : "s"} to the driver.`);
       return;
     }
     case "let_truck_go":
       state.truck.status = "gone";
-      recordChoice(state, "lazy", "truck");
-      mcSay(state, "lazy");
+      recordChoice(state, "dont", "truck");
       log(state, "Let the driver leave.");
       return;
   }
@@ -707,40 +756,152 @@ function completeTask(state: GameState, t: Task): void {
 function fixedEvent(state: GameState, kind: EventKind): void {
   if (state.event?.kind !== kind || state.event.status !== "active") return;
   resolveEvent(state, kind, "fixed");
-  recordChoice(state, "proper", "event");
+  recordChoice(state, "do", "event");
 }
 
-// Your answer to the customer at the counter. Anything but ignoring them means you take on what they need.
-export function answer(state: GameState, c: Customer, choice: CounterChoice, auto: boolean): void {
-  state.captions.push({ time: state.time, moment: choice, text: answerLine(state, c, choice) }); // what the button said
-  c.mood += counterMoodChange(state, c, choice);
-  c.choices++;
-  c.answerBy = null;
-  recordChoice(state, choice, "counter", c.id, auto);
-  onAnswer(state, c, choice);
-  if (choice === "ignore") {
-    c.ignored++;
-    c.state = "line"; // still standing there
-    return;
+// Rushes print first (in the order they were sent); everything else waits its turn.
+function queueJob(state: GameState, job: Job): void {
+  const q = state.printer.queue;
+  if (!job.rush) return void q.push(job.id);
+  const firstStandard = q.findIndex((id) => !jobById(state, id)?.rush);
+  if (firstStandard < 0) q.push(job.id);
+  else q.splice(firstStandard, 0, job.id);
+}
+
+// ---------- the counter ----------
+
+export const ACTION_LABEL: Record<CounterAction, string> = {
+  take: "Take the order",
+  rush: "Take it as a rush",
+  self_serve: "Send them to self-serve",
+  turn_away: "Turn {name} away",
+  ignore: "Ignore {name}",
+};
+
+// Why this answer isn't on the table for this customer, or null.
+export function actionBlocker(state: GameState, c: Customer, action: CounterAction): string | null {
+  if (action === "ignore" || action === "turn_away") {
+    return action === "turn_away" && c.kind === "order_pickup" && c.jobId !== null && jobById(state, c.jobId)?.prepaid ? "They already paid online. Online orders can't be turned away." : null;
   }
-  if ((choice === "minimum" || choice === "rude") && (isPrintKind(c.kind) || c.kind === "ship")) state.stats.upsellsMissed++;
-  takeRequest(state, c);
+  if (action === "take") return null;
+  if (!isPrintKind(c.kind)) return "That's only for print orders.";
+  const q = quoteFor(state, c);
+  if (action === "rush") return q.rush ? null : "Standard turnaround is soon enough for them.";
+  return q.selfServeBlocker;
 }
 
-// You find out what they need and take it on.
+// The customer's reaction to something, keyed to them and how far into the conversation you are.
+function reacts(state: GameState, c: Customer, what: string): number {
+  return keyedRoll(state.seed, what, c.id, c.choices);
+}
+
+function say(c: Customer, reaction: Reaction): void {
+  customerSay(c, "reaction", { reaction });
+}
+
+// Your answer to the customer at the counter.
+export function answer(state: GameState, c: Customer, action: CounterAction, auto: boolean): void {
+  const q = quoteFor(state, c);
+  recordChoice(state, choiceType(action), "counter", c.id, { action, auto });
+  c.answerBy = null;
+  switch (action) {
+    case "ignore":
+      c.ignored++;
+      c.mood += MOOD.ignored;
+      c.state = "line"; // still standing there
+      onIgnore(state);
+      break;
+    case "turn_away":
+      turnAway(state, c, q);
+      break;
+    case "self_serve":
+      if (reacts(state, c, "self-serve") < REACTIONS.acceptSelfServe) {
+        say(c, "accept_self_serve");
+        refundArrival(state, c);
+        startSelfServe(state, c);
+      } else {
+        // They want full service: back to you for a do or a don't.
+        c.refusedSelfServe = true;
+        say(c, "refuse_self_serve");
+        c.state = "talking";
+        c.answerBy = state.time + ANSWER_WITHIN;
+        log(state, `${c.name} wants full service.`);
+      }
+      break;
+    case "take":
+    case "rush":
+      if (isPrintKind(c.kind)) takeOrder(state, c, q, action === "rush");
+      else takeRequest(state, c);
+      break;
+  }
+  c.choices++;
+}
+
+function turnAway(state: GameState, c: Customer, q: CounterQuote): void {
+  // People here for something that's already theirs (or to complain) take it badly.
+  const theirs = c.kind === "order_pickup" || c.kind === "package_pickup" || c.kind === "complaint";
+  c.mood += theirs ? MOOD.badWork : MOOD.turnedAway;
+  onTurnAway(state, q);
+  refundArrival(state, c);
+  say(c, "turned_away");
+  log(state, `Turned ${c.name} away.`);
+  leave(state, c, "turned_away");
+}
+
+// Taking a print order: they might balk at a fee, or at when it'd be ready.
+function takeOrder(state: GameState, c: Customer, q: CounterQuote, rush: boolean): void {
+  if (rush && reacts(state, c, "rush-balk") < REACTIONS.rushBalk) return balk(state, c, q, true);
+  if (!rush && q.standard!.serviceFeeCents > 0 && reacts(state, c, "fee-balk") < REACTIONS.serviceFeeBalk) return balk(state, c, q, false);
+  agreeOnTime(state, c, q, rush);
+}
+
+// They don't want to pay the fee: they take standard time (instead of a rush), do it themselves, or leave.
+function balk(state: GameState, c: Customer, q: CounterQuote, rush: boolean): void {
+  const w = REACTIONS.balkInstead;
+  const instead = weighted(reacts(state, c, "balk-instead"), { standard: rush ? w.standard : 0, self_serve: q.selfServeCents !== null ? w.self_serve : 0, leave: w.leave });
+  say(c, rush ? "balk_rush" : "balk_fee");
+  if (instead === "standard") return agreeOnTime(state, c, q, false);
+  refundArrival(state, c);
+  if (instead === "self_serve") return startSelfServe(state, c);
+  state.stats.balked++;
+  log(state, `${c.name} didn't want to pay the fee and left.`);
+  leave(state, c, "balked");
+}
+
+// If it can't be ready by when they need it, some take the later time and some leave. Then it's an order.
+function agreeOnTime(state: GameState, c: Customer, q: CounterQuote, rush: boolean): void {
+  const promise = rush ? q.rushReadyAt : q.standardReadyAt;
+  if (c.needBy !== null && promise > c.needBy) {
+    // (A promise for tomorrow is later than anything they need today, too.)
+    if (reacts(state, c, "later") >= REACTIONS.acceptLater) {
+      say(c, "too_late");
+      refundArrival(state, c);
+      state.stats.balked++;
+      log(state, `${c.name} couldn't wait that long and left.`);
+      return leave(state, c, "balked");
+    }
+    say(c, "accept_later");
+  }
+  const tomorrow = rush ? false : q.tomorrow;
+  const dueAt = tomorrow ? morningTime(state.seed, c.id) : c.timing === "back" ? Math.max(promise, c.needBy ?? promise) : promise;
+  const job = createJob(state, c, "counter", { rush, dueDay: tomorrow ? state.day + 1 : state.day, dueAt });
+  state.stats.ordersTaken++;
+  if (rush) state.stats.rushOrders++;
+  if (c.timing === "wait" && !tomorrow) {
+    c.state = "waiting";
+    c.waited = 0; // happy to wait until it's due; past that, their patience runs out
+    c.patience = Math.max(30, dueAt - state.time);
+  } else c.state = "away"; // (if it's tomorrow now, they'll pick it up tomorrow)
+  log(state, `Took ${c.name}'s ${rush ? "rush " : ""}order #${job.id}, due ${tomorrow ? "tomorrow" : formatClock(dueAt)}.`);
+}
+
+// Everything that isn't a print order: you take it on.
 function takeRequest(state: GameState, c: Customer): void {
   c.state = "waiting";
   if (c.kind === "complaint") {
+    c.mood = Math.max(c.mood, 0); // heard out
     log(state, `Heard ${c.name} out.`);
     return leave(state, c, "served");
   }
-  if (isPrintKind(c.kind)) {
-    const job = createJob(state, c, "counter");
-    state.stats.ordersTaken++;
-    if (!c.waits) c.state = "away";
-    log(state, `Took ${c.name}'s order #${job.id}${c.waits ? "" : ". They'll be back for it"}.`);
-  } else if (c.kind === "ship") {
-    c.packageId = state.nextId++;
-    state.packages.push({ id: c.packageId, customerId: c.id, kind: "ship", weightLb: c.weightLb, priceCents: shipPriceCents(c.weightLb) + PACKING_FEE_CENTS, status: "new", taped: false });
-  }
+  if (c.kind === "ship") createShipment(state, c);
 }

@@ -4,16 +4,15 @@ import { botAct, createBot, type BotStyle } from "./bot";
 import { endDay, newGame, startDay, type Game } from "./game";
 import { spawnCustomer } from "./customers";
 import { devEvent } from "./dev";
-import { answerLine } from "./mc";
 import { pickLine, POOLS } from "./lines";
 import { HEAT } from "./config";
-import { doTask, talkTo } from "./testkit";
+import { calm, doTask } from "./testkit";
 import type { RequestKind } from "./types";
 import { readdirSync, readFileSync } from "node:fs";
 
 function play(game: Game, style: BotStyle) {
   const sim = startDay(game);
-  const bot = createBot(1, style);
+  const bot = createBot(1, style, game.baseSeed);
   while (!isDayOver(sim.state)) {
     botAct(bot, sim.state, 1);
     tick(sim, 1);
@@ -27,41 +26,44 @@ const moments = (sim: ReturnType<typeof createSim>) => sim.state.captions.map((c
 describe("the MC", () => {
   it("talks at the start and end of the day", () => {
     const game = newGame(1);
-    const sim = play(game, "proper");
+    const sim = play(game, "smart");
     expect(moments(sim)[0]).toBe("start_of_day");
     expect(moments(sim).at(-1)).toBe("end_of_day");
   });
 
-  it("never changes: the same moment gets the same line whether you're perfect or awful", () => {
-    const a = play(newGame(1), "proper");
-    const b = play(newGame(1), "rude");
+  it("never changes: the same moment gets the same line whether you do everything or ignore everyone", () => {
+    const a = play(newGame(1), "smart");
+    const b = play(newGame(1), "ignore");
     const line = (sim: typeof a, m: string) => sim.state.captions.find((c) => c.moment === m)!.text;
     expect(line(a, "start_of_day")).toBe(line(b, "start_of_day"));
     expect(line(a, "end_of_day")).toBe(line(b, "end_of_day"));
   });
 
-  it("even proper answers read as bored, and the buttons say exactly what gets said", () => {
+  it("only reacts and narrates: answering a customer, whichever way, isn't an MC line", () => {
     const sim = createSim(1);
     sim.state.director.enabled = false;
-    const c = spawnCustomer(sim.state, sim.rng.dev, "ship");
-    doTask(sim, { type: "talk", customerId: c.id });
-    const rude = answerLine(sim.state, c, "rude");
-    expect(rude).toBe("It's a box. It goes in a truck."); // tagged for shipping customers
-    doTask(sim, { type: "respond", customerId: c.id, choice: "rude" });
-    expect(sim.state.captions.at(-1)).toMatchObject({ moment: "rude", text: rude });
-    expect(answerLine(sim.state, c, "proper")).toBe("Yeah, I can do that.");
+    const kinds = new Set<string>();
+    for (const choice of ["take", "turn_away", "ignore"] as const) {
+      const c = spawnCustomer(sim.state, sim.rng.dev, "dropoff");
+      doTask(sim, { type: "talk", customerId: c.id });
+      const before = sim.state.captions.length;
+      doTask(sim, { type: "respond", customerId: c.id, choice });
+      expect(sim.state.captions.length).toBe(before);
+      for (const cap of sim.state.captions) kinds.add(cap.moment);
+      sim.state.customers = [];
+    }
+    expect([...kinds].sort()).toEqual(["greeting", "start_of_day"]);
   });
 
-  it("says something on bad luck, lazy choices, and the manager's messages", () => {
+  it("says something on bad luck and the manager's messages", () => {
     const sim = createSim(1);
     sim.state.director.enabled = false;
     sim.state.event = null;
     devEvent(sim, "copier_dies");
-    doTask(sim, { type: "out_of_order_sign" });
-    expect(moments(sim)).toEqual(expect.arrayContaining(["bad_luck", "lazy"]));
+    expect(moments(sim)).toContain("bad_luck");
 
     const game = newGame(3);
-    play(game, "proper"); // clean day: a hollow reward tomorrow
+    play(game, "smart"); // clean day: a hollow reward tomorrow
     expect(moments(startDay(game))).toContain("hollow_reward");
     game.writeUps = 0;
     const s = startDay(game);
@@ -74,30 +76,36 @@ describe("the MC", () => {
     expect(moments(startDay(game))).toContain("warning");
   });
 
-  it("customers say what they want, and how they feel when they go", () => {
+  it("customers say what they want, how they react, and how they feel when they go", () => {
+    const restore = calm();
     const sim = createSim(1);
     sim.state.director.enabled = false;
     const c = spawnCustomer(sim.state, sim.rng.dev, "dropoff");
     doTask(sim, { type: "talk", customerId: c.id });
     expect(c.said).toBe("Just dropping this off.");
-    doTask(sim, { type: "respond", customerId: c.id, choice: "proper" });
+    doTask(sim, { type: "respond", customerId: c.id, choice: "take" });
     doTask(sim, { type: "scan_dropoff", customerId: c.id });
     expect(c.said).toBe("Thanks!");
+    const no = spawnCustomer(sim.state, sim.rng.dev, "ship");
+    doTask(sim, { type: "talk", customerId: no.id });
+    doTask(sim, { type: "respond", customerId: no.id, choice: "turn_away" });
+    expect(no.said).toBe("Oh. Okay.");
+    restore();
   });
 });
 
 describe("endings", () => {
   function firedEnding(style: BotStyle) {
     const game = newGame(2);
-    while (!game.fired && game.day < 15) play(game, style);
+    while (!game.fired && game.day < 20) play(game, style);
     expect(game.fired).toBe(true);
     return game.ending!;
   }
 
-  it("rude to everyone: the rude ending", () => {
-    const e = firedEnding("rude");
-    expect(e.cause).toBe("rude");
-    expect(e.text).toBe(pickLine(POOLS.endings, "ending", { cause: "rude" }).text);
+  it("turning everyone away: the lost sales ending", () => {
+    const e = firedEnding("turn_away");
+    expect(e.cause).toBe("lost_sales");
+    expect(e.text).toBe(pickLine(POOLS.endings, "ending", { cause: "lost_sales" }).text);
     expect(e.message).toBe("We're going to have to let you go.");
     expect(e.mc).toBe("Okay.");
   });
@@ -107,16 +115,19 @@ describe("endings", () => {
   });
 
   it("there's a variant for every cause", () => {
-    for (const cause of ["complaints", "ignoring", "rude"]) expect(pickLine(POOLS.endings, "ending", { cause }).text).toBeTruthy();
+    for (const cause of ["complaints", "ignoring", "lost_sales"]) expect(pickLine(POOLS.endings, "ending", { cause }).text).toBeTruthy();
   });
 });
 
 describe("content", () => {
-  it("every request has a line, every MC moment has a line", () => {
+  it("every request and reaction has a line, every MC moment has a line", () => {
     const kinds: RequestKind[] = ["quick_copies", "large_job", "poster", "ship", "dropoff", "order_pickup", "package_pickup", "self_serve_help"];
     for (const request of kinds) expect(pickLine(POOLS.customers, "request", { request }).text).toBeTruthy();
     for (const about of ["damaged_box", "smudged_return"]) expect(pickLine(POOLS.customers, "request", { request: "complaint", about }).text).toBeTruthy();
-    for (const m of ["greeting", "proper", "minimum", "rude", "ignore", "lazy", "bad_luck", "hollow_reward", "warning", "write_up", "start_of_day", "end_of_day", "fired"]) {
+    for (const reaction of ["accept_self_serve", "refuse_self_serve", "balk_fee", "balk_rush", "too_late", "accept_later", "turned_away"]) {
+      expect(pickLine(POOLS.customers, "reaction", { reaction }).text).toBeTruthy();
+    }
+    for (const m of ["greeting", "bad_luck", "hollow_reward", "warning", "write_up", "start_of_day", "end_of_day", "fired"]) {
       expect(pickLine(POOLS.mc, m).text).toBeTruthy();
     }
   });

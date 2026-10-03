@@ -1,19 +1,136 @@
 {
   "lines": [
-    { "speaker": "customer", "moment": "request", "request": "quick_copies", "text": "I just need a few copies, real quick." },
-    { "speaker": "customer", "moment": "request", "request": "large_job", "text": "Can this be ready by two?" },
-    { "speaker": "customer", "moment": "request", "request": "poster", "text": "Can you make this bigger?" },
-    { "speaker": "customer", "moment": "request", "request": "ship", "text": "How much to ship this? It's just a box." },
-    { "speaker": "customer", "moment": "request", "request": "dropoff", "text": "Just dropping this off." },
-    { "speaker": "customer", "moment": "request", "request": "order_pickup", "text": "I'm here to pick something up." },
-    { "speaker": "customer", "moment": "request", "request": "package_pickup", "text": "I got a text saying my package is here." },
-    { "speaker": "customer", "moment": "request", "request": "self_serve_help", "text": "This machine isn't doing anything." },
-    { "speaker": "customer", "moment": "request", "request": "complaint", "about": "damaged_box", "text": "This box came back damaged." },
-    { "speaker": "customer", "moment": "request", "request": "complaint", "about": "smudged_return", "text": "These copies are all smudged." },
-    { "speaker": "customer", "moment": "waiting_too_long", "text": "Is anyone working here?" },
-    { "speaker": "customer", "moment": "mood", "mood": "happy", "text": "Thanks!" },
-    { "speaker": "customer", "moment": "mood", "mood": "neutral", "text": "Okay." },
-    { "speaker": "customer", "moment": "mood", "mood": "angry", "text": "Wow. Okay." },
-    { "speaker": "customer", "moment": "leaving_angry", "text": "I'll go somewhere else." }
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "quick_copies",
+      "text": "I just need a few copies, real quick."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "large_job",
+      "text": "Can you get this done today?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "poster",
+      "text": "Can you make this bigger?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "ship",
+      "text": "How much to ship this? It's just a box."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "dropoff",
+      "text": "Just dropping this off."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "order_pickup",
+      "text": "I'm here to pick something up."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "package_pickup",
+      "text": "I got a text saying my package is here."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "self_serve_help",
+      "text": "This machine isn't doing anything."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "complaint",
+      "about": "damaged_box",
+      "text": "This box came back damaged."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "complaint",
+      "about": "smudged_return",
+      "text": "These copies are all smudged."
+    },
+    {
+      "speaker": "customer",
+      "moment": "waiting_too_long",
+      "text": "Is anyone working here?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "mood",
+      "mood": "happy",
+      "text": "Thanks!"
+    },
+    {
+      "speaker": "customer",
+      "moment": "mood",
+      "mood": "neutral",
+      "text": "Okay."
+    },
+    {
+      "speaker": "customer",
+      "moment": "mood",
+      "mood": "angry",
+      "text": "Wow. Okay."
+    },
+    {
+      "speaker": "customer",
+      "moment": "leaving_angry",
+      "text": "I'll go somewhere else."
+    },
+    {
+      "speaker": "customer",
+      "moment": "reaction",
+      "reaction": "accept_self_serve",
+      "text": "Sure, I'll do it myself."
+    },
+    {
+      "speaker": "customer",
+      "moment": "reaction",
+      "reaction": "refuse_self_serve",
+      "text": "I'd rather you did it."
+    },
+    {
+      "speaker": "customer",
+      "moment": "reaction",
+      "reaction": "balk_fee",
+      "text": "Two dollars just to print it?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "reaction",
+      "reaction": "balk_rush",
+      "text": "I'm not paying extra for that."
+    },
+    {
+      "speaker": "customer",
+      "moment": "reaction",
+      "reaction": "too_late",
+      "text": "That's too late for me."
+    },
+    {
+      "speaker": "customer",
+      "moment": "reaction",
+      "reaction": "accept_later",
+      "text": "Fine. I'll wait."
+    },
+    {
+      "speaker": "customer",
+      "moment": "reaction",
+      "reaction": "turned_away",
+      "text": "Oh. Okay."
+    }
   ]
 }

@@ -1,5 +1,5 @@
 // Tuning numbers. Balance the game by editing this file.
-import type { ColorMode, CounterChoice, EventKind, Finishing, Media, RequestKind, TaskType } from "./types";
+import type { BoxSize, ColorMode, CounterAction, EventKind, Finishing, Media, RequestKind, ShipService, TaskType } from "./types";
 
 export const TUNING = {
   openHour: 9, // the wall clock reads 9:00 AM at open...
@@ -39,7 +39,7 @@ export const DIRECTOR = {
 
 // How long each task takes, in sim seconds. Short and fixed.
 // Finishing goes by FINISH_SECONDS and answering a customer by RESPOND_SECONDS instead.
-// Lazy options are faster than doing it properly: that's the temptation.
+// Cutting the corner (Don't) is faster than doing it properly: that's the temptation.
 export const DURATIONS: Record<Exclude<TaskType, "finish" | "respond">, number> = {
   talk: 3,
   hand_over: 3,
@@ -80,20 +80,17 @@ export const EVENTS = {
   unhandledHeat: 8, // still broken at close
 };
 
-export const RESPOND_SECONDS: Record<CounterChoice, number> = { proper: 5, minimum: 2, rude: 2, ignore: 1 };
+export const RESPOND_SECONDS: Record<CounterAction, number> = { take: 4, rush: 4, self_serve: 3, turn_away: 2, ignore: 1 };
 
-// Customer mood is a running score: happy at 1 or more, neutral at 0, angry at -1 or less.
+// Customer mood is a running score: everyone starts happy (1). Neutral at 0, angry at -1 or less.
+// Your attitude isn't graded: only what happens to them.
 export const MOOD = {
-  proper: 1,
-  minimum: 0, // usually...
-  minimumSour: -1, // ...but sometimes they wanted a person
-  minimumSourChance: 0.1,
-  rude: -2, // usually...
-  rudeShrug: 0, // ...but some people don't care
-  rudeShrugChance: 0.2,
-  ignore: -1,
-  lazyNoticed: -1, // smudged copies, a taped-shut box, being pointed at a sign
+  start: 1,
   fedUp: -1, // waited past their patience
+  late: -1, // their order wasn't ready when promised
+  turnedAway: -1, // you said no
+  ignored: -1, // each time you ignore them
+  badWork: -2, // smudged copies handed over, a taped-up box, pointed at an out of order sign
 };
 
 // How long you have to answer someone at the counter before it counts as ignoring them.
@@ -115,19 +112,48 @@ export const PATIENCE: Record<RequestKind, number> = {
 export const PATIENCE_RAMP = { perDay: 0.01, min: 0.8 }; // shorter by this share per day, down to the floor
 export const LEAVE_AFTER = 1.5;
 
-// Customers who leave an order (and web customers) come back about this long after ordering, ready or not.
+// Web customers come back about this long after ordering, ready or not.
 export const PICKUP_AFTER: [number, number] = [100, 160];
+
+// Full service turnaround: an order taken normally is promised this long from now (or later, if the printer queue
+// says so). A rush jumps the queue and is promised as soon as it can be done.
+export const STANDARD_LEAD = 90;
+export const RUSH_BUFFER = 20; // a rush is promised this long after the earliest it could possibly be done
+
+// When print customers want it, by request: wait in the store, come back later, or tomorrow. The ranges are seconds
+// from arrival: the latest it's any use to them.
+export const TIMING: Record<"quick_copies" | "large_job" | "poster", { wait: number; back: number; tomorrow: number; waitIn: [number, number]; backIn: [number, number] }> = {
+  quick_copies: { wait: 1, back: 0, tomorrow: 0, waitIn: [50, 120], backIn: [0, 0] },
+  large_job: { wait: 0.35, back: 0.45, tomorrow: 0.2, waitIn: [100, 200], backIn: [150, 260] },
+  poster: { wait: 0.6, back: 0.4, tomorrow: 0, waitIn: [80, 160], backIn: [140, 240] },
+};
+
+// How customers react (keyed rolls per customer, so your choices never shift anyone else's).
+export const REACTIONS = {
+  goAlone: 0.35, // eligible for self-serve: go straight there, never come to the counter
+  acceptSelfServe: 0.65, // of those who come to the counter: agree to be sent over (the rest want full service)
+  serviceFeeBalk: 0.25, // small orders: don't want to pay the service fee
+  rushBalk: 0.3, // don't want to pay the rush fee
+  // What someone who balks at a fee does instead (weights). "standard" only applies to a rush.
+  balkInstead: { standard: 4, self_serve: 3, leave: 2 },
+  acceptLater: 0.55, // the promised time misses theirs: take the later time (or leave)
+};
+
+// Turning away a doable job worth at least this much is a lost sale.
+export const WORTH_MIN_CENTS = 400;
 
 export const SMUDGE_CHANCE = 0.12; // a print run comes out smudged
 
 // Manager heat (0..100, hidden) and what moves it. Checked at close: warning, write-up, and 3 write-ups is fired.
+// The manager cares about the work getting done and sales, not manners.
 export const HEAT = {
-  complaint: 5, // when a complaint (or bad review) arrives
-  angryLeft: 4, // an angry customer left
-  rude: 4, // each rude answer
-  ignore: 3, // each time you ignore someone
-  walkout: 6, // someone waited until they gave up
-  flag: 10, // something you did came back (damaged box, smudged copies, packages left behind)
+  complaint: 6, // when a complaint arrives
+  ignore: 2, // each time you ignore someone
+  walkout: 6, // someone gave up waiting
+  late: 4, // an order ready after it was promised
+  unfinished: 6, // an order due today still not done at close
+  lostSale: 2, // turned away a job you could have done, and that was worth doing
+  flag: 8, // something you did came back (damaged box, smudged copies, packages left behind)
   overnightCool: 0.6, // share of heat that's gone by the next morning
   cleanDayCool: 10, // extra, after a day with no complaints
   warnAt: 30,
@@ -137,13 +163,12 @@ export const HEAT = {
 };
 
 // Who complains, by mood when they leave ("usually" and "sometimes" are keyed rolls).
-export const COMPLAINT_CHANCE = { happy: 0, neutral: 0.08, angry: 0.85 };
+export const COMPLAINT_CHANCE = { happy: 0, neutral: 0.05, angry: 0.85 };
 export const COMPLAINT_SAME_DAY = 0.5; // share that arrive later the same day; the rest come in the next morning
 export const COMPLAINT_DELAY: [number, number] = [20, 60]; // seconds, same day
 
 // Delayed consequences: when each kind comes back.
 export const FLAGS = {
-  rudeReviewChance: 0.6, // a rude answer usually turns into a bad online review next morning
   damagedBoxDays: [1, 2] as [number, number], // a taped-shut box comes back damaged
   smudgeSameDay: 0.5, // smudged copies come back the same day (or else the next)
   smudgeDelay: [40, 90] as [number, number], // seconds, same day
@@ -154,7 +179,7 @@ export const FINISH_SECONDS: Record<Exclude<Finishing, "none">, number> = { stap
 
 export const PRINTER = {
   warmup: 2, // seconds before the first sheet of each job
-  sheetsPerSecond: 8,
+  sheetsPerSecond: 4,
   paperOutChance: 0.35, // days the tray runs out once
   paperOutSheets: [40, 400] as [number, number], // ...after this many sheets that day
 };
@@ -163,11 +188,18 @@ export const SHIPPING = {
   truckArrives: 0.8, // share of the day
   truckWaits: 30, // seconds
   weightLb: [1, 30] as [number, number],
+  serviceWeights: { ground: 6, two_day: 3, overnight: 1 } as Record<ShipService, number>,
+  boxMaxLb: { small: 5, medium: 20 }, // anything heavier goes in a large box
 };
 
-// Retail rate = base + per lb (rounded up to the next pound). Everything goes ground for now.
-export const SHIP_RATE = { base: 1100, perLb: 90 };
-export const PACKING_FEE_CENTS = 600;
+// Postage = base + per lb (rounded up). The store only keeps a small cut of postage; packing is where it earns.
+export const SHIP_RATE: Record<ShipService, { base: number; perLb: number }> = {
+  ground: { base: 1100, perLb: 90 },
+  two_day: { base: 2400, perLb: 220 },
+  overnight: { base: 4200, perLb: 380 },
+};
+export const POSTAGE_CUT = 0.1; // the store's share of postage
+export const PACKING_FEE: Record<BoxSize, number> = { small: 600, medium: 1000, large: 1600 };
 
 // What each kind of print request asks for. Ranges are inclusive.
 export interface PrintRequestDef {
@@ -178,7 +210,6 @@ export interface PrintRequestDef {
   media: Partial<Record<Media, number>>; // weights
   duplexChance: number;
   finishing: Partial<Record<Finishing, number>>; // weights
-  waitChance: number; // waits in the store; otherwise comes back later
 }
 
 export const PRINT_REQUESTS: Record<"quick_copies" | "large_job" | "poster", PrintRequestDef> = {
@@ -190,7 +221,6 @@ export const PRINT_REQUESTS: Record<"quick_copies" | "large_job" | "poster", Pri
     media: { letter: 9, legal: 1 },
     duplexChance: 0.3,
     finishing: { none: 7, staple: 3 },
-    waitChance: 1,
   },
   large_job: {
     item: "handout",
@@ -200,7 +230,6 @@ export const PRINT_REQUESTS: Record<"quick_copies" | "large_job" | "poster", Pri
     media: { letter: 6, cardstock: 2, tabloid: 2 },
     duplexChance: 0.5,
     finishing: { none: 3, staple: 4, cut: 3 },
-    waitChance: 0.4,
   },
   poster: {
     item: "poster",
@@ -210,7 +239,6 @@ export const PRINT_REQUESTS: Record<"quick_copies" | "large_job" | "poster", Pri
     media: { tabloid: 1 },
     duplexChance: 0,
     finishing: { laminate: 1 },
-    waitChance: 1,
   },
 };
 
@@ -218,9 +246,21 @@ export const PRINT_REQUESTS: Record<"quick_copies" | "large_job" | "poster", Pri
 
 // Full service charges on top of the printing price list.
 export const FULL_SERVICE = {
-  serviceFeeCents: 200, // every full-service order...
-  feeWaivedAboveCents: 5000, // ...unless the printing comes to more than $50
-  rushRate: 0.1, // orders over $50 that are due the same day
+  serviceFeeCents: 200, // a flat fee on small orders...
+  serviceFeeUnderCents: 1000, // ...when the printing comes to less than this
+  rushRate: 0.25, // a rush adds this share of the printing price...
+  rushMinCents: 200, // ...but at least this
+};
+
+// Self-serve copiers: plain paper and simple jobs only, cheaper per side, and the customer does the work.
+export const SELF_SERVE = {
+  setupSeconds: 15,
+  sidesPerSecond: 2,
+  maxSeconds: 90,
+};
+export const SELF_SERVE_PER_SIDE: Record<ColorMode, Record<"letter" | "legal" | "tabloid", number>> = {
+  bw: { letter: 10, legal: 12, tabloid: 20 },
+  color: { letter: 45, legal: 52, tabloid: 90 },
 };
 
 // Per impression (one printed side), by size.

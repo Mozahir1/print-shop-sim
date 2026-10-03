@@ -1,6 +1,17 @@
-// Everything you can work out from an order's specs alone: sheets and price.
-import type { Finishing, JobSpec, Media } from "./types";
-import { CARDSTOCK_UPCHARGE, FINISHING_PRICE, FULL_SERVICE, PRICE_PER_SIDE } from "./config";
+// Everything you can work out from an order's specs alone: sheets, prices and fees, self-serve, shipping.
+import type { BoxSize, Finishing, JobSpec, Media, ShipService } from "./types";
+import {
+  CARDSTOCK_UPCHARGE,
+  FINISHING_PRICE,
+  FULL_SERVICE,
+  PACKING_FEE,
+  POSTAGE_CUT,
+  PRICE_PER_SIDE,
+  SELF_SERVE,
+  SELF_SERVE_PER_SIDE,
+  SHIPPING,
+  SHIP_RATE,
+} from "./config";
 
 export function sheetsPerCopy(spec: JobSpec): number {
   return spec.duplex ? Math.ceil(spec.originals / 2) : spec.originals;
@@ -40,18 +51,58 @@ function finishingPrice(f: Finishing, sheets: number): number {
 
 export interface FullServiceQuote {
   printCents: number; // the price list
-  serviceFeeCents: number; // $2 unless printing is over $50
-  rushCents: number; // 10% on orders over $50 due the same day
+  serviceFeeCents: number; // flat, on small orders
+  rushCents: number; // a share of the printing, if it's a rush
   totalCents: number;
 }
 
-export function fullServiceQuote(spec: JobSpec, sameDay: boolean): FullServiceQuote {
+export function fullServiceQuote(spec: JobSpec, rush: boolean): FullServiceQuote {
   const printCents = priceCents(spec);
-  const big = printCents > FULL_SERVICE.feeWaivedAboveCents;
-  const serviceFeeCents = big ? 0 : FULL_SERVICE.serviceFeeCents;
-  const rushCents = big && sameDay ? Math.round(printCents * FULL_SERVICE.rushRate) : 0;
+  const serviceFeeCents = printCents < FULL_SERVICE.serviceFeeUnderCents ? FULL_SERVICE.serviceFeeCents : 0;
+  const rushCents = rush ? Math.max(FULL_SERVICE.rushMinCents, Math.round(printCents * FULL_SERVICE.rushRate)) : 0;
   return { printCents, serviceFeeCents, rushCents, totalCents: printCents + serviceFeeCents + rushCents };
 }
+
+// ---------- self-serve ----------
+
+// Why this job can't be done at the self-serve copier, or null if it can: plain paper and nothing that needs the
+// back counter (a stapler is out there). Whether they're staying in the store is up to the customer.
+export function selfServeBlocker(spec: JobSpec): string | null {
+  if (spec.media === "cardstock") return "Self-serve only has plain paper.";
+  if (spec.finishing === "cut" || spec.finishing === "laminate") return `It needs to be ${FINISHING_LABEL[spec.finishing].toLowerCase()}${spec.finishing === "cut" ? "" : "d"}, which is done behind the counter.`;
+  return null;
+}
+
+export function selfServePriceCents(spec: JobSpec): number {
+  return SELF_SERVE_PER_SIDE[spec.color][sideSize(spec.media)] * impressions(spec);
+}
+
+// How long they spend at the copier.
+export function selfServeSeconds(spec: JobSpec): number {
+  return Math.min(SELF_SERVE.maxSeconds, Math.round(SELF_SERVE.setupSeconds + impressions(spec) / SELF_SERVE.sidesPerSecond));
+}
+
+// ---------- shipping ----------
+
+export function boxFor(weightLb: number): BoxSize {
+  return weightLb <= SHIPPING.boxMaxLb.small ? "small" : weightLb <= SHIPPING.boxMaxLb.medium ? "medium" : "large";
+}
+
+export interface ShipQuote {
+  postageCents: number;
+  packingCents: number;
+  totalCents: number; // what the customer pays
+  storeCents: number; // what the store keeps: packing plus a small cut of postage
+}
+
+export function shipQuote(weightLb: number, service: ShipService): ShipQuote {
+  const rate = SHIP_RATE[service];
+  const postageCents = rate.base + rate.perLb * Math.ceil(weightLb);
+  const packingCents = PACKING_FEE[boxFor(weightLb)];
+  return { postageCents, packingCents, totalCents: postageCents + packingCents, storeCents: packingCents + Math.round(postageCents * POSTAGE_CUT) };
+}
+
+export const SERVICE_LABEL: Record<ShipService, string> = { ground: "Ground", two_day: "2-day", overnight: "Overnight" };
 
 // ---------- words ----------
 

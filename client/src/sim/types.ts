@@ -36,8 +36,15 @@ export interface Job {
   priceCents: number;
   prepaid: boolean; // web orders are paid online
   status: JobStatus;
+  printCents: number; // the price list part of priceCents
+  serviceFeeCents: number;
+  rushCents: number;
+  rush: boolean; // jumps the printer queue
   sheetsPrinted: number; // float while printing
   orderedAt: number;
+  dueDay: number; // the day it's promised for...
+  dueAt: number; // ...and the time (sim seconds into that day)
+  late: boolean; // it wasn't ready by then (counted once)
   pickupAt: number; // when an away customer comes back for it, ready or not
   attempt: number; // prints so far (a reprint starts a new attempt)
   smudge: "none" | "found" | "accepted"; // smudged copies: found when collected; accepted = handed over anyway
@@ -57,28 +64,40 @@ export type RequestKind =
   | "self_serve_help"
   | "complaint"; // back because of something you did (a damaged box, smudged copies)
 
+export type ShipService = "ground" | "two_day" | "overnight";
+export type BoxSize = "small" | "medium" | "large";
+
 // line: waiting to be talked to at the counter. talking: at the counter, waiting for your answer.
-// waiting: you took their request, they're waiting in the store.
+// waiting: you took their request, they're waiting in the store. self_serve: making their own copies.
 // away: not in the store (coming back for an order later). gone: done for the day.
-export type CustomerState = "line" | "talking" | "waiting" | "away" | "gone";
+export type CustomerState = "line" | "talking" | "waiting" | "self_serve" | "away" | "gone";
 
 export type Mood = "happy" | "neutral" | "angry";
 
-// How you handled something. Counter choices are proper/minimum/rude/ignore; task choice points are proper/lazy.
-export type ChoiceType = "proper" | "minimum" | "rude" | "ignore" | "lazy";
-export type CounterChoice = "proper" | "minimum" | "rude" | "ignore";
+// Every choice is one of three: do it (properly), don't (decline it, or cut the corner), or ignore it.
+export type ChoiceType = "do" | "dont" | "ignore";
+
+// At the counter, Do comes in flavors: take the order (standard turnaround), take it as a rush, or send them to
+// self-serve. Don't is turning them away.
+export type CounterAction = "take" | "rush" | "self_serve" | "turn_away" | "ignore";
+
+// When a print customer wants it: they wait in the store, come back later, or pick it up tomorrow.
+export type Timing = "wait" | "back" | "tomorrow";
 
 export interface Choice {
   time: number;
   type: ChoiceType;
+  action?: CounterAction; // at the counter: which kind of Do (or Don't)
   what: "counter" | "smudge" | "copier" | "pack" | "inbox" | "truck" | "event";
   customerId?: number;
   auto?: boolean; // you didn't answer in time: counts as ignoring them
 }
 
 export type CustomerOutcome =
-  | "served" // got what they came for
-  | "left"; // gave up and left
+  | "served" // got what they came for (self-serve included)
+  | "turned_away" // you said no
+  | "balked" // didn't like the fee or the timing, and left
+  | "left"; // gave up waiting and left
 
 export interface Customer {
   id: number;
@@ -86,14 +105,18 @@ export interface Customer {
   kind: RequestKind;
   state: CustomerState;
   spec: JobSpec | null; // print requests: what they want
-  waits: boolean; // print requests: wait in the store for it, or come back later
+  timing: Timing; // print requests: when they want it
+  needBy: number | null; // the latest it's any use to them today (null: tomorrow is fine)
+  refusedSelfServe: boolean; // asked to use self-serve, and wants full service instead
+  selfServeUntil: number | null; // self_serve: when they're done copying
   weightLb: number; // ship: how heavy the box is
+  service: ShipService; // ship: how fast
   jobId: number | null;
   packageId: number | null;
   arrivedAt: number;
   lineTicket: number; // order in line: lower is further ahead
-  mood: number; // happy at 1 or more, angry at -1 or less (see moodOf)
-  choices: number; // counter choices made with them this visit (keys their "usually" rolls)
+  mood: number; // starts happy (1); waiting, lateness, being turned away, and bad work bring it down (see moodOf)
+  choices: number; // counter choices made with them this visit (keys their reaction rolls)
   ignored: number; // times you ignored them
   patience: number; // seconds they'll wait (in line and for their order) before they're fed up
   waited: number; // seconds waited this visit
@@ -116,6 +139,8 @@ export interface Package {
   customerId: number;
   kind: "ship" | "dropoff" | "held";
   weightLb: number;
+  service: ShipService | null;
+  box: BoxSize | null; // the box it needs, if we pack it
   priceCents: number;
   status: PackageStatus;
   taped: boolean; // just taped shut instead of packed properly
@@ -163,7 +188,7 @@ export interface BadLuck {
 
 // ---------- the computer ----------
 
-export type MessageKind = "web_order" | "note" | "complaint" | "review" | "warning" | "write_up" | "reward" | "fired";
+export type MessageKind = "web_order" | "note" | "complaint" | "warning" | "write_up" | "reward" | "fired";
 
 export interface Message {
   id: number;
@@ -178,11 +203,12 @@ export interface Message {
 
 // ---------- consequences ----------
 
-// Why the manager is unhappy. Heat is tallied by cause so getting fired can say why.
-export type HeatCause = "complaints" | "ignoring" | "rude";
+// Why the manager is unhappy. Heat is tallied by cause so getting fired can say why. Late and unfinished orders
+// count as complaints (that's how the manager hears about them).
+export type HeatCause = "complaints" | "ignoring" | "lost_sales";
 
 // Something you did that comes back later (see consequences.ts).
-export type FlagKind = "damaged_box" | "bad_review" | "smudged_return" | "packages_left";
+export type FlagKind = "damaged_box" | "smudged_return" | "packages_left";
 
 export interface Flag {
   kind: FlagKind;
@@ -259,7 +285,7 @@ export interface TaskRequest {
   jobId?: number;
   packageId?: number;
   messageId?: number;
-  choice?: CounterChoice; // respond
+  choice?: CounterAction; // respond
 }
 
 export interface Task extends TaskRequest {
@@ -287,7 +313,14 @@ export interface DayStats {
   happy: number; // how customers felt when they left
   neutral: number;
   angry: number;
-  upsellsMissed: number;
+  selfServed: number; // made their own copies (sent over, or went straight there)
+  selfServeCents: number;
+  turnedAway: number;
+  lostSales: number; // turned away when it was doable and worth it
+  lostSalesCents: number;
+  balked: number; // left over a fee or the timing
+  rushOrders: number;
+  lateOrders: number;
   ordersTaken: number;
   webOrders: number;
   sheets: number;

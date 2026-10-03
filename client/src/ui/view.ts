@@ -1,11 +1,12 @@
 // Turns game state into HTML. Pure functions: main.ts decides when to call them and wires up the buttons.
 // Buttons carry a task request as JSON in data-req; main.ts starts it.
-import type { CounterChoice, Customer, GameState, Station, TaskRequest } from "../sim/types";
+import type { CounterAction, Customer, GameState, RequestKind, Station, TaskRequest } from "../sim/types";
 import { canStart, currentCustomer, previewTask, STATION } from "../sim/sim";
-import { availableTasks, LAZY, todoList } from "../sim/todo";
-import { answerLine } from "../sim/mc";
+import { availableTasks, DONT, IGNORE, todoList } from "../sim/todo";
 import { eventText } from "../sim/events";
-import { describeQuantity, describeSpecs } from "../sim/orders";
+import { quoteFor } from "../sim/quote";
+import { isPrintKind } from "../sim/customers";
+import { SERVICE_LABEL, describeQuantity, describeSpecs } from "../sim/orders";
 import { formatClock, formatDuration } from "../sim/time";
 import { customerById, jobById, money, packageById } from "../sim/util";
 import type { DayReport } from "../sim/summary";
@@ -20,7 +21,8 @@ export function esc(s: string): string {
 export function taskButton(state: GameState, req: TaskRequest, opts: { label?: string; primary?: boolean; sub?: string } = {}): string {
   const err = canStart(state, req);
   const t = previewTask(state, req);
-  const cls = ["btn", opts.primary ? "primary" : "", LAZY.has(req.type) ? "lazy" : "", err ? "off" : ""].join(" ");
+  const cornerCut = DONT.has(req.type) || IGNORE.has(req.type) || req.choice === "turn_away" || req.choice === "ignore";
+  const cls = ["btn", opts.primary ? "primary" : "", cornerCut ? "corner" : "", err ? "off" : ""].join(" ");
   const sub = opts.sub ? `<span class="kind">${esc(opts.sub)}</span>` : "";
   return `<button class="${cls}" data-act="task" data-req="${esc(JSON.stringify(req))}" title="${esc(err ?? "")}">${sub}${esc(opts.label ?? t.label)}<span class="dur">${formatDuration(t.duration)}</span></button>`;
 }
@@ -140,12 +142,38 @@ function inbox(state: GameState): string {
 
 // ---------- the counter ----------
 
-const CHOICES: { choice: CounterChoice; kind: string }[] = [
-  { choice: "proper", kind: "Proper" },
-  { choice: "minimum", kind: "Minimum" },
-  { choice: "rude", kind: "Rude" },
-  { choice: "ignore", kind: "Ignore" },
-];
+// What Do means for each kind of request (print requests get the full menu: take, rush, self-serve).
+const DO_LABEL: Record<RequestKind, string> = {
+  quick_copies: "Take the order",
+  large_job: "Take the order",
+  poster: "Take the order",
+  ship: "Take the package",
+  dropoff: "Take the drop-off",
+  order_pickup: "Get their order",
+  package_pickup: "Get their package",
+  self_serve_help: "Help them",
+  complaint: "Hear them out",
+};
+
+// The quote: what they want, when, what it costs (fees itemized), and when it could be ready.
+function quoteHtml(state: GameState, c: Customer): string {
+  const q = quoteFor(state, c);
+  const rows: string[] = [];
+  if (isPrintKind(c.kind) && c.spec && q.standard) {
+    rows.push(`<dt>Wants</dt><dd>${esc(describeQuantity(c.spec))}<br><span class="muted small">${esc(describeSpecs(c.spec))}</span></dd>`);
+    const when = c.timing === "tomorrow" ? "Tomorrow is fine" : `${c.timing === "wait" ? "Waiting in the store" : "Coming back"}, needs it by ${formatClock(c.needBy!)}`;
+    rows.push(`<dt>When</dt><dd>${when}</dd>`);
+    const fee = q.standard.serviceFeeCents ? `${money(q.standard.printCents)} + ${money(q.standard.serviceFeeCents)} service fee = ` : "";
+    const ready = q.tomorrow ? "ready tomorrow" : `ready by ${formatClock(q.standardReadyAt)}`;
+    rows.push(`<dt>Full service</dt><dd>${fee}<b>${money(q.standard.totalCents)}</b>, ${ready}</dd>`);
+    if (q.rush) rows.push(`<dt>Rush</dt><dd>${money(q.standard.totalCents)} + ${money(q.rush.rushCents)} rush fee = <b>${money(q.rush.totalCents)}</b>, ready by ${formatClock(q.rushReadyAt)}</dd>`);
+    rows.push(`<dt>Self-serve</dt><dd>${q.selfServeCents !== null ? `<b>${money(q.selfServeCents)}</b>, they do it themselves` : `<span class="muted">${esc(q.selfServeBlocker ?? "")}</span>`}</dd>`);
+  } else if (q.ship) {
+    rows.push(`<dt>Package</dt><dd>${c.weightLb} lb, ${SERVICE_LABEL[c.service]}</dd>`);
+    rows.push(`<dt>Price</dt><dd>${money(q.ship.postageCents)} postage + ${money(q.ship.packingCents)} packing = <b>${money(q.ship.totalCents)}</b> <span class="muted small">(the store keeps ${money(q.ship.storeCents)})</span></dd>`);
+  }
+  return rows.length ? `<dl class="spec">${rows.join("")}</dl>` : "";
+}
 
 export function counter(state: GameState): string {
   const c = currentCustomer(state);
@@ -156,10 +184,20 @@ export function counter(state: GameState): string {
     html += c.said ? `<div class="said">"${esc(c.said)}"</div>` : `<p class="muted">Waiting to be helped.</p>`;
     html += `<div class="btns">${taskButton(state, { type: "talk", customerId: c.id }, { primary: true })}</div>`;
   } else {
-    html += `<div class="who">${esc(c.name)}</div><div class="said">"${esc(c.said ?? "")}"</div>`;
-    html += `<div class="choices">${CHOICES.map(({ choice, kind }) =>
-      taskButton(state, { type: "respond", customerId: c.id, choice }, { label: answerLine(state, c, choice), sub: kind, primary: choice === "proper" }),
-    ).join("")}</div>`;
+    html += `<div class="who">${esc(c.name)}</div><div class="said">"${esc(c.said ?? "")}"</div>${quoteHtml(state, c)}`;
+    const reply = (choice: CounterAction, label: string, sub: string, primary = false) => {
+      const req: TaskRequest = { type: "respond", customerId: c.id, choice };
+      return canStart(state, req) === null || /busy/.test(canStart(state, req)!) ? taskButton(state, req, { label, sub, primary }) : "";
+    };
+    const q = quoteFor(state, c);
+    const print = isPrintKind(c.kind) && q.standard;
+    html += `<div class="choices">
+      ${reply("take", print ? `Take the order (${money(q.standard!.totalCents)})` : DO_LABEL[c.kind], "Do", true)}
+      ${print && q.rush ? reply("rush", `Take it as a rush (${money(q.rush.totalCents)})`, "Do") : ""}
+      ${print && q.selfServeCents !== null ? reply("self_serve", `Send them to self-serve (${money(q.selfServeCents)})`, "Do") : ""}
+      ${reply("turn_away", "Turn them away", "Don't")}
+      ${reply("ignore", "Ignore them", "Ignore")}
+    </div>`;
     const left = Math.max(0, (c.answerBy ?? state.time) - state.time);
     html += `<p class="muted small">They're waiting for an answer (${formatDuration(left)}).</p>`;
   }
@@ -185,11 +223,9 @@ export function todo(state: GameState): string {
   if (!items.length) return `<li class="muted">Nothing right now.</li>`;
   return items
     .map((item) => {
-      const cust = item.customerId !== undefined ? customerById(state, item.customerId) : undefined;
-      const label = (r: TaskRequest) => (r.type === "respond" && cust ? answerLine(state, cust, r.choice!) : undefined);
       const station = STATIONS.find((s) => s.id === STATION[item.req.type])?.label ?? "Counter";
       return `<li><span>${esc(item.text)} <span class="muted small">· ${station}</span></span>
-        <span class="btns">${taskButton(state, item.req, { primary: true, label: label(item.req) })}${item.alts.map((a) => taskButton(state, a, { label: label(a) })).join("")}</span></li>`;
+        <span class="btns">${taskButton(state, item.req, { primary: true })}${item.alts.map((a) => taskButton(state, a)).join("")}</span></li>`;
     })
     .join("");
 }
@@ -219,7 +255,11 @@ export function reportScreen(r: DayReport, posted: string): string {
       <dt>Customers served</dt><dd>${r.served}</dd>
       <dt>Customer delight rate</dt><dd>${r.happyPct}%</dd>
       <dt>Customer feedback received</dt><dd>${r.complaints}</dd>
-      <dt>Upsell opportunities missed</dt><dd>${r.upsellsMissed}</dd>
+      <dt>Orders taken</dt><dd>${r.ordersTaken} (${r.rushOrders} rush)</dd>
+      <dt>Orders not ready on time</dt><dd>${r.lateOrders}</dd>
+      <dt>Self-serve customers</dt><dd>${r.selfServed}</dd>
+      <dt>Customers turned away</dt><dd>${r.turnedAway}</dd>
+      <dt>Revenue opportunities declined</dt><dd>${money(r.lostSalesCents)}</dd>
       <dt>Sheets printed</dt><dd>${r.sheets.toLocaleString("en-US")}</dd>
       <dt>Revenue</dt><dd>${money(r.revenueCents)}</dd>
       <dt>Team Spirit Index</dt><dd>${r.teamSpirit}</dd>

@@ -22,7 +22,7 @@ export function devPanel(sim: Sim, game: Game, bot: BotStyle | null): string {
     <section><h2>True state</h2><pre>${esc(
       [
         `heat ${Math.round(m.heat)} / 100 (warning at ${HEAT.warnAt}, write-up at ${HEAT.writeUpAt})`,
-        `heat today: complaints ${m.heatBy.complaints}, ignoring ${m.heatBy.ignoring}, rude ${m.heatBy.rude}`,
+        `heat today: complaints ${m.heatBy.complaints}, ignoring ${m.heatBy.ignoring}, lost sales ${m.heatBy.lost_sales}`,
         `write-ups ${game.writeUps} · complaints today ${m.complaints}`,
         `active things ${activeCount(s)} (band ${DIRECTOR.floor} to ${DIRECTOR.ceiling}) · arrivals ${d.arrivals}/${DIRECTOR.maxPerDay}`,
         `next arrival ${formatClock(d.nextAt)}${d.enabled ? "" : " (held)"}`,

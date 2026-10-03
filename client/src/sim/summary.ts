@@ -72,7 +72,12 @@ export interface DayReport {
   served: number;
   happyPct: number;
   complaints: number;
-  upsellsMissed: number;
+  ordersTaken: number;
+  rushOrders: number;
+  lateOrders: number;
+  selfServed: number;
+  turnedAway: number;
+  lostSalesCents: number; // "revenue opportunities declined"
   teamSpirit: number; // meaningless, on purpose
   revenueCents: number;
   sheets: number;
@@ -85,7 +90,12 @@ export function report(state: GameState, result: DayResult): DayReport {
     served: state.stats.served,
     happyPct: happyPct(state),
     complaints: state.manager.complaints,
-    upsellsMissed: state.stats.upsellsMissed,
+    ordersTaken: state.stats.ordersTaken,
+    rushOrders: state.stats.rushOrders,
+    lateOrders: state.stats.lateOrders,
+    selfServed: state.stats.selfServed,
+    turnedAway: state.stats.turnedAway,
+    lostSalesCents: state.stats.lostSalesCents,
     teamSpirit: 60 + ((state.seed * 37 + Math.round(state.stats.sheets)) % 39),
     revenueCents: state.revenueCents,
     sheets: Math.round(state.stats.sheets),
