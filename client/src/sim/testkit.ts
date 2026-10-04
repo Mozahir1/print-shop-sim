@@ -1,7 +1,9 @@
 // Helpers for tests: run the clock, and do a task start to finish.
 import { expect } from "vitest";
 import { startTask, tick, type Sim } from "./sim";
-import type { CounterAction, Customer, Job, TaskRequest } from "./types";
+import type { CounterAction, Customer, Job, OrderEntry, TaskRequest } from "./types";
+import { currentStep } from "./workflow";
+import { jobById } from "./util";
 import { REACTIONS } from "./config";
 
 export function runUntil(sim: Sim, done: () => boolean, limit = 3600): void {
@@ -16,10 +18,13 @@ export function doTask(sim: Sim, req: TaskRequest): void {
   runUntil(sim, () => sim.state.employee.task === null);
 }
 
-// Talks to the customer at the counter and answers them.
-export function talkTo(sim: Sim, c: Customer, choice: CounterAction = "take"): void {
+// Talks to the customer at the counter and answers them. Taking a print order goes on to the order form, filled in
+// exactly as they asked (pass an entry to get it wrong).
+export function talkTo(sim: Sim, c: Customer, choice: CounterAction = "take", entry?: Partial<OrderEntry>): void {
   doTask(sim, { type: "talk", customerId: c.id });
   doTask(sim, { type: "respond", customerId: c.id, choice });
+  const step = currentStep(sim.state);
+  if (step?.type === "enter_order") doTask(sim, { ...step.req, entry: entry && { ...jobById(sim.state, step.req.jobId!)!.spec, ...entry } });
 }
 
 // Gets an order all the way to bagged from wherever it is, the way you would: steps run on by themselves inside a
@@ -32,6 +37,7 @@ export function makeReady(sim: Sim, job: Job): void {
     if (s.workflow) {
       // Paused at a choice in this job's workflow (a smudged run): do it properly.
       if (job.smudge === "found" && job.status === "collected") doTask(sim, { type: "reprint", jobId: job.id });
+      else if (currentStep(s)?.type === "finish") doTask(sim, { type: "finish", jobId: job.id });
       else throw new Error(`makeReady: stuck in a workflow (${s.workflow.kind})`);
       continue;
     }

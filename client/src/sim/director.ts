@@ -1,7 +1,7 @@
-// The flow director: brings in the next customer (or the truck) so there's always something to do, but rarely
-// more than two or three things at once. Every roll comes from its own stream.
+// The flow director: brings in the day's 6 to 12 customers (budgeted by how much work they are), spread over the day,
+// and the truck, rarely more than two or three things at once. Every roll comes from its own stream.
 import type { Customer, GameState } from "./types";
-import { BUSINESS, DIRECTOR, MOOD, REACTIONS, SHIPPING, type Arrival } from "./config";
+import { BUSINESS, DIRECTOR, MOOD, REACTIONS, SHIPPING, WORK_COST, type Arrival } from "./config";
 import { keyedRoll, randInt } from "./rng";
 import { isPrintKind, placeWebOrder, returnCustomer, spawnCustomer, weighted } from "./customers";
 import { activeCount, isActive } from "./todo";
@@ -13,9 +13,10 @@ import type { Sim } from "./sim";
 
 export interface DirectorState {
   enabled: boolean; // dev mode and tests can hold arrivals
-  nextAt: number; // the next arrival at the regular pace
-  floorAt: number | null; // set when active things dropped below the floor: arrive at this time instead
-  arrivals: number; // new customers today (see DIRECTOR.maxPerDay)
+  nextAt: number; // the next arrival
+  arrivals: number; // new customers today (see DIRECTOR.perDay)
+  budget: number; // minutes of work today brings in...
+  spent: number; // ...and how much of it has come in so far
   businessAt: number[]; // when today's business clients show up (on their own schedule, whatever you're doing)
 }
 
@@ -23,14 +24,35 @@ export function createDirector(rng: () => number, business: () => number, dayLen
   const count = Number(weighted(business(), BUSINESS.perDay as Record<string, number>));
   const [lo, hi] = BUSINESS.window;
   const businessAt = Array.from({ length: count }, () => Math.round(dayLength * (lo + business() * (hi - lo)))).sort((a, b) => a - b);
-  return { enabled: true, nextAt: randInt(rng, ...DIRECTOR.firstArrival), floorAt: null, arrivals: 0, businessAt };
+  return { enabled: true, nextAt: randInt(rng, ...DIRECTOR.firstArrival), arrivals: 0, budget: randInt(rng, ...DIRECTOR.workBudget), spent: 0, businessAt };
 }
 
-// Someone who turned out to be hardly any work (turned away, balked, sent to self-serve) doesn't use up one of the
-// day's customers: the director brings in someone else instead.
+// The average work a walk-in brings, from the mix.
+const MEAN_COST = (() => {
+  const e = Object.entries(DIRECTOR.mix).filter(([k, w]) => w > 0 && WORK_COST[k as Arrival] > 0) as [Arrival, number][];
+  return e.reduce((a, [k, w]) => a + w * WORK_COST[k], 0) / e.reduce((a, [, w]) => a + w, 0);
+})();
+
+// Someone who turned out to be hardly any work (turned away, balked, sent to self-serve) gives their work back to the
+// day's budget: the director can bring in someone else instead (within the day's headcount).
 export function refundArrival(state: GameState, c: Customer): void {
-  if (c.kind === "order_pickup" || c.kind === "complaint") return; // they never counted
-  state.director.arrivals = Math.max(0, state.director.arrivals - 1);
+  state.director.spent = Math.max(0, state.director.spent - WORK_COST[c.kind]);
+}
+
+// Whether today's customers are all in: the most there can be, or the work budget's spent and there are enough.
+function dayIsFull(d: DirectorState): boolean {
+  const [min, max] = DIRECTOR.perDay;
+  return d.arrivals + d.businessAt.length >= max || (d.spent >= d.budget && d.arrivals + d.businessAt.length >= min);
+}
+
+// Spreads the rest of the day's customers evenly over what's left of it (give or take).
+function nextGap(state: GameState, rng: () => number): number {
+  const d = state.director;
+  const [min, max] = DIRECTOR.perDay;
+  const left = Math.min(max, Math.max(min, d.arrivals + Math.ceil(Math.max(0, d.budget - d.spent) / MEAN_COST))) - d.arrivals - d.businessAt.length;
+  const span = state.closeAt - DIRECTOR.truckHold - state.time;
+  const [lo, hi] = DIRECTOR.jitter;
+  return Math.max(5, Math.round((span / Math.max(1, left)) * (lo + rng() * (hi - lo))));
 }
 
 // Customers who left an order and could come back for it now: it's ready, or it's past when they said they'd come.
@@ -62,45 +84,37 @@ export function runDirector(sim: Sim): void {
   }
 
   const truckDue = t.status === "coming" && state.time >= t.arrivesAt - DIRECTOR.truckHold; // make room for it
-  const full = d.arrivals >= DIRECTOR.maxPerDay && state.manager.visitsDue.length === 0;
   if (!d.enabled || !open) return;
   // A business client comes in when they come in: busy or not (just never into a full store).
   if (d.businessAt.length && state.time >= d.businessAt[0] && active < DIRECTOR.ceiling) {
     d.businessAt.shift();
     const c = spawnCustomer(state, rng.director, "business");
+    d.arrivals++;
+    d.spent += WORK_COST.business;
     log(state, `${c.name}, a business client, came in.`);
     return;
   }
-  if (full || active >= DIRECTOR.ceiling || truckDue) {
-    d.floorAt = null;
-    // Someone coming back for an order that isn't done yet doesn't add to the load (the order already counts),
-    // so they still come in at the regular pace. Otherwise unfinished orders could hold their own customers out.
-    const owed = readyToReturn(state).filter((c) => isActive(state, c));
-    if (owed.length && state.time >= d.nextAt) {
-      returnCustomer(state, owed[0]);
-      d.nextAt = state.time + randInt(rng.director, ...DIRECTOR.pace);
-    }
+  // People coming back for an order come at the time they said, whatever today's count. Someone back for an order
+  // that isn't done yet doesn't add to the load (the order already counts), so they come in even when you're busy.
+  const back = readyToReturn(state).find((c) => state.time >= jobById(state, c.jobId!)!.pickupAt && (active < DIRECTOR.ceiling || isActive(state, c)));
+  if (back) {
+    returnCustomer(state, back);
+    log(state, `${back.name} came back for their order.`);
     return;
   }
-  if (active < DIRECTOR.floor && d.floorAt === null) d.floorAt = state.time + randInt(rng.director, ...DIRECTOR.floorGap);
-  const due = state.time >= d.nextAt || (d.floorAt !== null && state.time >= d.floorAt);
-  if (!due) return;
-
-  const visit = state.manager.visitsDue.shift(); // people coming back to complain go first
-  const overdue = readyToReturn(state).filter((c) => state.time >= jobById(state, c.jobId!)!.pickupAt); // then anyone past their pickup time
+  if (state.time < d.nextAt || active >= DIRECTOR.ceiling || truckDue) return;
+  const visit = state.manager.visitsDue.shift(); // people coming back to complain go first (they aren't new customers)
   if (visit) {
     const c = spawnCustomer(state, rng.director, "complaint", { name: visit.name, about: visit.about });
     log(state, `${c.name} came back, unhappy.`);
-  } else if (overdue.length) {
-    returnCustomer(state, overdue[0]);
-    log(state, `${overdue[0].name} came back for their order.`);
-  } else {
+  } else if (!dayIsFull(d)) {
     const what = pickArrival(sim);
-    const counted = arrive(sim, what);
-    if (counted) d.arrivals++;
-  }
-  d.floorAt = null;
-  d.nextAt = state.time + randInt(rng.director, ...DIRECTOR.pace);
+    if (arrive(sim, what)) {
+      d.arrivals++;
+      d.spent += WORK_COST[what];
+    }
+  } else return;
+  d.nextAt = state.time + nextGap(state, rng.director);
 }
 
 function pickArrival(sim: Sim): Arrival {
@@ -109,7 +123,8 @@ function pickArrival(sim: Sim): Arrival {
   const weights = { ...DIRECTOR.mix };
   for (const k of DIRECTOR.multiStep) weights[k] *= 1 + ramp;
   weights.complaint = 0; // only ever from something you did (manager.visitsDue)
-  if (readyToReturn(state).length === 0) weights.order_pickup = 0;
+  weights.order_pickup = 0; // they come back on their own (runDirector)
+  if (state.printer.status === "printing") for (const k of DIRECTOR.quick) weights[k] *= DIRECTOR.interleave;
   const entries = Object.entries(weights) as [Arrival, number][];
   let r = rng.director() * entries.reduce((a, [, w]) => a + w, 0);
   for (const [k, w] of entries) {
@@ -122,18 +137,12 @@ function pickArrival(sim: Sim): Arrival {
 // Brings them in. Returns whether they count toward the day's customers.
 function arrive(sim: Sim, what: Arrival): boolean {
   const { state, rng } = sim;
-  if (what === "order_pickup") {
-    const c = readyToReturn(state)[0];
-    returnCustomer(state, c);
-    log(state, `${c.name} came back for their order.`);
-    return false;
-  }
   if (what === "web_order") {
     const job = placeWebOrder(state, rng.director);
     log(state, `Web order #${job.id} came in.`);
     return true;
   }
-  const c = spawnCustomer(state, rng.director, what);
+  const c = spawnCustomer(state, rng.director, what as Exclude<Arrival, "order_pickup" | "web_order">);
   log(state, `${c.name} came in.`);
   return !goStraightToSelfServe(state, c);
 }

@@ -26,7 +26,7 @@ export interface Ending {
 }
 
 export interface Game {
-  version: 1;
+  version: 2; // bumped when saved state changes shape (old saves just don't load)
   baseSeed: number;
   day: number; // the day being played (or next to play)
   nextId: number; // ids stay unique across days
@@ -44,7 +44,7 @@ export interface Game {
 
 export function newGame(baseSeed: number): Game {
   return {
-    version: 1,
+    version: 2,
     baseSeed,
     day: 1,
     nextId: 1,
@@ -155,7 +155,7 @@ export function loadGame(text: string | null): Game | null {
   if (!text) return null;
   try {
     const g = JSON.parse(text) as Game;
-    return g && g.version === 1 && typeof g.day === "number" ? g : null;
+    return g && g.version === 2 && typeof g.day === "number" ? g : null;
   } catch {
     return null;
   }

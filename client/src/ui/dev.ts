@@ -25,7 +25,7 @@ export function devPanel(sim: Sim, game: Game, bot: BotStyle | null): string {
         `heat ${Math.round(m.heat)} / 100 (warning at ${HEAT.warnAt}, write-up at ${HEAT.writeUpAt})`,
         `heat today: complaints ${m.heatBy.complaints}, ignoring ${m.heatBy.ignoring}, lost sales ${m.heatBy.lost_sales}`,
         `write-ups ${game.writeUps} · complaints today ${m.complaints}`,
-        `active things ${activeCount(s)} (band ${DIRECTOR.floor} to ${DIRECTOR.ceiling}) · arrivals ${d.arrivals}/${DIRECTOR.maxPerDay}`,
+        `active things ${activeCount(s)} (band ${DIRECTOR.floor} to ${DIRECTOR.ceiling}) · arrivals ${d.arrivals} (${DIRECTOR.perDay.join(" to ")}), work ${d.spent}/${d.budget} min`,
         `next arrival ${formatClock(d.nextAt)}${d.enabled ? "" : " (held)"}`,
         `bad luck: ${e ? `${e.kind}, ${e.status}, due ${formatClock(e.at)}` : "none today"}`,
         `workflow: ${s.workflow ? `${s.workflow.kind} (next: ${currentStep(s)?.type ?? "none"})` : "none"}`,

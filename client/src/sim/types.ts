@@ -20,6 +20,9 @@ export interface JobSpec {
   finishing: Finishing;
 }
 
+// What you type into the order form on the computer. Mistakes only ever come from here.
+export type OrderEntry = Pick<JobSpec, "copies" | "color" | "media" | "duplex" | "finishing">;
+
 // new: taken at the counter, not in the computer yet. unread: a web order nobody has opened.
 // entered: in the computer, not sent. queued/printing: at the printer. printed: waiting in the printer's output.
 // collected: picked up from the printer, waiting for finishing. finished: finishing done, not bagged yet.
@@ -31,7 +34,8 @@ export interface Job {
   customerId: number;
   kind: RequestKind; // the request it came from
   channel: "counter" | "web";
-  spec: JobSpec;
+  spec: JobSpec; // what gets made: what you entered in the computer (until then, what they asked for)
+  asked: JobSpec; // what the customer actually asked for
   sheets: number;
   priceCents: number;
   prepaid: boolean; // web orders are paid online
@@ -49,6 +53,7 @@ export interface Job {
   pickupAt: number; // when an away customer comes back for it, ready or not
   attempt: number; // prints so far (a reprint starts a new attempt)
   smudge: "none" | "found" | "accepted"; // smudged copies: found when collected; accepted = handed over anyway
+  skipped: boolean; // the finishing was skipped (handed over unstapled, uncut, ...)
   closedAt: number | null;
 }
 
@@ -93,7 +98,7 @@ export interface Choice {
   time: number;
   type: ChoiceType;
   action?: CounterAction; // at the counter: which kind of Do (or Don't)
-  what: "counter" | "smudge" | "copier" | "pack" | "inbox" | "truck" | "event" | "work"; // work: walked away from a workflow
+  what: "counter" | "smudge" | "copier" | "pack" | "finish" | "inbox" | "truck" | "event" | "work"; // work: walked away from a workflow
   customerId?: number;
   auto?: boolean; // you didn't answer in time: counts as ignoring them
 }
@@ -118,10 +123,13 @@ export interface Customer {
   lingering: boolean; // stayed past closing (and won't leave on their own)
   couldSelfServe: boolean; // you turned them away when they could have used self-serve
   selfServeUntil: number | null; // self_serve: when they're done copying
+  helpAt: number | null; // self_serve: when they come back to the counter for help (if they do)
   weightLb: number; // ship: how heavy the box is
   service: ShipService; // ship: how fast
   jobId: number | null;
   packageId: number | null;
+  fetched: number | null; // order pickup: the bag you took off the shelf for them (the job it's for)
+  pays: "card" | "cash";
   arrivedAt: number;
   lineTicket: number; // order in line: lower is further ahead
   mood: number; // starts happy (1); waiting, lateness, being turned away, and bad work bring it down (see moodOf)
@@ -140,9 +148,9 @@ export interface Customer {
 
 // ---------- packages ----------
 
-// Outgoing: new (at the counter) -> weighed -> packed -> labeled -> binned -> shipped. Drop-offs: scanned -> binned.
-// Held packages: held -> found -> picked_up.
-export type PackageStatus = "new" | "weighed" | "boxed" | "packed" | "labeled" | "scanned" | "binned" | "shipped" | "held" | "found" | "picked_up";
+// Outgoing: new (at the counter) -> boxed -> packed (taped) -> weighed -> labeled -> (rung up) -> binned -> shipped.
+// Drop-offs: scanned -> binned. Held packages: held -> found -> picked_up.
+export type PackageStatus = "new" | "boxed" | "packed" | "weighed" | "labeled" | "scanned" | "binned" | "shipped" | "held" | "found" | "picked_up";
 
 export interface Package {
   id: number;
@@ -154,6 +162,13 @@ export interface Package {
   priceCents: number;
   status: PackageStatus;
   taped: boolean; // just taped shut instead of packed properly
+  paid: boolean;
+  label: ShippingLabel | null; // what you printed on the label
+}
+
+export interface ShippingLabel {
+  weightLb: number;
+  service: ShipService;
 }
 
 // The carrier's one pickup a day. It comes at arrivesAt, or once there's room for it (see director.ts).
@@ -218,7 +233,7 @@ export interface Message {
 export type HeatCause = "complaints" | "ignoring" | "lost_sales" | "overtime";
 
 // Something you did that comes back later (see consequences.ts).
-export type FlagKind = "damaged_box" | "smudged_return" | "packages_left";
+export type FlagKind = "damaged_box" | "smudged_return" | "packages_left" | "wrong_label";
 
 export interface Flag {
   kind: FlagKind;
@@ -262,7 +277,11 @@ export type FailureKind =
   | "lost_sale"
   | "left_broken"
   | "left_work"
-  | "lost_business";
+  | "lost_business"
+  | "wrong_order"
+  | "wrong_bag"
+  | "drawer_off"
+  | "wrong_label";
 
 export interface Failure {
   time: number;
@@ -325,6 +344,7 @@ export interface Workflow {
 export type TaskType =
   // counter
   | "talk"
+  | "ask_again" // "What was that?"
   | "respond"
   | "hand_over"
   | "ring_up"
@@ -346,7 +366,10 @@ export type TaskType =
   | "restart_router"
   // finishing table
   | "finish"
+  | "skip_finish"
   | "bag"
+  // pickup shelf
+  | "fetch_bag"
   // self-serve
   | "help_self_serve"
   | "make_copies" // full service on a walk-up job: you make the copies while they wait
@@ -365,7 +388,7 @@ export type TaskType =
   | "hand_off"
   | "let_truck_go";
 
-export type Station = "counter" | "computer" | "printer" | "finishing" | "self_serve" | "shipping";
+export type Station = "counter" | "computer" | "printer" | "finishing" | "self_serve" | "shipping" | "shelf";
 
 export interface TaskRequest {
   type: TaskType;
@@ -374,6 +397,11 @@ export interface TaskRequest {
   packageId?: number;
   messageId?: number;
   choice?: CounterAction; // respond
+  entry?: OrderEntry; // enter_order: the form as you filled it in (left out: exactly what they asked for)
+  shipLabel?: ShippingLabel; // label: the label form as you filled it in (left out: right)
+  box?: BoxSize; // pack, tape_shut: the box you picked (left out: the right one)
+  amount?: number; // ring_up: the total you typed, card (cents; left out: right)
+  change?: number; // ring_up: the change you typed, cash (cents; left out: right)
 }
 
 export interface Task extends TaskRequest {
@@ -457,4 +485,6 @@ export interface GameState {
   stats: DayStats;
   over: boolean;
   devUsed: boolean; // dev tools changed this day, so it doesn't count for the leaderboard
+  handsOn: boolean; // a player doing each step by hand: every step waits for them (the bot and tests let steps run on)
+  drawerOffCents: number; // how far the register is off from wrong totals and wrong change
 }

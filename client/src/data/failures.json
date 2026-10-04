@@ -134,6 +134,45 @@
       "kind": "lost_business",
       "subject": "That client",
       "text": "A business client walked out today. Those are the orders that pay for everything else."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "wrong_order",
+      "text": "Order #{job} for {name} was made wrong ({what}). It went in the computer that way."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "wrong_order",
+      "subject": "That order",
+      "text": "An order went out wrong today. Read it back before you print it."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "wrong_bag",
+      "job": "yes",
+      "text": "You handed {name} the wrong bag. They wanted order #{job}."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "drawer_off",
+      "text": "The register was {money} off at close."
+    },
+    {
+      "speaker": "manager",
+      "moment": "manager_note",
+      "kind": "drawer_off",
+      "subject": "The register",
+      "text": "The drawer didn't balance tonight. Count it back."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "wrong_label",
+      "text": "{name}'s package came back. The label was wrong."
     }
   ]
 }

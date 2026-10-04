@@ -99,7 +99,7 @@ describe("Do / Don't / Ignore at the counter", () => {
     expect(job.dueAt).toBeGreaterThanOrEqual(sim.state.time + STANDARD_LEAD - 10);
     expect(sim.state.choices.at(-1)).toMatchObject({ type: "do", action: "take", what: "counter" });
     make(sim, c);
-    doTask(sim, { type: "ring_up", customerId: c.id });
+    doTask(sim, { type: "fetch_bag", customerId: c.id, jobId: job.id }); // then rung up
     expect(sim.state.revenueCents).toBe(job.priceCents);
     expect(moodOf(c)).toBe("happy");
   });
@@ -117,6 +117,7 @@ describe("Do / Don't / Ignore at the counter", () => {
     expect(canStart(s, { type: "respond", customerId: hurry.id, choice: "rush" })).toBeNull();
     doTask(sim, { type: "respond", customerId: hurry.id, choice: "rush" });
     const rush = s.jobs.find((j) => j.customerId === hurry.id)!;
+    doTask(sim, { type: "enter_order", jobId: rush.id });
     expect(rush.rush).toBe(true);
     expect(rush.rushCents).toBeGreaterThanOrEqual(FULL_SERVICE.rushMinCents);
     expect(s.printer.queue[0] === rush.id || s.printer.currentJobId === rush.id).toBe(true); // ahead of the others
@@ -409,7 +410,7 @@ describe("Do / Don't / Ignore on the work", () => {
       doTask(sim, { type: "use_anyway", jobId: job.id }); // and bags it
       expect(job.status).toBe("bagged");
       expect(s.choices.find((x) => x.what === "smudge")).toMatchObject({ type: "dont" });
-      doTask(sim, { type: "ring_up", customerId: c.id });
+      doTask(sim, { type: "fetch_bag", customerId: c.id, jobId: job.id }); // then rung up
       expect(moodOf(c)).toBe("angry");
       return;
     }

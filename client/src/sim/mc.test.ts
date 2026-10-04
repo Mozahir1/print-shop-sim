@@ -95,15 +95,15 @@ describe("the MC", () => {
 });
 
 describe("endings", () => {
-  function firedEnding(style: BotStyle) {
-    const game = newGame(2);
+  function firedEnding(style: BotStyle, seed = 2) {
+    const game = newGame(seed);
     while (!game.fired && game.day < 20) play(game, style);
     expect(game.fired).toBe(true);
     return game.ending!;
   }
 
   it("turning everyone away: the lost sales ending", () => {
-    const e = firedEnding("turn_away");
+    const e = firedEnding("turn_away", 2001);
     expect(e.cause).toBe("lost_sales");
     expect(e.text).toBe(pickLine(POOLS.endings, "ending", { cause: "lost_sales" }).text);
     expect(e.message).toBe("We're going to have to let you go.");

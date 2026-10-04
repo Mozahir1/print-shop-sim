@@ -60,13 +60,14 @@ describe("workflows", () => {
     expect(steps.map((x) => [x.type, x.done])).toEqual([
       ["talk", true],
       ["respond", true],
-      ["weigh", true],
       ["pack", false],
       ["tape", false],
+      ["weigh", false],
       ["label", false],
+      ["ring_up", false],
       ["bin", false],
     ]);
-    expect(currentStep(s)!.data).toMatchObject({ station: "shipping", held: "box", thought: "Box it." });
+    expect(currentStep(s)!.data).toMatchObject({ station: "shipping", held: "box", thought: "Box it, with paper." });
   });
 
   it("abandoning a workflow is explicit and counts as ignoring them", () => {

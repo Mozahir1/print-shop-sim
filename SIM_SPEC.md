@@ -1,64 +1,92 @@
-# Print Shop Sim: Spec v5 (visible work + feedback)
+# Print Shop Sim: Spec v6 (hands-on orders, first person)
 
-Builds on the current version (v4 choice model and counter decisions stay). This round fixes three problems:
-1. You can't tell you're busy, and multi-step jobs hide their remaining steps.
-2. Ignored customers never leave.
-3. Failures happen silently; the player can't tell they're doing a bad job.
+Builds on the current version. Keep: do / don't / ignore choices, counter decisions (turn away, rush, self-serve,
+fees), days and saving, heat and write-ups, delayed consequences, visible failures, customers leaving when ignored,
+bad luck events, hollow rewards, dev mode. This round makes the player physically do the work in a first-person view.
 
-Rules: `src/sim/` stays DOM-free and deterministic. Content (lines, cues, step data) stays in JSON. Update tests and the
-bot with each change. Player-facing text has no em dashes.
+Rules: `src/sim/` stays DOM-free and deterministic. Steps, dialogue, and hints are JSON data. Update tests and the bot
+with each change. Player-facing text has no em dashes. Keep the UI touch-friendly.
 
-## 1. Workflows (sim)
-- Multi-step jobs become **workflows**: take order, ring up, ship, drop-off, release package, collect and finish a job,
-  fix copier, clear jam, load paper, send to self-serve.
-- Each workflow is data: ordered steps, and per step: station, held item, pose, duration, thought line.
-  Example, ship: weigh, box, tape, label, bin.
-- **Strict lock:** while a workflow is active, nothing unrelated can start. `canStart()` returns
-  "You can't do that, you're <current step>." Exception: jobs printing on their own run in the background.
-- Abandoning a workflow is explicit and counts as don't or ignore with normal consequences.
-- The next step is always known to the sim (`currentStep()`), so the UI never needs scrolling to find it.
+Build order: counter dialogue and notes, print job, pickup and ring-up, shipping, drop-off and self-serve.
+Stop and summarize after each.
 
-## 2. Customers leave
-- Fix: ignored or waiting customers must give up. Default 2 to 5 game minutes depending on request (config).
-- Patience stages: fine, annoyed, angry, gone. Each stage change emits a cue line ("Hello?", "Is anyone working here?",
-  exit line) and the exit is a logged failure.
-- Test: an ignored customer leaves within the configured window.
+## 1. First-person view (replaces the overhead store scene from v5)
+- **Counter** is the home screen: the customer stands across the counter as a portrait (one bust template, color
+  swaps, 3 expressions: fine, annoyed, angry).
+- Other **station screens** via a bottom tab bar: Counter, Computer, Printer, Finishing, Shipping, Pickup Shelf.
+  Switching takes about 1 second of game time.
+- **Hand slot** at the bottom shows what you're holding (box, paper stack, bag, ream). Empty means free.
+- When a customer arrives while you're elsewhere: bell cue and the Counter tab pulses.
 
-## 3. Every failure has a visible moment
-Hidden meters (heat) are fine; hidden events are not.
-- **Missing or unfinished order at pickup:** the customer comes to the counter and it becomes a counter scene
-  ("Where's my order?") with do (rush it now, they wait) / don't (apologize, refund) / ignore. Outcome is logged.
-- Same pattern for: damaged package returned, smudged copies returned, broken copier with a customer at it, packages
-  left in the bin after the truck leaves, customers walking out.
-- Notable failures send a short manager message to the inbox during the day.
-- End-of-day report lists failures by name ("Order #112 was never printed. Dana left without it."), not only counts.
-- Add a **manager mood** value derived from heat (calm, annoyed, unhappy) for the UI. Never expose the number.
+## 2. Customer conversation
+- Customers state their request in a **textbox**, in their own words, one line at a time. Request details live in the
+  dialogue, not a side panel.
+- "What was that?" replays the request; costs a few seconds and a small patience hit.
+- After they finish: **do** (take order, take as rush, send to self-serve), **don't** (turn away), **ignore**.
+- Dialogue lines are generated from the request spec plus phrasing templates in JSON (paper, color, copies, finishing,
+  timing), so every request is stated in words.
 
-## 4. Visual UI
-Replace the panel-heavy layout with a simple scene drawn on the existing canvas. Placeholder shapes are fine; real
-sprites later must be drop-in (no logic changes).
-- **Scene:** counter in front, stations behind (printer, finishing table, shipping scale), self-serve to the side,
-  customers lining up in front.
-- **MC:** simple character that walks to the station of the current step and shows the **held item** for that step
-  (box, paper stack, bag, wrench, ream). Empty hands mean free.
-- **Thought bubble** over the MC with the current step's line ("Weigh it.", "Tape it.").
-- **Customers:** simple characters with a mood icon (fine, annoyed, angry) and speech bubbles for cue lines.
-- **Blocked actions:** short message at the click point ("You can't do that, you're packing a box.").
-- **Station highlight:** pulse the station that needs attention (job done at printer, truck here, tray empty).
-- **Kept panels, small:** active job card (step checklist with checkmarks, next-step button), to-do list ordered by
-  urgency with waiting time turning amber then red, manager mood icon, computer screen when used.
-- Every click gets immediate feedback: pressed state, short caption, counters or checklist updating.
-- No scrolling needed for core actions. Keyboard shortcuts for next step and do / don't / ignore.
-- First turn-away or abandon asks for a quick confirm.
-- Keep it touch-friendly.
+## 3. Notes (to-do)
+- Accepting a job makes the MC write a **sticky note** on screen edge, built from what the player **entered** on the
+  computer (not the true request): "Resume x25, cardstock, due 2:00. Dana."
+- Each note shows a **next-step hint** that updates as you work ("Send to printer", "Collect", "Staple", "Bag and shelve").
+- Done jobs get crossed off and fade. Notes replace the to-do list.
 
-## 5. Tests
-- Workflow lock blocks unrelated tasks with the right message; background printing continues.
-- Ignored customers progress through patience stages and leave.
-- Pickup with a missing or unprinted order produces a counter scene and a logged failure.
-- Each failure type appears in the end-of-day report.
-- Bot still meets the v4 balance targets.
+## 4. Interaction building blocks (UI)
+Every step uses one of: **form** (pick or type values), **hold** (press until bar fills), **tap** (click N targets),
+**drag** (item to slot), **number** (read and type a value), **wait** (background timer you can leave).
+Each step in data: station, building block, params, hint text, held item before and after.
+
+## 5. Workflows
+**Print job**
+1. Computer: fill the order form (paper, color, sides, copies, finishing) from what the customer said. Creates the note.
+2. Printer: send (wait, can leave). Empty tray: drag a ream in. Jam: tap the jammed sheets out.
+3. Collect: drag the stack into your hands.
+4. Finishing: staple (tap per set), cut (hold), bind (hold per book).
+5. Drag stack into a bag, drag name label on, drag bag to the shelf.
+
+**Pickup:** at the shelf, find the bag by name and drag it to hands; at the counter hand it over, then ring up
+(enter total; enter change if cash).
+
+**Shipping:** pick box size and drag item in, tap to add packing paper, hold to tape, drag onto scale and read the
+weight, enter weight and service on the label form, print and drag label onto box, ring up, drag box to outbound bin.
+
+**Drop-off:** tap to scan the label, drag package to the bin.
+
+**Self-serve:** short dialogue to send them over; occasionally they return for help (one tap to fix the copier).
+
+## 6. Rules
+- Interactions are easy: no precision or speed tests. Big jobs cost time, not difficulty.
+- Effort scales sensibly: taps per set for small runs; holds and printer wait for big runs. Never more than about 10 taps in a step.
+- Workflow lock stays, except during wait steps (printing), when you can work elsewhere.
+- Mistakes only come from player input: wrong form values, wrong label, wrong bag handed over. The sim compares entered
+  values to the true request and the result surfaces later as a visible scene ("This isn't what I asked for").
+- Lazy options (skip packing paper, hand over unstapled, tape shut) are the "don't" choices and are faster.
+
+## 7. Day pacing
+- 6 to 12 customers per day. The director budgets by **work cost** (game minutes per request type in config), not headcount:
+  heavy days have fewer customers, light days more.
+- Interleave quick interactions (drop-off, pickup) between big jobs so there's something to do while printing.
+- Bad luck events still roughly once per day, inside these workflows (jam mid-print, tray empty mid-run).
+
+## 8. Sim and bot
+- The sim records each step's result: values entered, correct or not, time spent. The UI owns the interaction itself.
+- The bot skips interactions and uses per-step time costs from config, entering correct values (or deliberately wrong
+  values for a "careless" style). Batch targets from v4 still apply, plus customers per day stays within 6 to 12.
+
+## 9. Assets (placeholders, swappable later)
+- 5 station backgrounds (flat shapes fine): counter, printer, finishing table, shipping table, shelf. Computer is pure UI.
+- 1 customer portrait template with color swaps and 3 expressions.
+- About 15 item icons: ream, paper stack, box (3 sizes), tape, label, bag, stapler, scale display, card, cash.
+- Load all art through one asset map so real sprites drop in without code changes.
+
+## 10. Tests
+- Dialogue generation states every spec field for each request type.
+- Notes reflect entered values, not the true request.
+- Each workflow completes step by step; wrong entries produce the matching failure scene later.
+- Wait steps release the lock; other steps keep it.
+- Director keeps customers per day within 6 to 12 across seeds.
 
 ## Done when
-`npm run typecheck`, `npm test`, `npm run build` pass, batch targets still met, and in the browser you can see what the
-MC is doing at all times, customers leave when ignored, and every failure is visible when it happens.
+`npm run typecheck`, `npm test`, `npm run build` pass, batch targets met, and in the browser a full day is playable in
+first person: hear the request, enter it, do the work by hand, and see mistakes come back.

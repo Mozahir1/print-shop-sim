@@ -5,20 +5,23 @@
 //   smart          sends simple jobs to self-serve, rushes only when that won't make another order late, turns away
 //                  what can't be done in time or isn't worth doing, works on whatever's due soonest, and does
 //                  everything properly
+//   careless       plays like smart, but now and then gets something wrong by hand: the order form, the total or
+//                  the change, the bag off the shelf, the shipping label
 //   turn_away      says no to new business (print and shipping) and cuts corners on the work
 //   ignore         ignores people and problems
 //   random         a different answer every time (from its own stream, never the game's)
-import type { CounterAction, GameState, TaskRequest } from "./types";
+import type { CounterAction, GameState, OrderEntry, TaskRequest } from "./types";
 import { createRng, type Rng } from "./rng";
 import { abandonWorkflow, goHome, startTask, workLeft } from "./sim";
 import { currentStep } from "./workflow";
 import { DONT, todoList, type TodoItem } from "./todo";
 import { quoteFor, rushBumpsSomeone } from "./quote";
 import { isPrintKind } from "./customers";
-import { customerById, jobById } from "./util";
+import { customerById, jobById, packageById } from "./util";
 
-export type BotStyle = "do_everything" | "smart" | "turn_away" | "ignore" | "random";
-export const BOT_STYLES: BotStyle[] = ["smart", "do_everything", "turn_away", "ignore", "random"];
+export type BotStyle = "do_everything" | "smart" | "careless" | "turn_away" | "ignore" | "random";
+export const BOT_STYLES: BotStyle[] = ["smart", "careless", "do_everything", "turn_away", "ignore", "random"];
+const CARELESS = 0.25; // share of the steps it can get wrong that a careless bot does
 
 export interface Bot {
   style: BotStyle;
@@ -83,6 +86,8 @@ function arrivalOrder(state: GameState, item: TodoItem): number {
 function choose(bot: Bot, state: GameState, req: TaskRequest, alts: TaskRequest[]): TaskRequest | null {
   if (req.type === "respond") return { ...req, choice: answer(bot, state, req, alts) };
   switch (bot.style) {
+    case "careless":
+      return bot.rng() < CARELESS ? slip(bot, state, req) : req;
     case "do_everything":
     case "smart":
       return req;
@@ -112,6 +117,7 @@ function answer(bot: Bot, state: GameState, req: TaskRequest, alts: TaskRequest[
       const options: CounterAction[] = ["take", ...alts.map((a) => a.choice!)];
       return options[Math.floor(bot.rng() * options.length)];
     }
+    case "careless":
     case "smart": {
       if (!isPrintKind(c.kind)) return "take";
       if (has("self_serve")) return "self_serve";
@@ -121,5 +127,29 @@ function answer(bot: Bot, state: GameState, req: TaskRequest, alts: TaskRequest[
       if ((!doable || !q.worth) && has("turn_away")) return "turn_away";
       return rushOk ? "rush" : "take";
     }
+  }
+}
+
+// The step done with a slip of the hand (where there's anything to get wrong).
+function slip(bot: Bot, state: GameState, req: TaskRequest): TaskRequest {
+  switch (req.type) {
+    case "enter_order": {
+      const s = jobById(state, req.jobId!)!.spec;
+      const wrong: Partial<OrderEntry>[] = [{ copies: s.copies + 10 }, { color: s.color === "bw" ? "color" : "bw" }, { duplex: !s.duplex }, { media: s.media === "letter" ? "cardstock" : "letter" }, { finishing: s.finishing === "none" ? "staple" : "none" }];
+      return { ...req, entry: { copies: s.copies, color: s.color, media: s.media, duplex: s.duplex, finishing: s.finishing, ...wrong[Math.floor(bot.rng() * wrong.length)] } };
+    }
+    case "ring_up":
+    case "manual_ring_up":
+      return { ...req, amount: 100, change: 100 }; // a dollar, typed for whatever it was
+    case "fetch_bag": {
+      const other = state.jobs.find((j) => j.status === "bagged" && j.id !== req.jobId);
+      return other ? { ...req, jobId: other.id } : req;
+    }
+    case "label": {
+      const pkg = packageById(state, req.packageId!)!;
+      return { ...req, shipLabel: { weightLb: pkg.weightLb + 1, service: pkg.service! } };
+    }
+    default:
+      return req;
   }
 }

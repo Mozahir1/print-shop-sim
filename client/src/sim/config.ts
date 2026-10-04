@@ -23,16 +23,20 @@ export const CLOSING = {
   overtimeSpeed: 0.5, // the UI runs the clock this much slower after close (you're bored)
 };
 
-// The flow director keeps the number of things that need you in a band, instead of a fixed arrival schedule.
+// The flow director brings in 6 to 12 customers a day, budgeted by work: each request costs about this many minutes of
+// your time, and each day has a work budget, so heavy days bring fewer people and light days more. It spreads them
+// across the day and keeps the number of things that need you in a band.
 export type Arrival = RequestKind | "web_order";
 
 export const DIRECTOR = {
-  floor: 1, // below this many active things, bring in the next one quickly...
-  ceiling: 3, // ...and at this many, hold everything back
-  floorGap: [2, 6] as [number, number], // minutes, once below the floor
-  pace: [12, 25] as [number, number], // minutes between arrivals otherwise
+  floor: 1, // below this many active things, the truck can come early
+  ceiling: 3, // at this many, hold everyone back
+  perDay: [6, 12] as [number, number], // new customers (web orders and business clients count; people coming back don't)
+  workBudget: [110, 190] as [number, number], // minutes of work a day brings in
   firstArrival: [2, 5] as [number, number],
-  maxPerDay: 26, // new customers (web orders count; people coming back for an order don't)
+  jitter: [0.6, 1.4] as [number, number], // on the even spacing
+  interleave: 3, // quick requests are this much likelier while something's printing (something to do meanwhile)
+  quick: ["dropoff", "package_pickup", "order_pickup"] as Arrival[],
   mix: {
     quick_copies: 5,
     large_job: 3,
@@ -51,6 +55,21 @@ export const DIRECTOR = {
   multiStepPerDay: 0.05,
   multiStepMax: 1,
   truckHold: 30, // minutes before the truck is due: hold arrivals so there's room for it
+};
+
+// About how much of your time each request takes, start to finish (game minutes).
+export const WORK_COST: Record<Arrival, number> = {
+  quick_copies: 10,
+  large_job: 22,
+  poster: 18,
+  ship: 14,
+  dropoff: 3,
+  order_pickup: 0,
+  package_pickup: 4,
+  self_serve_help: 5,
+  complaint: 0,
+  business: 30,
+  web_order: 12,
 };
 
 // How long each step takes, in game minutes: from the workflow data (src/data/workflows.json). Short and fixed.
@@ -84,6 +103,12 @@ export const MOOD = {
   ignored: -1, // each time you ignore them
   badWork: -2, // smudged copies handed over, a taped-up box, pointed at an out of order sign
 };
+
+// How customers pay (keyed per customer). Cash means counting out change.
+export const PAYS_CASH = 0.35;
+
+// "What was that?": they say it all again. It takes a moment, and a bit of their patience (minutes of waiting).
+export const ASK_AGAIN_PATIENCE = 3;
 
 // How long you have to answer someone at the counter before it counts as ignoring them.
 export const ANSWER_WITHIN = 8; // minutes (the UI slows the clock while you decide)
@@ -149,7 +174,7 @@ export const HEAT = {
   walkout: 6, // someone gave up waiting
   late: 4, // an order ready after it was promised
   unfinished: 6, // an order due today still not done at close
-  lostSale: 0.3, // turned away a job you could have done, and that was worth doing
+  lostSale: 2, // turned away a job you could have done, and that was worth doing
   flag: 8, // something you did came back (damaged box, smudged copies, packages left behind)
   overnightCool: 0.6, // share of heat that's gone by the next morning
   cleanDayCool: 10, // extra, after a day with no complaints
@@ -290,6 +315,7 @@ export const FULL_SERVICE = {
 
 // Self-serve copiers: plain paper and simple jobs only, cheaper per side, and the customer does the work.
 export const SELF_SERVE = {
+  helpChance: 0.2, // people you send over who come back for help partway through
   setupMinutes: 5,
   sidesPerMinute: 20,
   maxMinutes: 30,

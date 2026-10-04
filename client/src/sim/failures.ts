@@ -6,7 +6,7 @@ import { POOLS, pickLine, say } from "./lines";
 import { fill, log } from "./util";
 
 // Notes from the manager during the day, for the ones they'd hear about.
-const NOTE: ReadonlySet<FailureKind> = new Set(["walked_out", "missing_order", "never_ready", "packages_left", "copier_broken", "lost_sale", "lost_business"]);
+const NOTE: ReadonlySet<FailureKind> = new Set(["walked_out", "missing_order", "never_ready", "packages_left", "copier_broken", "lost_sale", "lost_business", "wrong_order"]);
 
 export function recordFailure(state: GameState, kind: FailureKind, vars: Record<string, string | number>, ids: { customerId?: number; jobId?: number } = {}): void {
   const text = say(POOLS.failures, "failure", { kind, job: vars.job !== undefined ? "yes" : undefined }, 0, vars);

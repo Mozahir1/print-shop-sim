@@ -152,8 +152,8 @@ describe("card reader down", () => {
     devEvent(sim, "card_reader_down");
     makeReady(sim, job);
     expect(canStart(s, { type: "ring_up", customerId: c.id })).toMatch(/card reader/);
-    expect(todoList(s).some((t) => t.req.type === "manual_ring_up")).toBe(true);
-    doTask(sim, { type: "manual_ring_up", customerId: c.id });
+    doTask(sim, { type: "fetch_bag", customerId: c.id, jobId: job.id }); // then on to ringing them up: by hand
+    expect(s.choices.some((x) => x.what === "event" && x.type === "dont")).toBe(true);
     expect(c.outcome).toBe("served");
     expect(s.revenueCents).toBe(job.priceCents);
     expect(s.event!.status).toBe("worked_around");
@@ -192,9 +192,9 @@ describe("box rips", () => {
     const c = shipper(sim);
     doTask(sim, { type: "pack", packageId: c.packageId! });
     const pkg = sim.state.packages[0];
-    expect(pkg.status).toBe("weighed");
+    expect(pkg.status).toBe("new");
     expect(sim.state.event!.status).toBe("active");
-    doTask(sim, { type: "pack", packageId: pkg.id }); // taped, labeled, binned
+    doTask(sim, { type: "pack", packageId: pkg.id }); // taped, weighed, labeled, rung up, binned
     expect(pkg.status).toBe("binned");
     expect(sim.state.event!.status).toBe("fixed");
   });

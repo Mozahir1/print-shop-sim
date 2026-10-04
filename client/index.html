@@ -75,9 +75,56 @@
       .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
       .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
-      #sceneWrap { position: relative; padding: 0; overflow: hidden; }
-      #scene { display: block; width: 100%; height: auto; touch-action: manipulation; cursor: pointer; }
-      #pop { position: absolute; z-index: 4; width: 300px; max-width: calc(100% - 16px); max-height: 80%; overflow-y: auto; background: var(--card); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+      #stageWrap { position: relative; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+      #stage { display: block; width: 100%; height: auto; }
+      #doing { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+      #hands:empty, #panel:empty { display: none; }
+      #hands, #panel { padding: 10px 12px; }
+      #hands { border-bottom: 1px solid var(--line); background: var(--soft); }
+      .bottom { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 6px 16px; flex-wrap: wrap; background: var(--card); }
+      body { padding-bottom: 72px; }
+      .bottom { flex-wrap: nowrap; }
+      #hand { display: flex; align-items: center; gap: 6px; font-size: 13px; flex: none; }
+      #handIcon { width: 40px; height: 40px; border: 1px dashed var(--line); border-radius: 6px; }
+      #tabs { display: flex; gap: 4px; flex: 1; overflow-x: auto; min-width: 0; }
+      .tab { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 6px 10px; min-height: 44px; cursor: pointer; white-space: nowrap; flex: none; }
+      @media (max-width: 600px) { #handLabel { display: none; } .bottom { padding: 6px 8px; } }
+      .tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+      .tab.pulse { animation: pulse 0.9s ease-in-out infinite alternate; border-color: var(--warn); }
+      @keyframes pulse { from { box-shadow: 0 0 0 0 var(--warn); } to { box-shadow: 0 0 0 3px var(--warn); } }
+
+      .textbox { border: 2px solid var(--ink); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; background: var(--card); cursor: pointer; position: relative; }
+      .textbox .who { font-size: 12px; font-weight: 600; color: var(--muted); }
+      .textbox p { margin: 2px 0; }
+      .textbox .more { position: absolute; right: 10px; bottom: 6px; font-size: 12px; color: var(--muted); }
+
+      .orderform { display: flex; flex-direction: column; gap: 8px; }
+      .field { display: flex; align-items: center; gap: 10px; border: 0; padding: 0; margin: 0; flex-wrap: wrap; }
+      .field > span { min-width: 80px; color: var(--muted); font-size: 13px; }
+      .field input[type=number], .field input[type=text] { width: 110px; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); }
+      .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+      .chip-opt input { position: absolute; opacity: 0; }
+      .chip-opt span { display: inline-block; border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px; cursor: pointer; min-height: 34px; }
+      .chip-opt input:checked + span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+      .chip-opt input:focus-visible + span { outline: 2px solid var(--accent); }
+      .scale { font-family: ui-monospace, monospace; }
+
+      .targets { display: flex; flex-wrap: wrap; gap: 10px; min-height: 60px; }
+      .target { border: 1px dashed var(--ink); background: #f4f4f0; color: #222; border-radius: 4px; padding: 10px 12px; min-height: 44px; cursor: pointer; }
+      .holdbtn { min-width: 200px; user-select: none; touch-action: none; }
+      .holdbtn .bar { background: rgba(255,255,255,.35); }
+      .holdbtn .bar > div { background: var(--accent-ink); }
+      .dragrow { display: flex; align-items: center; gap: 14px; }
+      .dragitem, .slot { min-height: 56px; min-width: 90px; border-radius: 8px; cursor: grab; font: inherit; touch-action: none; }
+      .dragitem { border: 2px solid var(--ink); background: var(--card); }
+      .dragitem.on { outline: 3px solid var(--accent); }
+      .slot { border: 2px dashed var(--accent); background: var(--soft); }
+      .ghost { position: fixed; z-index: 40; pointer-events: none; padding: 8px 12px; border: 2px solid var(--ink); border-radius: 8px; background: var(--card); opacity: .9; }
+
+      #notes { display: flex; flex-direction: column; gap: 8px; }
+      .note { background: #fff3a8; color: #2b2a1f; padding: 8px 10px; border-radius: 2px; box-shadow: 1px 2px 4px rgba(0,0,0,.15); font: 14px/1.35 "Comic Sans MS", "Marker Felt", system-ui, sans-serif; transition: opacity .5s; }
+      .note .hint { margin-top: 4px; font-size: 12px; font-weight: 700; color: #6b5a00; }
+      .note.done > div:first-child { text-decoration: line-through; }
 
       .btn { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 7px 10px; cursor: pointer; text-align: left; min-height: 38px; }
       .btn:hover { border-color: var(--accent); }
@@ -105,15 +152,9 @@
       dl.spec dt { color: var(--muted); }
       dl.spec dd { margin: 0; }
 
-      ul.plain, #todo { list-style: none; margin: 0; padding: 0; }
+      ul.plain { list-style: none; margin: 0; padding: 0; }
       ul.plain li { padding: 6px 0; border-bottom: 1px solid var(--line); }
       ul.plain li:last-child { border-bottom: 0; }
-      #todo li { display: flex; flex-direction: column; gap: 4px; padding: 6px 0 6px 8px; border-left: 3px solid transparent; border-bottom: 1px solid var(--line); }
-      #todo li.annoyed { border-left-color: var(--warn); }
-      #todo li.angry { border-left-color: var(--bad); }
-      .wait { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-      .wait.annoyed { color: var(--warn); }
-      .wait.angry { color: var(--bad); font-weight: 600; }
 
       #log ol { list-style: none; margin: 0; padding: 0; max-height: 140px; overflow-y: auto; font-size: 13px; }
       #log li { padding: 1px 0; display: flex; gap: 10px; }
@@ -155,15 +196,17 @@
     <div id="banner" hidden></div>
     <main>
       <div class="col">
-        <div class="card" id="sceneWrap">
-          <canvas id="scene" width="800" height="440" aria-label="The store"></canvas>
-          <div id="pop" hidden></div>
+        <div class="card" id="stageWrap">
+          <div id="doing"></div>
+          <canvas id="stage" width="800" height="300" aria-label="Where you are"></canvas>
+          <div id="hands"></div>
+          <div id="panel"></div>
+          <div class="bottom"><div id="hand"><canvas id="handIcon" width="40" height="40"></canvas><span id="handLabel"></span></div><nav id="tabs"></nav></div>
           <div id="flash" hidden></div>
         </div>
       </div>
       <div class="col">
-        <div class="card" id="job"></div>
-        <div class="card"><h2>To do</h2><ul id="todo"></ul></div>
+        <div class="card"><h2>Notes</h2><div id="notes"></div></div>
         <div class="card" id="log"><h2>What happened</h2><ol></ol></div>
       </div>
     </main>

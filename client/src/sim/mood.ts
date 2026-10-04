@@ -48,18 +48,23 @@ export function runPatience(state: GameState, dt: number): void {
     if (helping === c.id || c.lingering) continue; // a lingerer isn't going anywhere
     const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
     if (c.state === "waiting" && job && job.status !== "bagged" && !isOverdue(state, job)) continue; // it isn't due yet
-    c.waited += busy && c.kind !== "business" ? dt * BUSY_PATIENCE : dt; // they can see you're busy (a business client doesn't care)
-    const stage = stageFor(c);
-    if (stage === c.stage) continue;
-    c.stage = stage;
-    if (stage === "annoyed") customerSay(c, "annoyed", {}, state.time);
-    if (stage === "angry") {
-      c.mood += MOOD.fedUp;
-      customerSay(c, "angry", {}, state.time);
-      log(state, `${c.name} is getting angry.`);
-    }
-    if (stage === "gone") walkOut(state, c);
+    wear(state, c, busy && c.kind !== "business" ? dt * BUSY_PATIENCE : dt); // they can see you're busy (a business client doesn't care)
   }
+}
+
+// Uses up some of their patience, saying so as it runs out.
+export function wear(state: GameState, c: Customer, minutes: number): void {
+  c.waited += minutes;
+  const stage = stageFor(c);
+  if (stage === c.stage) return;
+  c.stage = stage;
+  if (stage === "annoyed") customerSay(c, "annoyed", {}, state.time);
+  if (stage === "angry") {
+    c.mood += MOOD.fedUp;
+    customerSay(c, "angry", {}, state.time);
+    log(state, `${c.name} is getting angry.`);
+  }
+  if (stage === "gone") walkOut(state, c);
 }
 
 // Waited far too long: they leave angry, and whatever they were waiting on stays here.

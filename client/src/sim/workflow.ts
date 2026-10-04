@@ -1,11 +1,14 @@
 // Workflows: multi-step jobs (take an order, ship a package, collect and finish a print job, ...).
 // Each is data (src/data/workflows.json): ordered steps, and per step the station, what you're holding, your pose,
-// how long it takes, and what you're thinking. While a workflow is on, nothing unrelated can start (jobs printing
+// how long it takes, what you're thinking, how you do it by hand (the building block), and the hint on its note. While a workflow is on, nothing unrelated can start (jobs printing
 // on their own keep going). Steps run one after another; the workflow pauses wherever there's a choice to make.
 // Which steps are done comes from the state of things, so a workflow you abandon can be picked up again later.
 import type { Customer, GameState, Job, Package, Station, TaskRequest, TaskType, Workflow, WorkflowKind } from "./types";
 import data from "../data/workflows.json";
 import { customerById, jobById, packageById } from "./util";
+
+// How a step is done by hand in the UI. The sim only sees the result.
+export type Block = "form" | "hold" | "tap" | "drag" | "number" | "wait";
 
 export interface StepData {
   station: Station;
@@ -14,9 +17,26 @@ export interface StepData {
   duration: number;
   thought: string; // the thought bubble while you do it
   doing: string; // "You can't do that, you're <doing>."
+  block: Block;
+  hint: string; // what the note says to do next
+  hands?: Hand[]; // how you do it by hand, in order (none: one tap)
+}
+
+// One part of doing a step by hand (see ui/hands.ts).
+export interface Hand {
+  tap?: string; // tap n of these
+  n?: number;
+  hold?: string; // press and hold until the bar fills
+  drag?: string; // drag this...
+  to?: string; // ...here
+  pick?: "box" | "bag" | "package"; // pick the right one
+  form?: "order" | "label";
+  pay?: true; // ring up: type the total (card) or the change (cash)
+  finish?: true; // staple (a tap per set), or cut / laminate (hold)
 }
 
 export const STEP = data.steps as Record<TaskType, StepData>;
+export const NOTE_TEXT = data.notes; // the bits of a note that aren't a step's hint
 export const WORKFLOWS = data.workflows as Record<WorkflowKind, { label: string; steps: TaskType[] }>;
 
 export interface StepInfo {
@@ -35,11 +55,13 @@ export const ALT_OF: Partial<Record<TaskType, TaskType>> = {
   let_truck_go: "hand_off",
   leave_unread: "open_message",
   hand_over: "ring_up",
+  skip_finish: "finish",
   manual_ring_up: "ring_up",
 };
 
 // Steps where you choose: the workflow waits for you there instead of moving on by itself.
-const CHOICE: ReadonlySet<TaskType> = new Set(["respond", "pack", "reprint", "hand_off", "open_message"]);
+// (Entering an order waits for you to fill in the form.)
+const CHOICE: ReadonlySet<TaskType> = new Set(["respond", "enter_order", "pack", "reprint", "hand_off", "open_message"]);
 
 function ids(state: GameState, wf: Workflow): { c?: Customer; job?: Job; pkg?: Package } {
   const c = wf.customerId !== undefined ? customerById(state, wf.customerId) : undefined;
@@ -62,8 +84,11 @@ function plan(state: GameState, wf: Workflow): TaskType[] {
       case "fix_copier":
         return wf.kind === "fix_copier" || wf.fixFirst === true;
       case "make_good":
-        return wf.kind === "complaint" && c?.about === "damaged_box";
+        return wf.kind === "complaint" && (c?.about === "damaged_box" || c?.about === "wrong_label");
+      case "fetch_bag":
+        return job !== undefined && !job.walkUp;
       case "enter_order":
+        return wf.kind !== "complaint"; // a free reprint goes straight to the printer
       case "send_job":
         return wf.kind !== "complaint" || c?.about === "smudged_return";
       default:
@@ -95,16 +120,19 @@ function stepDone(state: GameState, wf: Workflow, t: TaskType): boolean {
       return jobAt("finished", "bagged", "picked_up");
     case "bag":
       return jobAt("bagged", "picked_up");
+    case "fetch_bag":
+      return (c?.fetched ?? null) !== null || jobAt("picked_up", "canceled");
     case "ring_up":
     case "hand_over":
     case "manual_ring_up":
+      if (wf.kind === "ship") return pkg?.paid === true;
       return wf.kind === "release_package" ? pkgAt("picked_up") : jobAt("picked_up", "canceled");
-    case "weigh":
-      return pkg !== undefined && !pkgAt("new");
     case "pack":
-      return pkgAt("boxed", "packed", "labeled", "binned", "shipped");
+      return pkg !== undefined && !pkgAt("new");
     case "tape":
-      return pkgAt("packed", "labeled", "binned", "shipped");
+      return pkgAt("packed", "weighed", "labeled", "binned", "shipped");
+    case "weigh":
+      return pkgAt("weighed", "labeled", "binned", "shipped");
     case "label":
       return pkgAt("labeled", "binned", "shipped");
     case "bin":
@@ -134,8 +162,11 @@ function requestFor(state: GameState, wf: Workflow, t: TaskType): TaskRequest {
     if (state.cardReader === "down") return { type: "manual_ring_up", customerId: c?.id };
   }
   if (t === "ring_up" && wf.kind === "release_package") return { type: "hand_over", customerId: c?.id };
+  if (t === "ring_up" && state.cardReader === "down") return { type: "manual_ring_up", customerId: c?.id };
+  if (t === "fetch_bag") return { type: t, customerId: c?.id, jobId: job?.id };
   switch (t) {
     case "talk":
+    case "ask_again":
     case "respond":
     case "ring_up":
     case "hand_over":
@@ -154,6 +185,7 @@ function requestFor(state: GameState, wf: Workflow, t: TaskType): TaskRequest {
     case "reprint":
     case "use_anyway":
     case "finish":
+    case "skip_finish":
     case "bag":
       return { type: t, jobId: job?.id };
     case "weigh":
@@ -175,6 +207,8 @@ function altsFor(state: GameState, wf: Workflow, t: TaskType): TaskRequest[] {
   switch (t) {
     case "pack":
       return [requestFor(state, wf, "tape_shut")];
+    case "finish":
+      return [requestFor(state, wf, "skip_finish")];
     case "reprint":
       return [requestFor(state, wf, "use_anyway")];
     case "fix_copier":
@@ -183,8 +217,10 @@ function altsFor(state: GameState, wf: Workflow, t: TaskType): TaskRequest[] {
       return [{ type: "let_truck_go" }];
     case "open_message":
       return [requestFor(state, wf, "leave_unread")];
+    case "respond":
+      return [requestFor(state, wf, "ask_again")]; // plus the counter's answers (see actionBlocker in sim.ts)
     default:
-      return []; // respond: the counter's answers (see actionBlocker in sim.ts)
+      return [];
   }
 }
 
@@ -206,8 +242,9 @@ export function isChoice(step: StepInfo): boolean {
   return CHOICE.has(step.type) || step.alts.length > 0;
 }
 
+// (Getting a bag off the shelf is for a customer: which bag you take is up to you.)
 function same(a: TaskRequest, b: TaskRequest): boolean {
-  return a.type === b.type && a.customerId === b.customerId && a.jobId === b.jobId && a.packageId === b.packageId && a.messageId === b.messageId;
+  return a.type === b.type && a.customerId === b.customerId && (a.type === "fetch_bag" || a.jobId === b.jobId) && a.packageId === b.packageId && a.messageId === b.messageId;
 }
 
 // Whether this request is the step you're on (or one of its alternatives).
@@ -229,6 +266,7 @@ export function workflowFor(state: GameState, req: TaskRequest): Workflow {
   const pkg = req.packageId !== undefined ? packageById(state, req.packageId) : undefined;
   switch (req.type) {
     case "talk":
+    case "ask_again":
     case "respond":
       return wf("counter", { customerId: req.customerId });
     case "enter_order":
@@ -238,12 +276,16 @@ export function workflowFor(state: GameState, req: TaskRequest): Workflow {
     case "reprint":
     case "use_anyway":
     case "finish":
+    case "skip_finish":
     case "bag":
       return wf("collect_finish", { jobId: req.jobId });
+    case "fetch_bag":
     case "ring_up":
     case "hand_over":
     case "manual_ring_up":
-      return c?.kind === "package_pickup" ? wf("release_package", { customerId: c.id }) : wf("ring_up", { customerId: c?.id, jobId: c?.jobId ?? undefined });
+      if (c?.kind === "package_pickup") return wf("release_package", { customerId: c.id });
+      if (c?.kind === "ship") return wf("ship", { customerId: c.id, packageId: c.packageId ?? undefined });
+      return wf("ring_up", { customerId: c?.id, jobId: c?.jobId ?? undefined });
     case "make_good":
       return wf("complaint", { customerId: req.customerId });
     case "weigh":
@@ -280,7 +322,5 @@ export function workflowFor(state: GameState, req: TaskRequest): Workflow {
       return wf(req.type);
     case "usher_out":
       return wf("usher_out", { customerId: req.customerId });
-    case "tape":
-      return wf("ship", { packageId: req.packageId });
   }
 }

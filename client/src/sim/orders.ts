@@ -1,5 +1,5 @@
 // Everything you can work out from an order's specs alone: sheets, prices and fees, self-serve, shipping.
-import type { BoxSize, Finishing, JobSpec, Media, ShipService } from "./types";
+import type { BoxSize, Finishing, JobSpec, Media, OrderEntry, ShipService } from "./types";
 import {
   CARDSTOCK_UPCHARGE,
   FINISHING_PRICE,
@@ -65,6 +65,15 @@ export function fullServiceQuote(spec: JobSpec, rush: boolean): FullServiceQuote
   return { printCents, serviceFeeCents, rushCents, totalCents: printCents + serviceFeeCents + rushCents };
 }
 
+// ---------- the order form ----------
+
+export const ENTRY_FIELDS = ["copies", "color", "media", "duplex", "finishing"] as const satisfies readonly (keyof OrderEntry)[];
+
+// What's different between what they asked for and what was entered.
+export function wrongFields(asked: JobSpec, entered: JobSpec): (keyof OrderEntry)[] {
+  return ENTRY_FIELDS.filter((f) => asked[f] !== entered[f]);
+}
+
 // ---------- how long it takes you ----------
 
 // Minutes of finishing work: grows with the job (stapling 300 brochures isn't stapling 3).
@@ -99,6 +108,8 @@ export function selfServeSeconds(spec: JobSpec): number {
 }
 
 // ---------- shipping ----------
+
+export const BOX_ORDER: BoxSize[] = ["small", "medium", "large"];
 
 export function boxFor(weightLb: number): BoxSize {
   return weightLb <= SHIPPING.boxMaxLb.small ? "small" : weightLb <= SHIPPING.boxMaxLb.medium ? "medium" : "large";

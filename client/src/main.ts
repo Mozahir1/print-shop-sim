@@ -1,25 +1,30 @@
-// The game screen: the store scene, the job card, the to-do list. Runs the day and turns clicks and keys into tasks.
-import { abandonWorkflow, canGoHome, currentCustomer, goHome, isDayOver, previewTask, startTask, tick, workLeft, type Sim } from "./sim/sim";
+// The game screen: the station you're at (first person), the tabs to move between stations, your hands, and the
+// sticky notes. Runs the day and turns clicks, holds, drags and keys into what you do.
+import { abandonWorkflow, begin, canGoHome, canStart, currentCustomer, goHome, isDayOver, previewTask, startTask, tick, workLeft, type Sim } from "./sim/sim";
 import { endDay, loadGame, newGame, saveGame, startDay, type Game } from "./sim/game";
 import { report, summarize } from "./sim/summary";
 import { botAct, createBot, type Bot, type BotStyle } from "./sim/bot";
 import { devEvent, devSpawn, setArrivals, skipToClose } from "./sim/dev";
 import { activeCount, todoList } from "./sim/todo";
-import { currentStep } from "./sim/workflow";
+import { currentStep, isChoice, isCurrentStep } from "./sim/workflow";
+import { requestLines } from "./sim/dialogue";
 import { CLOSING } from "./sim/config";
-import type { EventKind, Station, TaskRequest } from "./sim/types";
+import type { EventKind, TaskRequest } from "./sim/types";
 import { getLeaderboard, postShift } from "./api";
 import * as view from "./ui/view";
-import { createScene, drawScene, hitTest, H, W } from "./ui/scene";
+import type { Tab } from "./ui/view";
+import { drawHand, drawStage } from "./ui/stage";
+import { act, advance, handsHtml, hasHands, HOLD_MS, startDoing, stepKey, type Doing } from "./ui/hands";
 import { devPanel, type SPAWN_KINDS } from "./ui/dev";
 
 const STEP = 1; // the sim always advances one game minute at a time, so a seed plays the same on any machine
 // Game minutes per real second, shown as 1x, 2x, 4x. At 1x the 8-hour day takes about 5 real minutes.
 const SPEEDS = [1.5, 3, 6];
 const SPEED_LABEL = ["1×", "2×", "4×"];
-const DECIDING = 0.35; // the clock slows to this while a choice is waiting on you...
-const AT_THE_COUNTER = 0; // ...and stops while a customer's explaining what they want: read it all, then decide
+const DECIDING = 0.35; // the clock slows to this while a step waits for you (doing it by hand, or choosing)...
+const AT_THE_COUNTER = 0; // ...and stops while a customer's explaining what they want: hear it all, then decide
 const QUIET = 4; // nothing going on: time flies
+const LINE_MS = 1300; // a customer says the next line this long after the last (tap to hurry them)
 const SAVE_KEY = "printshop.save";
 const NAME_KEY = "printshop.name";
 
@@ -33,15 +38,21 @@ let speed = SPEEDS[0];
 let paused = true;
 let bot: Bot | null = null;
 let screen: "start" | "report" | "ending" | null = "start";
-const scene = createScene();
-let pop: { kind: "station"; place: Station | "truck" } | { kind: "customer"; id: number } | null = null;
+let tab: Tab = "counter";
+let shownTab: Tab | null = null;
+let followed = ""; // the step the view last moved to (it follows each new step to its station once)
+let doing: Doing | null = null; // the step you're doing by hand
+let talk = { id: -1, n: 0, at: 0 }; // the customer talking, and how many of their lines are out
+let inLine = new Set<number>(); // who was in line last time we looked (a new face rings the bell)
+let bellUntil = 0;
 // The first turn-away, walk-away, and going home with work left ask for a quick confirm (a second click).
 let confirming: { key: string; until: number } | null = null;
 const confirmedOnce = new Set<string>();
 
 const $ = (id: string) => document.getElementById(id)!;
-const canvas = $("scene") as HTMLCanvasElement;
+const canvas = $("stage") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
+const handCtx = ($("handIcon") as HTMLCanvasElement).getContext("2d")!;
 
 // ---------- storage (fails soft: private windows, blocked storage) ----------
 
@@ -80,7 +91,7 @@ function showStart(): void {
   showScreen("start", view.startScreen(loadGame(read(SAVE_KEY)), read(NAME_KEY) ?? ""));
 }
 
-function begin(g: Game): void {
+function startGame(g: Game): void {
   const name = ($("name") as HTMLInputElement | null)?.value.trim();
   if (name !== undefined) store(NAME_KEY, name);
   game = g;
@@ -93,7 +104,10 @@ function playDay(): void {
   if (seedParam !== null) sim.state.devUsed = true;
   (window as unknown as { sim: Sim; game: Game }).sim = sim;
   (window as unknown as { sim: Sim; game: Game }).game = game!;
-  pop = null;
+  sim.state.handsOn = true; // you do every step by hand
+  tab = "counter";
+  doing = null;
+  talk = { id: -1, n: 0, at: 0 };
   hideScreen();
   paused = false;
   refresh();
@@ -137,8 +151,8 @@ function frame(): void {
   const s = sim.state;
   const closed = s.time >= s.closeAt;
   const step = currentStep(s);
-  const deciding = !bot && !s.employee.task && step !== null && (step.type === "respond" || step.alts.length > 0);
-  const pace = deciding ? (step!.type === "respond" ? AT_THE_COUNTER : DECIDING) : quiet(s) ? QUIET : 1;
+  const waiting = !bot && !s.employee.task && step !== null;
+  const pace = waiting ? (step!.type === "respond" ? AT_THE_COUNTER : DECIDING) : quiet(s) ? QUIET : 1;
   acc += elapsed * speed * (closed ? CLOSING.overtimeSpeed : 1) * pace;
   let steps = 0;
   while (acc >= STEP && steps < 600) {
@@ -148,6 +162,7 @@ function frame(): void {
     steps++;
     if (isDayOver(sim.state)) break;
   }
+  if (doing?.holdFrom != null && now - doing.holdFrom >= HOLD_MS) finishPart(advance(doing));
   if (isDayOver(sim.state)) {
     acc = 0;
     refresh();
@@ -161,14 +176,70 @@ function quiet(s: Sim["state"]): boolean {
 }
 
 function draw(): void {
-  if (sim) drawScene(ctx, sim.state, scene, performance.now());
+  if (!sim) return;
+  canvas.hidden = tab === "computer"; // the computer is all screen
+  if (!canvas.hidden) drawStage(ctx, sim.state, tab);
+  drawHand(handCtx, view.held(sim.state));
+}
+
+// ---------- keeping up with the day ----------
+
+// What follows you around: the dialogue, the bell, the station of the step you're on, and the step you're doing by
+// hand.
+function follow(): void {
+  const s = sim!.state;
+  const now = performance.now();
+  // A customer talking says one line at a time.
+  const front = currentCustomer(s);
+  if (front?.state === "talking") {
+    if (talk.id !== front.id) talk = { id: front.id, n: 1, at: now };
+    else if (now - talk.at > LINE_MS && talk.n < requestLines(s, front).length) talk = { ...talk, n: talk.n + 1, at: now };
+  }
+  // Someone new at the counter while you're elsewhere: the bell, and the Counter tab pulses.
+  const line = new Set(s.customers.filter((c) => c.state === "line").map((c) => c.id));
+  if ([...line].some((id) => !inLine.has(id))) {
+    if (tab !== "counter") {
+      bell();
+      bellUntil = now + 6000;
+    }
+  }
+  inLine = line;
+  // A new step: go to where it's done, and if it's done by hand with nothing to choose, get started.
+  const step = currentStep(s);
+  const key = step && !s.employee.task ? stepKey(step.req) : "";
+  if (key && key !== followed) {
+    followed = key;
+    tab = view.tabOf(step!.type);
+    if (!bot && hasHands(step!.req) && !step!.alts.length && doing?.key !== key) doing = startDoing(step!.req);
+  }
+  if (doing && (s.employee.task || !s.workflow || !isCurrentStep(s, doing.req))) doing = null; // it's done, or moot
+}
+
+function bell(): void {
+  try {
+    const ac = new AudioContext();
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+    o.frequency.value = 1320;
+    g.gain.setValueAtTime(0.15, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.6);
+    o.connect(g).connect(ac.destination);
+    o.start();
+    o.stop(ac.currentTime + 0.6);
+  } catch {
+    /* no sound: the tab still pulses */
+  }
 }
 
 // ---------- drawing the panels ----------
 
+// Redraws a panel only when what we'd draw changed. (Compared with what we drew last, not with innerHTML: the browser
+// writes some HTML back differently, and redrawing a form wipes what you've typed and picked.)
+const drawn = new Map<string, string>();
 function set(id: string, html: string): void {
-  const el = $(id);
-  if (el.innerHTML !== html) el.innerHTML = html;
+  if (drawn.get(id) === html) return;
+  drawn.set(id, html);
+  $(id).innerHTML = html;
 }
 
 function confirmKey(): string | null {
@@ -179,6 +250,7 @@ function confirmKey(): string | null {
 function refresh(): void {
   if (!sim) return;
   const s = sim.state;
+  follow();
   const ck = confirmKey();
   $("day").textContent = `Day ${s.day}`;
   set("clock", view.clock(s));
@@ -188,16 +260,19 @@ function refresh(): void {
   const banner = view.banner(s);
   $("banner").hidden = !banner;
   if (banner) set("banner", banner);
-  set("job", view.jobCard(s, ck));
-  set("todo", view.todo(s, ck));
+  const pulse = view.attention(s);
+  if (performance.now() < bellUntil) pulse.add("counter");
+  set("tabs", view.tabBar(tab, pulse));
+  if (tab !== shownTab) document.querySelector(".tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" }); // (narrow screens)
+  shownTab = tab;
+  set("doing", view.doing(s, ck));
+  const byHand = doing !== null && view.tabOf(doing.req.type) === tab;
+  set("hands", byHand ? handsHtml(s, doing!, performance.now()) : "");
+  set("panel", tab === "counter" ? view.counterPanel(s, talk.id === currentCustomer(s)?.id ? talk.n : 0, ck, byHand) : tab === "computer" ? view.computerPanel(s, byHand) : view.stationPanel(s, tab, byHand));
+  const h = view.held(s);
+  set("handLabel", h ? `Holding: ${h}` : "Hands free");
+  set("notes", view.notesHtml(s));
   set("log", `<h2>What happened</h2><ol>${view.logList(s)}</ol>`);
-  const popEl = $("pop");
-  if (pop) {
-    const html = pop.kind === "station" ? view.stationMenu(s, pop.place) : view.customerMenu(s, pop.id);
-    if (!html) pop = null;
-    else set("pop", html);
-  }
-  popEl.hidden = !pop;
   // Something just went wrong: say so right there, for a few seconds.
   const f = s.failures.at(-1);
   const fresh = f && s.time - f.time < 8;
@@ -214,7 +289,7 @@ function speedButtons(): string {
   return `<button data-act="pause" class="${paused ? "on" : ""}" title="Space">${paused ? "Paused" : "Pause"}</button>${btns.join("")}`;
 }
 
-// A short message where you clicked (or near the job card, for keys): what happened, or why not.
+// A short message where you clicked (or near the panel, for keys): what happened, or why not.
 let tipTimer = 0;
 let lastPointer = { x: innerWidth / 2, y: 120 };
 function tip(msg: string, at = lastPointer): void {
@@ -241,21 +316,46 @@ function needsConfirm(key: string): boolean {
   return true;
 }
 
+// Starts something. A step done by hand starts its hands-on part instead (the task runs once you've done it).
 function doTask(req: TaskRequest): void {
   const s = sim!.state;
   if (req.choice === "turn_away" && needsConfirm("turn_away")) return;
+  if (hasHands(req) && !bot) {
+    const err = begin(s, req);
+    if (err) return tip(err);
+    if (!isCurrentStep(s, req)) return tip("Do the step you're on first.");
+    doing = startDoing(req);
+    followed = stepKey(currentStep(s)!.req);
+    tab = view.tabOf(req.type);
+    return;
+  }
   const label = req.type === "respond" ? null : previewTask(s, req).label;
   const err = startTask(s, req);
   if (err) tip(err);
-  else {
-    pop = null;
-    if (label) tip(label);
-  }
+  else if (label) tip(label);
+  if (req.type === "ask_again") talk = { id: req.customerId!, n: 0, at: performance.now() }; // they start over
+}
+
+// The hands-on part of a step moved on; when it's all done, do the step with what you did.
+function finishPart(stepDone: boolean): void {
+  if (!doing || !stepDone) return;
+  const req = doing.req;
+  doing = null;
+  const err = startTask(sim!.state, req);
+  if (err) tip(err);
+}
+
+function hand(el: HTMLElement): void {
+  if (!doing || !sim) return;
+  const r = act(sim.state, doing, el.dataset.what!, el.dataset.value, el.closest("form"));
+  if (r === "step") finishPart(true);
+  else if (r) tip(r);
 }
 
 function abandon(): void {
   if (!sim?.state.workflow) return;
   if (needsConfirm("abandon")) return;
+  doing = null;
   abandonWorkflow(sim.state);
   tip("Walked away.");
 }
@@ -268,12 +368,18 @@ function home(): void {
   goHome(sim.state);
 }
 
-// Keyboard: Enter does it (the step you're on, answering Do, or the top of the to-do list), X is Don't, I is Ignore.
+// Keyboard: Enter does it (hurries a customer along, the step you're on, answering Do, or the next thing), X is
+// Don't, I is Ignore.
 function keyDo(): void {
   const s = sim!.state;
+  const front = currentCustomer(s);
+  if (front?.state === "talking" && talk.n < requestLines(s, front).length) {
+    talk = { ...talk, n: requestLines(s, front).length };
+    return;
+  }
+  if (doing) return tip("Finish what you're doing by hand.");
   const step = currentStep(s);
   if (step) return doTask(step.type === "respond" ? { ...step.req, choice: "take" } : step.req);
-  const front = currentCustomer(s);
   if (front?.state === "line") return doTask({ type: "talk", customerId: front.id });
   const top = todoList(s)[0];
   if (top) doTask(top.req);
@@ -283,7 +389,7 @@ function keyDo(): void {
 function keyDont(): void {
   const step = currentStep(sim!.state);
   if (step?.type === "respond") return doTask({ ...step.req, choice: "turn_away" });
-  if (step?.alts.length) return doTask(step.alts[0]);
+  if (step && isChoice(step) && step.alts.length) return doTask(step.alts[0]);
   tip("There's no corner to cut here.");
 }
 
@@ -298,15 +404,51 @@ function keyIgnore(): void {
 
 // Panels re-render several times a second, so act on pointerdown (a click can straddle a re-render).
 // Keyboard activation still arrives as a click with detail 0.
+let ghost: HTMLElement | null = null;
 document.addEventListener("pointerdown", (e) => {
   lastPointer = { x: e.clientX, y: e.clientY };
   if (e.button !== 0) return;
-  const el = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
+  const t = e.target as HTMLElement;
+  if (t.closest("[data-hold]") && doing) {
+    e.preventDefault();
+    doing.holdFrom = performance.now();
+    return;
+  }
+  if (t.closest("[data-drag]") && doing) {
+    e.preventDefault();
+    act(sim!.state, doing, "grab", undefined, null);
+    ghost = document.createElement("div");
+    ghost.className = "ghost";
+    ghost.textContent = t.closest("[data-drag]")!.textContent;
+    document.body.append(ghost);
+    moveGhost(e);
+    return;
+  }
+  if (t.closest(".textbox") && sim) {
+    const front = currentCustomer(sim.state);
+    if (front?.state === "talking") talk = { ...talk, n: talk.n + 1, at: performance.now() };
+  }
+  const el = t.closest<HTMLElement>("[data-act]");
   if (el && el.tagName === "BUTTON") {
     e.preventDefault();
     el.classList.add("pressed");
     handle(el);
   }
+});
+function moveGhost(e: PointerEvent): void {
+  if (!ghost) return;
+  ghost.style.left = `${e.clientX - 30}px`;
+  ghost.style.top = `${e.clientY - 18}px`;
+}
+document.addEventListener("pointermove", moveGhost);
+document.addEventListener("pointerup", (e) => {
+  if (doing?.holdFrom != null) doing.holdFrom = null; // let go too soon: start over
+  if (!ghost) return;
+  ghost.remove();
+  ghost = null;
+  const slot = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-slot]");
+  if (slot) hand(slot);
+  refresh();
 });
 document.addEventListener("click", (e) => {
   if (e.detail !== 0) return;
@@ -314,40 +456,14 @@ document.addEventListener("click", (e) => {
   if (el) handle(el);
 });
 
-canvas.addEventListener("pointerdown", (e) => {
-  if (!sim || screen) return;
-  const r = canvas.getBoundingClientRect();
-  const x = ((e.clientX - r.left) / r.width) * W;
-  const y = ((e.clientY - r.top) / r.height) * H;
-  const hit = hitTest(sim.state, scene, x, y);
-  const place = (p: typeof pop) => {
-    pop = p;
-    const el = $("pop");
-    const wrap = $("sceneWrap").getBoundingClientRect();
-    el.style.left = `${Math.max(8, Math.min(wrap.width - 308, e.clientX - wrap.left + 8))}px`;
-    el.style.top = `${Math.max(8, Math.min(wrap.height - 80, e.clientY - wrap.top + 8))}px`;
-  };
-  if (!hit) pop = null;
-  else if (hit.kind === "customer") {
-    const front = currentCustomer(sim.state);
-    if (front?.id === hit.id && front.state === "line") doTask({ type: "talk", customerId: front.id });
-    else place({ kind: "customer", id: hit.id });
-  } else if (hit.place === "counter") {
-    const front = currentCustomer(sim.state);
-    if (front?.state === "line") doTask({ type: "talk", customerId: front.id });
-    else tip(front ? `You're talking to ${front.name}.` : "Nobody at the counter.");
-  } else place({ kind: "station", place: hit.place });
-  refresh();
-});
-
 function handle(el: HTMLElement): void {
   const d = el.dataset;
   switch (d.act) {
     case "newGame":
-      begin(newGame(seedParam ?? Math.floor(Math.random() * 1e9)));
+      startGame(newGame(seedParam ?? Math.floor(Math.random() * 1e9)));
       return;
     case "continue":
-      begin(loadGame(read(SAVE_KEY))!);
+      startGame(loadGame(read(SAVE_KEY))!);
       return;
     case "nextDay":
       playDay();
@@ -359,14 +475,20 @@ function handle(el: HTMLElement): void {
     case "task":
       doTask(JSON.parse(d.req!) as TaskRequest);
       break;
+    case "hand":
+      hand(el);
+      break;
+    case "tab":
+      tab = d.tab as Tab;
+      if (tab === "counter") bellUntil = 0;
+      break;
+    case "nextLine":
+      break; // (handled on pointerdown)
     case "abandon":
       abandon();
       break;
     case "goHome":
       home();
-      break;
-    case "closePop":
-      pop = null;
       break;
     case "pause":
       paused = !paused;
@@ -384,6 +506,7 @@ function handle(el: HTMLElement): void {
       break;
     case "bot":
       bot = d.style ? createBot(1, d.style as BotStyle, s.seed) : null;
+      doing = null;
       if (bot) s.devUsed = true;
       break;
     case "skipDay":
@@ -409,7 +532,16 @@ function handle(el: HTMLElement): void {
 
 window.addEventListener("keydown", (e) => {
   const tag = (e.target as HTMLElement).tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  if (tag === "INPUT" || tag === "TEXTAREA") {
+    // Enter in a form fills it in.
+    const btn = (e.target as HTMLElement).closest("form")?.querySelector<HTMLElement>("[data-act=hand]");
+    if (e.key === "Enter" && btn) {
+      e.preventDefault();
+      hand(btn);
+      refresh();
+    }
+    return;
+  }
   if (e.key === "`" && devEnabled && sim) {
     $("dev").hidden = !$("dev").hidden;
     refresh();
@@ -420,8 +552,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     e.preventDefault();
     paused = !paused;
-  } else if (e.code === "Escape") pop = null;
-  else if (k === "enter") keyDo();
+  } else if (k === "enter") keyDo();
   else if (k === "x") keyDont();
   else if (k === "i") keyIgnore();
   else if (k === "g") home();
@@ -437,5 +568,5 @@ window.addEventListener("keydown", (e) => {
 
 showStart();
 setInterval(frame, 50);
-setInterval(draw, 33);
-setInterval(refresh, 150);
+setInterval(draw, 100);
+setInterval(refresh, 120);

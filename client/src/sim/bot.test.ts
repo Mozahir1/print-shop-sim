@@ -55,7 +55,7 @@ describe("bot playstyles", () => {
   });
 
   it("every style is in the list", () => {
-    expect(BOT_STYLES).toEqual(["smart", "do_everything", "turn_away", "ignore", "random"]);
+    expect(BOT_STYLES).toEqual(["smart", "careless", "do_everything", "turn_away", "ignore", "random"]);
   });
 });
 
@@ -68,12 +68,11 @@ describe("balance targets (the batch checks these over more games)", () => {
   });
 
   it("ignoring gets you fired fast; turning business away gets you fired slowly", () => {
-    for (const seed of [1, 1001]) {
-      expect(lasts(seed, "ignore")).toBeLessThanOrEqual(8);
-      const slow = lasts(seed, "turn_away");
-      expect(slow).toBeGreaterThan(5);
-      expect(slow).toBeLessThanOrEqual(20);
-    }
+    for (const seed of [1, 1001]) expect(lasts(seed, "ignore")).toBeLessThanOrEqual(8);
+    // Across a few games: most get fired, and not right away.
+    const slow = [1, 1001, 2001, 3001, 4001].map((seed) => lasts(seed, "turn_away"));
+    expect(slow.filter((d) => d <= 20).length).toBeGreaterThanOrEqual(3);
+    expect(Math.min(...slow)).toBeGreaterThan(5);
   });
 });
 

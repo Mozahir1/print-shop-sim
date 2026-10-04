@@ -4,15 +4,15 @@
 
 import type { CounterAction, Customer, EventKind, Workflow, WorkflowKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
-import { ANSWER_WITHIN, CLOSING, SALES, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
-import { choiceType, leave, recordChoice, resetPatience, runPatience } from "./mood";
+import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
+import { choiceType, leave, recordChoice, resetPatience, runPatience, wear } from "./mood";
 import { quoteFor, type CounterQuote } from "./quote";
 import { formatClock } from "./time";
-import { finishMinutes, selfServePriceCents, selfServeSeconds, walkUpMinutes } from "./orders";
+import { BOX_ORDER, boxFor, finishMinutes, selfServePriceCents, selfServeSeconds, shipQuote, totalSheets, walkUpMinutes, wrongFields } from "./orders";
 import { ALT_OF, STEP, WORKFLOWS, currentStep, isChoice, isCurrentStep, lockMessage, workflowFor } from "./workflow";
 import { recordFailure } from "./failures";
 import { closeEvents, onPacked, resolveEvent, rollEvent, runEvents, wifiBack } from "./events";
-import { addHeat, lostBusiness, createManager, deliver, onIgnore, onLate, onSmudgedHandedOver, onTapedBoxShipped, onTurnAway, onUnfinished, runConsequences } from "./consequences";
+import { addHeat, lostBusiness, createManager, deliver, onIgnore, onLate, onSmudgedHandedOver, onTapedBoxShipped, onTurnAway, onUnfinished, onWrongLabel, runConsequences } from "./consequences";
 import { createJob, createShipment, isPrintKind, morningTime, weighted } from "./customers";
 import { FINISHING_LABEL } from "./orders";
 import { customerById, isOverdue, jobById, log, money, packageById } from "./util";
@@ -96,6 +96,8 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     stats: { served: 0, left: 0, happy: 0, neutral: 0, angry: 0, selfServed: 0, selfServeCents: 0, turnedAway: 0, lostSales: 0, lostSalesCents: 0, balked: 0, rushOrders: 0, lateOrders: 0, refundsCents: 0, surveys: 0, badSurveys: 0, businessWon: 0, businessLost: 0, ordersTaken: 0, webOrders: 0, sheets: 0, shipments: 0, dropoffs: 0, packagePickups: 0, jams: 0, idleSeconds: 0, activeSeconds: 0, maxActive: 0 },
     over: false,
     devUsed: false,
+    handsOn: false,
+    drawerOffCents: 0,
   };
   mcSay(state, "start_of_day");
   const note = pickLine(POOLS.messages, "corporate_note", {}, day - 1);
@@ -211,6 +213,10 @@ export function goHome(state: GameState, sentHome = false): string | null {
     addHeat(state, left.length * CLOSING.leftUndoneHeat, "ignoring");
     recordFailure(state, "left_work", { count: `${left.length} thing${left.length === 1 ? "" : "s"}` });
   }
+  if (state.drawerOffCents) {
+    recordFailure(state, "drawer_off", { money: money(state.drawerOffCents) });
+    addHeat(state, Math.min(HEAT.flag, state.drawerOffCents / 200), "lost_sales");
+  }
   if (onTime) addHeat(state, -CLOSING.onTimeReward, "complaints");
   // Sales against the day's target.
   const short = SALES.targetCents - state.revenueCents;
@@ -246,7 +252,7 @@ function runAnswerTimeouts(state: GameState): void {
   for (const c of state.customers) {
     if (c.state !== "talking" || c.answerBy === null || state.time < c.answerBy) continue;
     const t = state.employee.task;
-    if (t?.type === "respond" && t.customerId === c.id) continue; // you're answering
+    if (t?.customerId === c.id) continue; // you're answering (or hearing it again)
     answer(state, c, "ignore", true);
   }
 }
@@ -262,6 +268,14 @@ function runSelfServe(state: GameState): void {
       c.selfServeUntil = null;
       leave(state, c, "balked");
       log(state, `${c.name} gave up on the dead copier.`);
+    } else if (c.helpAt !== null && state.time >= c.helpAt) {
+      // "This machine isn't doing anything": back to the counter for a hand (one tap at the copier).
+      c.helpAt = null;
+      c.kind = "self_serve_help";
+      c.state = "line";
+      c.lineTicket = state.nextLineNo++;
+      resetPatience(state, c);
+      log(state, `${c.name} needs help at the copier.`);
     } else if (state.time >= (c.selfServeUntil ?? 0)) finishSelfServe(state, c);
   }
 }
@@ -280,6 +294,7 @@ export function startSelfServe(state: GameState, c: Customer): void {
   c.state = "self_serve";
   c.answerBy = null;
   c.selfServeUntil = state.time + selfServeSeconds(c.spec!);
+  if (keyedRoll(state.seed, "copier-help", c.id) < SELF_SERVE.helpChance) c.helpAt = state.time + Math.round(selfServeSeconds(c.spec!) / 2);
   log(state, `${c.name} is using the self-serve copier.`);
 }
 
@@ -403,9 +418,11 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       if (currentCustomer(state)?.id !== c.id) return `${c.name} isn't at the front of the line.`;
       return null;
     }
+    case "ask_again":
     case "respond": {
       const c = customerById(state, req.customerId ?? -1);
       if (!c || c.state !== "talking") return "You're not talking to them.";
+      if (req.type === "ask_again") return null;
       if (!req.choice) return "Answer how?";
       return actionBlocker(state, c, req.choice);
     }
@@ -416,6 +433,11 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       if (req.type === "manual_ring_up" && state.cardReader === "ok") return "The card reader works.";
       const c = waitingCustomer(state, req);
       if (typeof c === "string") return c;
+      if (c.kind === "ship") {
+        const pkg = c.packageId !== null ? packageById(state, c.packageId) : undefined;
+        if (req.type === "hand_over") return "Ring it up.";
+        return pkg?.status === "labeled" && !pkg.paid ? null : `${c.name}'s package isn't ready to ring up.`;
+      }
       if (c.kind === "package_pickup") {
         if (req.type === "ring_up") return "Held packages are already paid for. Hand it over.";
         const pkg = packageById(state, c.packageId!)!;
@@ -424,9 +446,19 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       const job = c.jobId === null ? undefined : jobById(state, c.jobId);
       if (!job) return `${c.name} has no order to pick up.`;
       if (job.status !== "bagged") return `Order #${job.id} isn't ready yet.`;
+      if (c.fetched === null) return `Get ${c.name}'s bag off the shelf first.`;
       if (req.type !== "hand_over" && job.prepaid) return `Order #${job.id} was paid online. Hand it over.`;
       if (req.type === "hand_over" && !job.prepaid) return `Order #${job.id} hasn't been paid for. Ring it up.`;
       return null;
+    }
+    case "fetch_bag": {
+      const c = waitingCustomer(state, req);
+      if (typeof c === "string") return c;
+      if (c.jobId === null) return `${c.name} isn't here for an order.`;
+      if (c.fetched !== null) return "You already have their bag.";
+      const job = jobFor(state, req);
+      if (typeof job === "string") return job;
+      return job.status === "bagged" ? null : `Order #${job.id} isn't on the shelf.`;
     }
     case "enter_order": {
       const job = jobFor(state, req);
@@ -467,7 +499,8 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       return state.cardReader === "down" ? null : "The card reader works.";
     case "restart_router":
       return state.wifi.down ? null : "The Wi-Fi is fine.";
-    case "finish": {
+    case "finish":
+    case "skip_finish": {
       const job = jobFor(state, req);
       if (typeof job === "string") return job;
       if (job.spec.finishing === "none") return `Order #${job.id} doesn't need finishing.`;
@@ -522,7 +555,8 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
     case "bin": {
       const pkg = packageFor(state, req);
       if (typeof pkg === "string") return pkg;
-      const need = { weigh: ["new"], pack: ["weighed"], tape: ["boxed"], tape_shut: ["weighed"], label: ["packed"], bin: ["labeled", "scanned"] }[req.type];
+      const need = { pack: ["new"], tape_shut: ["new"], tape: ["boxed"], weigh: ["packed"], label: ["weighed"], bin: ["labeled", "scanned"] }[req.type];
+      if (req.box && pkg.box && BOX_ORDER.indexOf(req.box) < BOX_ORDER.indexOf(pkg.box)) return `It doesn't fit in a ${req.box} box.`;
       if (need.includes(pkg.status)) return null;
       return `Package #${pkg.id} isn't ready for that (${pkg.status}).`;
     }
@@ -548,6 +582,15 @@ export function startTask(state: GameState, req: TaskRequest): string | null {
   if (err) return err;
   if (!state.workflow) state.workflow = workflowFor(state, req);
   state.employee.task = buildTask(state, req);
+  return null;
+}
+
+// Hands on: steps into the workflow a request belongs to without doing anything yet, so you can do its next step
+// by hand (the UI calls startTask with what you did once you've done it).
+export function begin(state: GameState, req: TaskRequest): string | null {
+  const err = canStart(state, req);
+  if (err) return err;
+  if (!state.workflow) state.workflow = workflowFor(state, req);
   return null;
 }
 
@@ -596,7 +639,7 @@ function advanceWorkflow(state: GameState, done: TaskType): void {
     state.workflow = null;
     return;
   }
-  if (!isChoice(step)) startTask(state, step.req);
+  if (!isChoice(step) && !state.handsOn) startTask(state, step.req); // by hand, every step waits for you
 }
 
 // What a request would turn into (label, duration), without starting it. Only valid when canStart() is null.
@@ -626,6 +669,8 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
   switch (req.type) {
     case "talk":
       return `Talk to ${name}`;
+    case "ask_again":
+      return "What was that?";
     case "escort":
       return `Show ${name} the copier`;
     case "make_copies":
@@ -670,6 +715,10 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
       const f = jobById(state, req.jobId!)?.spec.finishing ?? "none";
       return `${FINISHING_LABEL[f]} ${job}`;
     }
+    case "skip_finish":
+      return `Skip finishing ${job}`;
+    case "fetch_bag":
+      return `Get ${name}'s bag off the shelf`;
     case "bag":
       return `Bag ${job}`;
     case "help_self_serve":
@@ -725,8 +774,15 @@ function runStep(state: GameState, t: Task): void {
       c!.answerBy = state.time + ANSWER_WITHIN;
       return;
     }
+    case "ask_again":
+      wear(state, c!, ASK_AGAIN_PATIENCE); // they say it all again
+      return;
+    case "fetch_bag":
+      c!.fetched = t.jobId!;
+      return;
     case "make_copies":
       job!.status = "bagged";
+      customerById(state, job!.customerId)!.fetched = job!.id; // it's in your hands
       job!.sheetsPrinted = job!.sheets;
       state.stats.sheets += job!.sheets;
       log(state, `Made the copies for order #${job!.id}.`);
@@ -752,6 +808,17 @@ function runStep(state: GameState, t: Task): void {
     case "ring_up":
     case "manual_ring_up": {
       if (c!.state !== "waiting") return; // they gave up while you were getting it
+      if (c!.kind === "ship") {
+        const p = packageById(state, c!.packageId!)!;
+        const q = shipQuote(p.weightLb, p.service!);
+        p.paid = true;
+        pay(state, c!, t, q.totalCents);
+        state.revenueCents += p.priceCents; // what the store keeps
+        state.stats.shipments++;
+        log(state, `Shipped ${c!.name}'s package: ${money(p.priceCents)}.`);
+        leave(state, c!, "served");
+        return;
+      }
       if (c!.kind === "package_pickup") {
         packageById(state, c!.packageId!)!.status = "picked_up";
         state.stats.packagePickups++;
@@ -759,8 +826,12 @@ function runStep(state: GameState, t: Task): void {
         return leave(state, c!, "served");
       }
       const j = jobById(state, c!.jobId!)!;
+      if (c!.fetched !== j.id) return wrongBag(state, c!, j);
       j.status = "picked_up";
       j.closedAt = state.time;
+      const wrong = wrongFields(j.asked, j.spec);
+      if (wrong.length) return wrongOrder(state, c!, j, wrong);
+      if (j.skipped) c!.mood += MOOD.badWork; // they flip through it
       if (j.smudge === "accepted") {
         c!.mood += MOOD.badWork; // they look through it
         onSmudgedHandedOver(state, c!);
@@ -771,12 +842,18 @@ function runStep(state: GameState, t: Task): void {
         recordChoice(state, "dont", "event");
       }
       if (t.type !== "hand_over") {
+        pay(state, c!, t, j.priceCents);
         state.revenueCents += j.priceCents;
         log(state, `Rang up ${c!.name}: ${money(j.priceCents)}.`);
       } else log(state, `Handed ${c!.name} order #${j.id}.`);
-      return leave(state, c!, "served");
+      leave(state, c!, "served");
+      if (j.skipped) customerSay(c!, "not_finished", { finishing: j.asked.finishing }, state.time); // what they say on the way out
+      return;
     }
     case "enter_order":
+      // What gets made is what you typed in. (Left out: you got it exactly right.)
+      job!.spec = { ...job!.spec, ...t.entry };
+      job!.sheets = totalSheets(job!.spec);
       job!.status = "entered";
       return;
     case "send_job":
@@ -836,7 +913,10 @@ function runStep(state: GameState, t: Task): void {
       log(state, "Loaded paper.");
       return;
     case "finish":
+    case "skip_finish":
       job!.status = "finished";
+      job!.skipped = t.type === "skip_finish";
+      if (job!.spec.finishing !== "none") recordChoice(state, t.type === "finish" ? "do" : "dont", "finish", job!.customerId);
       return;
     case "bag":
       job!.status = "bagged";
@@ -853,6 +933,7 @@ function runStep(state: GameState, t: Task): void {
         c!.mood += MOOD.badWork; // pointed at the sign
         log(state, `Pointed ${c!.name} at the out of order sign.`);
       } else log(state, `Helped ${c!.name} at self-serve.`);
+      if (c!.spec && state.copier.status === "ok") return finishSelfServe(state, c!); // they finish their copies (and pay)
       return leave(state, c!, "served");
     case "fix_copier":
       state.copier.status = "ok";
@@ -891,9 +972,9 @@ function runStep(state: GameState, t: Task): void {
       state.revenueCents += pkg!.priceCents;
       state.stats.shipments++;
       const owner = customerById(state, pkg!.customerId)!;
-      log(state, `Shipped ${owner.name}'s package: ${money(pkg!.priceCents)}.`);
+      pkg!.label = t.shipLabel ?? { weightLb: pkg!.weightLb, service: pkg!.service! };
+      if (pkg!.label.weightLb !== pkg!.weightLb || pkg!.label.service !== pkg!.service) onWrongLabel(state, pkg!.id, owner.name);
       if (pkg!.taped) onTapedBoxShipped(state, pkg!.id, owner.name);
-      if (owner.state === "waiting") leave(state, owner, "served");
       return;
     }
     case "bin":
@@ -902,7 +983,7 @@ function runStep(state: GameState, t: Task): void {
     case "scan_dropoff": {
       if (c!.state !== "waiting") return;
       const id = state.nextId++;
-      state.packages.push({ id, customerId: c!.id, kind: "dropoff", weightLb: 2, service: null, box: null, priceCents: 0, status: "scanned", taped: false });
+      state.packages.push({ id, customerId: c!.id, kind: "dropoff", weightLb: 2, service: null, box: null, priceCents: 0, status: "scanned", taped: false, paid: true, label: null });
       c!.packageId = id; // so the drop-off workflow can bin it
       state.stats.dropoffs++;
       log(state, `Scanned ${c!.name}'s drop-off.`);
@@ -927,6 +1008,41 @@ function runStep(state: GameState, t: Task): void {
       truckGone(state);
       return;
   }
+}
+
+// Ringing someone up: card, you type the total; cash, they hand you a bill and you type the change. Whatever's
+// typed wrong leaves the register off (counted at close).
+export function cashGiven(due: number): number {
+  return [500, 1000, 2000, 5000, 10000].find((b) => b >= due) ?? Math.ceil(due / 10000) * 10000;
+}
+
+function pay(state: GameState, c: Customer, t: Task, due: number): void {
+  if (t.type === "hand_over") return;
+  const off = c.pays === "cash" ? (t.change ?? cashGiven(due) - due) - (cashGiven(due) - due) : (t.amount ?? due) - due;
+  if (off) {
+    state.drawerOffCents += Math.abs(off);
+    log(state, `The register is off by ${money(Math.abs(off))}.`);
+  }
+}
+
+// The bag you brought out isn't theirs. They hand it back: go get the right one.
+function wrongBag(state: GameState, c: Customer, j: Job): void {
+  customerSay(c, "wrong_bag", {}, state.time);
+  c.mood += MOOD.ignored;
+  recordFailure(state, "wrong_bag", { name: c.name, job: j.id }, { customerId: c.id, jobId: j.id });
+  c.fetched = null;
+}
+
+// They look in the bag and it isn't what they asked for (it was entered wrong). They don't pay for it.
+function wrongOrder(state: GameState, c: Customer, j: Job, wrong: string[]): void {
+  customerSay(c, "wrong_order", {}, state.time);
+  c.mood += MOOD.badWork;
+  if (j.prepaid && j.priceCents > 0) {
+    state.revenueCents -= j.priceCents;
+    state.stats.refundsCents += j.priceCents;
+  }
+  recordFailure(state, "wrong_order", { name: c.name, job: j.id, what: wrong.map((f) => (f === "media" ? "paper" : f === "duplex" ? "sides" : f)).join(", ") }, { customerId: c.id, jobId: j.id });
+  leave(state, c, "balked");
 }
 
 // Dealt with today's bad luck properly.
@@ -1092,6 +1208,7 @@ function makeItRight(state: GameState, c: Customer): void {
   const job = createJob(state, c, "counter", { rush: true, dueDay: state.day, dueAt: state.time + STANDARD_LEAD });
   job.priceCents = job.printCents = job.serviceFeeCents = job.rushCents = 0; // on us
   job.prepaid = true;
+  job.status = "entered"; // the same file, run again: nothing to type in
   resetPatience(state, c);
   log(state, `Reprinting ${c.name}'s copies for free.`);
 }

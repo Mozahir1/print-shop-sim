@@ -6,7 +6,19 @@
       "pose": "talk",
       "duration": 1,
       "thought": "Hi.",
-      "doing": "talking to a customer"
+      "doing": "talking to a customer",
+      "block": "tap",
+      "hint": "Talk to them"
+    },
+    "ask_again": {
+      "station": "counter",
+      "held": null,
+      "pose": "talk",
+      "duration": 0.25,
+      "thought": "What was that?",
+      "doing": "talking to a customer",
+      "block": "tap",
+      "hint": "Ask again"
     },
     "respond": {
       "station": "counter",
@@ -14,7 +26,9 @@
       "pose": "talk",
       "duration": 0,
       "thought": "Answer them.",
-      "doing": "talking to a customer"
+      "doing": "talking to a customer",
+      "block": "tap",
+      "hint": "Answer them"
     },
     "hand_over": {
       "station": "counter",
@@ -22,7 +36,15 @@
       "pose": "reach",
       "duration": 1,
       "thought": "Here you go.",
-      "doing": "handing over an order"
+      "doing": "handing over an order",
+      "block": "drag",
+      "hint": "Hand it over",
+      "hands": [
+        {
+          "drag": "bag",
+          "to": "customer"
+        }
+      ]
     },
     "ring_up": {
       "station": "counter",
@@ -30,7 +52,14 @@
       "pose": "type",
       "duration": 2,
       "thought": "Ring it up.",
-      "doing": "ringing someone up"
+      "doing": "ringing someone up",
+      "block": "number",
+      "hint": "Ring up",
+      "hands": [
+        {
+          "pay": true
+        }
+      ]
     },
     "manual_ring_up": {
       "station": "counter",
@@ -38,7 +67,14 @@
       "pose": "write",
       "duration": 4,
       "thought": "Write the card number down.",
-      "doing": "ringing someone up by hand"
+      "doing": "ringing someone up by hand",
+      "block": "number",
+      "hint": "Ring up by hand",
+      "hands": [
+        {
+          "pay": true
+        }
+      ]
     },
     "make_good": {
       "station": "counter",
@@ -46,7 +82,9 @@
       "pose": "write",
       "duration": 5,
       "thought": "File the claim.",
-      "doing": "sorting out a damaged package"
+      "doing": "sorting out a damaged package",
+      "block": "form",
+      "hint": "File the claim"
     },
     "enter_order": {
       "station": "computer",
@@ -54,7 +92,14 @@
       "pose": "type",
       "duration": 2,
       "thought": "Type it in.",
-      "doing": "entering an order"
+      "doing": "entering an order",
+      "block": "form",
+      "hint": "Enter it on the computer",
+      "hands": [
+        {
+          "form": "order"
+        }
+      ]
     },
     "send_job": {
       "station": "computer",
@@ -62,7 +107,9 @@
       "pose": "type",
       "duration": 1,
       "thought": "Send it.",
-      "doing": "sending a job to the printer"
+      "doing": "sending a job to the printer",
+      "block": "wait",
+      "hint": "Send to printer"
     },
     "open_message": {
       "station": "computer",
@@ -70,7 +117,9 @@
       "pose": "type",
       "duration": 1,
       "thought": "Read it.",
-      "doing": "reading the inbox"
+      "doing": "reading the inbox",
+      "block": "tap",
+      "hint": "Open it"
     },
     "leave_unread": {
       "station": "computer",
@@ -78,7 +127,9 @@
       "pose": "type",
       "duration": 1,
       "thought": "Later.",
-      "doing": "reading the inbox"
+      "doing": "reading the inbox",
+      "block": "tap",
+      "hint": "Leave it"
     },
     "fix_card_reader": {
       "station": "computer",
@@ -86,7 +137,14 @@
       "pose": "reach",
       "duration": 6,
       "thought": "Turn it off and on.",
-      "doing": "fixing the card reader"
+      "doing": "fixing the card reader",
+      "block": "hold",
+      "hint": "Fix the reader",
+      "hands": [
+        {
+          "hold": "Hold the reset button"
+        }
+      ]
     },
     "restart_router": {
       "station": "computer",
@@ -94,7 +152,14 @@
       "pose": "reach",
       "duration": 4,
       "thought": "Unplug it. Plug it back in.",
-      "doing": "restarting the router"
+      "doing": "restarting the router",
+      "block": "hold",
+      "hint": "Restart the router",
+      "hands": [
+        {
+          "hold": "Hold the power button"
+        }
+      ]
     },
     "collect": {
       "station": "printer",
@@ -102,7 +167,15 @@
       "pose": "reach",
       "duration": 1,
       "thought": "Grab the stack.",
-      "doing": "collecting a job"
+      "doing": "collecting a job",
+      "block": "drag",
+      "hint": "Collect",
+      "hands": [
+        {
+          "drag": "paper",
+          "to": "hands"
+        }
+      ]
     },
     "reprint": {
       "station": "printer",
@@ -110,7 +183,9 @@
       "pose": "type",
       "duration": 1,
       "thought": "Run it again.",
-      "doing": "reprinting a job"
+      "doing": "reprinting a job",
+      "block": "tap",
+      "hint": "Reprint or use anyway"
     },
     "use_anyway": {
       "station": "printer",
@@ -118,7 +193,9 @@
       "pose": "reach",
       "duration": 1,
       "thought": "Nobody will notice.",
-      "doing": "collecting a job"
+      "doing": "collecting a job",
+      "block": "drag",
+      "hint": "Use anyway"
     },
     "clear_jam": {
       "station": "printer",
@@ -126,7 +203,15 @@
       "pose": "bend",
       "duration": 5,
       "thought": "Pull the jam.",
-      "doing": "clearing a jam"
+      "doing": "clearing a jam",
+      "block": "tap",
+      "hint": "Clear the jam",
+      "hands": [
+        {
+          "tap": "jammed sheet",
+          "n": 4
+        }
+      ]
     },
     "load_paper": {
       "station": "printer",
@@ -134,7 +219,15 @@
       "pose": "bend",
       "duration": 3,
       "thought": "Load paper.",
-      "doing": "loading paper"
+      "doing": "loading paper",
+      "block": "drag",
+      "hint": "Load paper",
+      "hands": [
+        {
+          "drag": "ream",
+          "to": "tray"
+        }
+      ]
     },
     "finish": {
       "station": "finishing",
@@ -142,7 +235,14 @@
       "pose": "work",
       "duration": 0,
       "thought": "Finish it.",
-      "doing": "finishing a job"
+      "doing": "finishing a job",
+      "block": "tap",
+      "hint": "{finishing}",
+      "hands": [
+        {
+          "finish": true
+        }
+      ]
     },
     "bag": {
       "station": "finishing",
@@ -150,7 +250,23 @@
       "pose": "work",
       "duration": 1,
       "thought": "Bag it.",
-      "doing": "bagging a job"
+      "doing": "bagging a job",
+      "block": "drag",
+      "hint": "Bag and shelve",
+      "hands": [
+        {
+          "drag": "paper",
+          "to": "bag"
+        },
+        {
+          "drag": "label",
+          "to": "bag"
+        },
+        {
+          "drag": "bag",
+          "to": "shelf"
+        }
+      ]
     },
     "help_self_serve": {
       "station": "self_serve",
@@ -158,7 +274,9 @@
       "pose": "reach",
       "duration": 3,
       "thought": "Press the green button.",
-      "doing": "helping at self-serve"
+      "doing": "helping at self-serve",
+      "block": "tap",
+      "hint": "Help at self-serve"
     },
     "escort": {
       "station": "self_serve",
@@ -166,7 +284,9 @@
       "pose": "talk",
       "duration": 1,
       "thought": "It's this one.",
-      "doing": "showing someone the copier"
+      "doing": "showing someone the copier",
+      "block": "tap",
+      "hint": "Show them the copier"
     },
     "fix_copier": {
       "station": "self_serve",
@@ -174,7 +294,15 @@
       "pose": "bend",
       "duration": 8,
       "thought": "Fix the copier.",
-      "doing": "fixing the copier"
+      "doing": "fixing the copier",
+      "block": "tap",
+      "hint": "Fix the copier",
+      "hands": [
+        {
+          "tap": "copier panel",
+          "n": 1
+        }
+      ]
     },
     "out_of_order_sign": {
       "station": "self_serve",
@@ -182,7 +310,9 @@
       "pose": "reach",
       "duration": 1,
       "thought": "Out of order. Done.",
-      "doing": "taping up a sign"
+      "doing": "taping up a sign",
+      "block": "tap",
+      "hint": "Put up a sign"
     },
     "weigh": {
       "station": "shipping",
@@ -190,15 +320,38 @@
       "pose": "work",
       "duration": 1,
       "thought": "Weigh it.",
-      "doing": "weighing a package"
+      "doing": "weighing a package",
+      "block": "number",
+      "hint": "Weigh it",
+      "hands": [
+        {
+          "drag": "box",
+          "to": "scale"
+        }
+      ]
     },
     "pack": {
       "station": "shipping",
       "held": "box",
       "pose": "work",
       "duration": 4,
-      "thought": "Box it.",
-      "doing": "boxing a package"
+      "thought": "Box it, with paper.",
+      "doing": "boxing a package",
+      "block": "drag",
+      "hint": "Box it",
+      "hands": [
+        {
+          "pick": "box"
+        },
+        {
+          "drag": "item",
+          "to": "box"
+        },
+        {
+          "tap": "packing paper",
+          "n": 3
+        }
+      ]
     },
     "tape": {
       "station": "shipping",
@@ -206,7 +359,14 @@
       "pose": "work",
       "duration": 1,
       "thought": "Tape it.",
-      "doing": "taping a box"
+      "doing": "taping a box",
+      "block": "hold",
+      "hint": "Tape it",
+      "hands": [
+        {
+          "hold": "Tape it"
+        }
+      ]
     },
     "tape_shut": {
       "station": "shipping",
@@ -214,7 +374,21 @@
       "pose": "work",
       "duration": 1,
       "thought": "Just tape it shut.",
-      "doing": "taping a box"
+      "doing": "taping a box",
+      "block": "hold",
+      "hint": "Tape it shut",
+      "hands": [
+        {
+          "pick": "box"
+        },
+        {
+          "drag": "item",
+          "to": "box"
+        },
+        {
+          "hold": "Tape it shut"
+        }
+      ]
     },
     "label": {
       "station": "shipping",
@@ -222,7 +396,18 @@
       "pose": "work",
       "duration": 2,
       "thought": "Label it.",
-      "doing": "labeling a package"
+      "doing": "labeling a package",
+      "block": "form",
+      "hint": "Label it",
+      "hands": [
+        {
+          "form": "label"
+        },
+        {
+          "drag": "label",
+          "to": "box"
+        }
+      ]
     },
     "bin": {
       "station": "shipping",
@@ -230,7 +415,15 @@
       "pose": "bend",
       "duration": 1,
       "thought": "Into the bin.",
-      "doing": "putting a package in the bin"
+      "doing": "putting a package in the bin",
+      "block": "drag",
+      "hint": "Into the bin",
+      "hands": [
+        {
+          "drag": "box",
+          "to": "bin"
+        }
+      ]
     },
     "scan_dropoff": {
       "station": "shipping",
@@ -238,15 +431,30 @@
       "pose": "work",
       "duration": 1,
       "thought": "Scan it.",
-      "doing": "scanning a drop-off"
+      "doing": "scanning a drop-off",
+      "block": "tap",
+      "hint": "Scan it",
+      "hands": [
+        {
+          "tap": "label",
+          "n": 1
+        }
+      ]
     },
     "find_package": {
-      "station": "shipping",
+      "station": "shelf",
       "held": "box",
       "pose": "bend",
       "duration": 2,
       "thought": "Find it.",
-      "doing": "looking for a package"
+      "doing": "looking for a package",
+      "block": "drag",
+      "hint": "Find it on the shelf",
+      "hands": [
+        {
+          "pick": "package"
+        }
+      ]
     },
     "hand_off": {
       "station": "shipping",
@@ -254,7 +462,9 @@
       "pose": "reach",
       "duration": 3,
       "thought": "Here. Take them.",
-      "doing": "handing off to the driver"
+      "doing": "handing off to the driver",
+      "block": "tap",
+      "hint": "Hand off to the driver"
     },
     "let_truck_go": {
       "station": "shipping",
@@ -262,7 +472,9 @@
       "pose": "stand",
       "duration": 1,
       "thought": "Bye.",
-      "doing": "waving off the driver"
+      "doing": "waving off the driver",
+      "block": "tap",
+      "hint": "Let it go"
     },
     "usher_out": {
       "station": "counter",
@@ -270,7 +482,9 @@
       "pose": "talk",
       "duration": 1,
       "thought": "We're closed.",
-      "doing": "showing someone out"
+      "doing": "showing someone out",
+      "block": "tap",
+      "hint": "Show them out"
     },
     "make_copies": {
       "station": "self_serve",
@@ -278,8 +492,45 @@
       "pose": "work",
       "duration": 0,
       "thought": "Make the copies.",
-      "doing": "making copies for someone"
+      "doing": "making copies for someone",
+      "block": "hold",
+      "hint": "Make the copies",
+      "hands": [
+        {
+          "hold": "Run the copies"
+        }
+      ]
+    },
+    "skip_finish": {
+      "station": "finishing",
+      "held": "paper",
+      "pose": "reach",
+      "duration": 0.25,
+      "thought": "Nobody will notice.",
+      "doing": "finishing an order",
+      "block": "tap",
+      "hint": "Skip it"
+    },
+    "fetch_bag": {
+      "station": "shelf",
+      "held": "bag",
+      "pose": "reach",
+      "duration": 1,
+      "thought": "Which one was it?",
+      "doing": "getting a bag off the shelf",
+      "block": "drag",
+      "hint": "Get it off the shelf",
+      "hands": [
+        {
+          "pick": "bag"
+        }
+      ]
     }
+  },
+  "notes": {
+    "new": "{item} for {name}, due {due}. Not in the computer yet.",
+    "printing": "Printing. You can leave it.",
+    "done": "Done"
   },
   "workflows": {
     "take_order": {
@@ -304,10 +555,11 @@
       "steps": [
         "talk",
         "respond",
-        "weigh",
         "pack",
         "tape",
+        "weigh",
         "label",
+        "ring_up",
         "bin"
       ]
     },
@@ -334,6 +586,7 @@
       "steps": [
         "talk",
         "respond",
+        "fetch_bag",
         "ring_up"
       ]
     },
@@ -375,6 +628,7 @@
     "ring_up": {
       "label": "Ring up",
       "steps": [
+        "fetch_bag",
         "ring_up"
       ]
     },

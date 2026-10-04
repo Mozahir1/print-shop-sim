@@ -59,22 +59,25 @@ export function todoList(state: GameState): TodoItem[] {
       const m = state.messages.find((x) => x.jobId === job.id);
       if (m) add(`Open ${c.name}'s web order (they're here)`, "computer", { type: "open_message", messageId: m.id }, c.id);
     }
-    if (job?.status === "bagged") {
+    if (job?.status === "bagged" && c.fetched === null) add(`Get ${c.name}'s bag off the shelf`, "shelf", { type: "fetch_bag", customerId: c.id, jobId: job.id }, c.id);
+    else if (job?.status === "bagged") {
       if (job.prepaid) add(`Hand ${c.name} their order`, "counter", { type: "hand_over", customerId: c.id }, c.id);
       else if (state.cardReader === "down") add(`Ring up ${c.name} (by hand)`, "counter", { type: "manual_ring_up", customerId: c.id }, c.id);
       else add(`Ring up ${c.name}`, "counter", { type: "ring_up", customerId: c.id }, c.id);
     }
     if (c.kind === "package_pickup") {
-      add(`Find ${c.name}'s package`, "shipping", { type: "find_package", customerId: c.id }, c.id);
+      add(`Find ${c.name}'s package`, "shelf", { type: "find_package", customerId: c.id }, c.id);
       add(`Hand ${c.name} their package`, "counter", { type: "hand_over", customerId: c.id }, c.id);
     }
     if (c.kind === "dropoff") add(`Scan ${c.name}'s drop-off`, "shipping", { type: "scan_dropoff", customerId: c.id }, c.id);
     if (c.kind === "self_serve_help") add(`Help ${c.name} at self-serve`, "self_serve", { type: "help_self_serve", customerId: c.id }, c.id);
     if (c.kind === "ship" && c.packageId !== null) {
       const pkg = packageById(state, c.packageId)!;
-      if (pkg.status === "new") add(`Weigh ${c.name}'s package`, "shipping", { type: "weigh", packageId: pkg.id }, c.id);
-      if (pkg.status === "weighed") add(`Pack ${c.name}'s package`, "shipping", { type: "pack", packageId: pkg.id }, c.id, [{ type: "tape_shut", packageId: pkg.id }]);
-      if (pkg.status === "packed") add(`Label ${c.name}'s package`, "shipping", { type: "label", packageId: pkg.id }, c.id);
+      if (pkg.status === "new") add(`Pack ${c.name}'s package`, "shipping", { type: "pack", packageId: pkg.id }, c.id, [{ type: "tape_shut", packageId: pkg.id }]);
+      if (pkg.status === "boxed") add(`Tape ${c.name}'s package`, "shipping", { type: "tape", packageId: pkg.id }, c.id);
+      if (pkg.status === "packed") add(`Weigh ${c.name}'s package`, "shipping", { type: "weigh", packageId: pkg.id }, c.id);
+      if (pkg.status === "weighed") add(`Label ${c.name}'s package`, "shipping", { type: "label", packageId: pkg.id }, c.id);
+      if (pkg.status === "labeled" && !pkg.paid) add(`Ring up ${c.name}`, "counter", { type: state.cardReader === "down" ? "manual_ring_up" : "ring_up", customerId: c.id }, c.id);
     }
   }
 
@@ -97,7 +100,7 @@ export function todoList(state: GameState): TodoItem[] {
       continue;
     }
     if (job.status === "printed") add(`Collect ${who} order #${job.id} from the printer`, "printer", { type: "collect", jobId: job.id }, owner?.id);
-    if (job.status === "collected" && job.spec.finishing !== "none") add(`Finish order #${job.id}`, "finishing", { type: "finish", jobId: job.id }, owner?.id);
+    if (job.status === "collected" && job.spec.finishing !== "none") add(`Finish order #${job.id}`, "finishing", { type: "finish", jobId: job.id }, owner?.id, [{ type: "skip_finish", jobId: job.id }]);
     if (job.status === "collected" || job.status === "finished") add(`Bag order #${job.id}`, "finishing", { type: "bag", jobId: job.id }, owner?.id);
     if (job.status === "entered") add(`Send order #${job.id} to the printer`, "computer", { type: "send_job", jobId: job.id }, owner?.id);
     if (job.status === "new" && job.walkUp) add(`Make ${who} copies (order #${job.id})`, "self_serve", { type: "make_copies", jobId: job.id }, owner?.id);
@@ -134,7 +137,7 @@ export function todoList(state: GameState): TodoItem[] {
 }
 
 // Cutting the corner (Don't): the faster, sloppier way to do something.
-export const DONT: ReadonlySet<TaskType> = new Set(["use_anyway", "out_of_order_sign", "tape_shut", "let_truck_go", "manual_ring_up"]);
+export const DONT: ReadonlySet<TaskType> = new Set(["skip_finish", "use_anyway", "out_of_order_sign", "tape_shut", "let_truck_go", "manual_ring_up"]);
 // Leaving it (Ignore).
 export const IGNORE: ReadonlySet<TaskType> = new Set(["leave_unread"]);
 
@@ -146,8 +149,9 @@ export function availableTasks(state: GameState, station: Station): TaskRequest[
   const types = (list: TaskType[]) => list.filter((t) => STATION[t] === station);
   for (const type of types(["clear_jam", "load_paper", "fix_copier", "out_of_order_sign", "fix_card_reader", "restart_router", "hand_off", "let_truck_go"])) reqs.push({ type });
   for (const c of state.customers) for (const type of types(["talk", "hand_over", "ring_up", "manual_ring_up", "help_self_serve", "scan_dropoff", "find_package"])) reqs.push({ type, customerId: c.id });
-  for (const j of state.jobs) for (const type of types(["enter_order", "send_job", "collect", "reprint", "use_anyway", "finish", "bag"])) reqs.push({ type, jobId: j.id });
-  for (const p of state.packages) for (const type of types(["weigh", "pack", "tape_shut", "label", "bin"])) reqs.push({ type, packageId: p.id });
+  for (const c of state.customers) if (c.jobId !== null && station === "shelf") reqs.push({ type: "fetch_bag", customerId: c.id, jobId: c.jobId });
+  for (const j of state.jobs) for (const type of types(["enter_order", "send_job", "collect", "reprint", "use_anyway", "finish", "skip_finish", "bag"])) reqs.push({ type, jobId: j.id });
+  for (const p of state.packages) for (const type of types(["pack", "tape_shut", "tape", "weigh", "label", "bin"])) reqs.push({ type, packageId: p.id });
   for (const m of state.messages) for (const type of types(["open_message", "leave_unread"])) reqs.push({ type, messageId: m.id });
   return reqs.filter((r) => canStart(free, r) === null);
 }

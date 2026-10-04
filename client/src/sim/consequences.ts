@@ -130,6 +130,12 @@ export function onTapedBoxShipped(state: GameState, packageId: number, name: str
   addFlag(state, { kind: "damaged_box", dueDay: state.day + days, dueAt: morningAt(state, packageId), name });
 }
 
+// A label printed wrong (weight or service): the package bounces, and they come back about it in a day or two.
+export function onWrongLabel(state: GameState, packageId: number, name: string): void {
+  const days = between(keyedRoll(state.seed, "label-days", packageId), FLAGS.damagedBoxDays);
+  addFlag(state, { kind: "wrong_label", dueDay: state.day + days, dueAt: morningAt(state, packageId), name });
+}
+
 function morningAt(state: GameState, key: number): number {
   return morningTime(state.seed, key);
 }
@@ -159,10 +165,13 @@ function fire(state: GameState, f: Flag): void {
       return deliver(state, draft("packages_left", { name: f.name }, state.time, HEAT.flag, "ignoring"));
     case "damaged_box":
     case "smudged_return":
+    case "wrong_label": {
       addHeat(state, HEAT.flag, "complaints");
       state.manager.visitsDue.push({ name: f.name, about: f.kind });
-      recordFailure(state, f.kind === "damaged_box" ? "damaged_package" : "smudged_return", { name: f.name });
-      log(state, `${f.name} is coming back about ${f.kind === "damaged_box" ? "a damaged box" : "smudged copies"}.`);
+      recordFailure(state, f.kind === "damaged_box" ? "damaged_package" : f.kind, { name: f.name });
+      const what = { damaged_box: "a damaged box", smudged_return: "smudged copies", wrong_label: "a package that came back" }[f.kind];
+      log(state, `${f.name} is coming back about ${what}.`);
       return;
+    }
   }
 }

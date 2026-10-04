@@ -98,7 +98,7 @@ export function onPacked(state: GameState, pkg: Package): boolean {
   if (e?.kind !== "box_rips" || e.status !== "pending" || state.time < e.at) return false;
   e.status = "active";
   e.firedAt = state.time;
-  pkg.status = "weighed";
+  pkg.status = "new";
   pkg.taped = false;
   log(state, eventText("box_rips").prompt);
   mcSay(state, "bad_luck");

@@ -42,7 +42,7 @@ describe("each request, arrival to done, as workflows", () => {
     expect(s.time - start).toBeLessThanOrEqual(expected + 1); // (steps start the minute the last one ends)
   });
 
-  it("a production order (cardstock): taking it enters and sends it on its own; collecting finishes and bags it", () => {
+  it("a production order (cardstock): taking it enters and sends it on its own; you staple it (or not), it's bagged", () => {
     const sim = quiet();
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.director, "quick_copies", { spec: plain({ copies: 10, media: "cardstock", finishing: "staple" }), timing: "wait", needIn: 300 });
@@ -54,9 +54,11 @@ describe("each request, arrival to done, as workflows", () => {
     expect(s.workflow).toBeNull();
     runUntil(sim, () => job.status === "printed");
     doTask(sim, { type: "collect", jobId: job.id });
-    if (job.smudge === "found") makeReady(sim, job);
-    expect(job.status).toBe("bagged"); // stapled and bagged on the way
-    doTask(sim, { type: "ring_up", customerId: c.id });
+    if (job.smudge === "found") doTask(sim, { type: "reprint", jobId: job.id });
+    makeReady(sim, job);
+    expect(job.status).toBe("bagged");
+    expect(job.skipped).toBe(false);
+    doTask(sim, { type: "fetch_bag", customerId: c.id, jobId: job.id }); // off the shelf, then rung up
     expect(c.outcome).toBe("served");
   });
 
@@ -79,20 +81,22 @@ describe("each request, arrival to done, as workflows", () => {
     expect(c.spec!.finishing).toBe("laminate");
     talkTo(sim, c);
     makeReady(sim, sim.state.jobs[0]);
-    doTask(sim, { type: "ring_up", customerId: c.id });
+    doTask(sim, { type: "fetch_bag", customerId: c.id, jobId: sim.state.jobs[0].id });
     expect(c.outcome).toBe("served");
   });
 
-  it("ship: weigh, then you choose how to pack it; box, tape, label (they pay and go), bin", () => {
+  it("ship: you choose how to pack it; then tape, weigh, label, ring up (they go), bin", () => {
     const sim = quiet();
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.director, "ship", { weightLb: 12 });
     talkTo(sim, c);
     const pkg = s.packages[0];
-    expect(pkg.status).toBe("weighed"); // weighed on its own, then it waits for your choice
+    expect(pkg.status).toBe("new"); // it waits for your choice
     expect(s.workflow?.kind).toBe("ship");
-    doTask(sim, { type: "pack", packageId: pkg.id });
-    expect(pkg.status).toBe("binned"); // taped, labeled, binned
+    expect(canStart(s, { type: "pack", packageId: pkg.id, box: "small" })).toBe("It doesn't fit in a small box.");
+    doTask(sim, { type: "pack", packageId: pkg.id, box: "large" }); // a bigger box is fine
+    expect(pkg.status).toBe("binned"); // taped, weighed, labeled, rung up, binned
+    expect(pkg.label).toEqual({ weightLb: 12, service: c.service });
     expect(c.outcome).toBe("served");
     expect(s.revenueCents).toBeGreaterThan(0);
     expect(s.workflow).toBeNull();

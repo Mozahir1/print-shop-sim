@@ -171,6 +171,41 @@
       "moment": "request",
       "request": "business",
       "text": "Hi. I need a big run of these for a client. Can you handle it?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "wrong_order",
+      "text": "This isn't what I asked for."
+    },
+    {
+      "speaker": "customer",
+      "moment": "wrong_bag",
+      "text": "This isn't mine."
+    },
+    {
+      "speaker": "customer",
+      "moment": "not_finished",
+      "finishing": "staple",
+      "text": "These were supposed to be stapled."
+    },
+    {
+      "speaker": "customer",
+      "moment": "not_finished",
+      "finishing": "cut",
+      "text": "These were supposed to be cut."
+    },
+    {
+      "speaker": "customer",
+      "moment": "not_finished",
+      "finishing": "laminate",
+      "text": "This was supposed to be laminated."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "complaint",
+      "about": "wrong_label",
+      "text": "My package came back. You put the wrong label on it."
     }
   ]
 }
