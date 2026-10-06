@@ -31,6 +31,8 @@ export function requestLines(state: GameState, c: Customer): string[] {
 function keyOf(c: Customer, f: Field): string {
   const spec = c.spec!;
   switch (f) {
+    case "quantity":
+      return spec.copies === 1 ? "one" : "any";
     case "pages":
       return spec.originals === 1 ? "one" : "many";
     case "color":

@@ -19,10 +19,15 @@ again, at the cost of a moment and a bit of their patience. Then Do (take it, ru
 Don't (turn them away), or Ignore. Under the textbox: the price with fees, when it could be ready, and how much of
 **your** time it takes.
 
-**You do the work by hand.** The tabs along the bottom are the stations: Counter, Computer, Printer, Finishing,
-Shipping, Pickup Shelf. The view follows each step to its station. Every step is one of a few easy interactions: fill
-in a form, press and hold until a bar fills, tap a few things, drag an item to a slot (or tap it, then tap where it
-goes), pick the right one, or type a number. Nothing tests speed or precision; big jobs cost time, not difficulty.
+**You do the work by hand, on the actual things.** The game is a 2D scene (Phaser, pixel art at 640x360). The tabs
+along the bottom are the stations: Counter, Computer, Printer, Finishing, Shipping, Pickup Shelf; the view slides to
+each step's station by itself. You drag the real objects (the ream into the tray, the stack into your hands, the box
+onto the scale, the bag to the customer), hold a tool over something (the tape gun across the flaps, the cutter, the
+laminator; letting go pauses, it never fails), tap things (jammed sheets, each set to staple, packing paper), pick by
+looking (the box that fits, the bag with their name on the shelf), and type on the register's keypad. Forms (the order
+form on the monitor, the shipping label) are real typing. Tap a station's object to start what it's for, or use the
+in-world buttons. Nothing tests speed or precision; big jobs cost time, not difficulty. Drops are forgiving; a wrong
+one bounces back with a short reason.
 - **Print job:** fill in the order form on the computer from what they said (paper, color, sides, copies,
   finishing), send it, and it prints while you do other things. Then drag the stack into your hands, staple (a tap per
   set on small runs, a hold on big ones), cut, or laminate (hold), then drag it into a bag, put the name label on, and
@@ -152,9 +157,18 @@ client/
     dev.ts          dev mode actions
   src/data/         all text and steps: workflows.json (each step's station, building block, hands-on parts, hint),
                     dialogue.json, mc.json, customers.json, messages.json, events.json, endings.json, names.json
-  src/ui/           stage.ts (the station you're at, on a canvas), art.ts (the asset map: every background,
-                    portrait and item draws a placeholder until you give it an image URL), hands.ts (doing a step by
-                    hand), view.ts (counter, form, notes, tabs, screens), dev.ts (dev drawer)
+    bus.ts          sim to view events (customer_arrived, sheet_printed, jam, payment_done, failure, ...); nothing
+                    in the sim listens, so the bot and batch runs never notice
+  src/view/         the Phaser view: run.ts (the controller: the day, the clock, doing things, keys),
+                    station.ts (a station scene: objects from the manifest layout, and the drag / hold / tap / pick
+                    parts of each step set up from the step data), scenes.ts (the six stations), ui.ts (top bar,
+                    tabs, hand slot, slides between stations), assets.ts (the art pipeline), juice.ts (squash,
+                    bounce, shake, sparkle), config.ts (base resolution, pixel art, speeds)
+  src/assets/       manifest.json (every sprite: size, anchor, layer, animations, purpose; scene layouts),
+                    sounds.json, art/ and sounds/ (drop files here)
+  src/ui/           view.ts (the text-heavy overlays: dialogue box, monitor and forms, notes, screens),
+                    dev.ts (dev drawer)
+  ART_CHECKLIST.md  every sprite and sound to make, generated from the manifest (npm run art)
   scripts/batch-sim.ts   plays whole games with bots, for balancing
 server/             Spring Boot API (JdbcTemplate, plain SQL), Flyway migrations
 docker-compose.yml  Postgres + API
@@ -171,6 +185,11 @@ Key design decisions:
 - **The flow director budgets work, not headcount.** Each request costs about so many minutes of your time; each day
   has a work budget, so a heavy day brings fewer people (6 to 12 in all). It spaces them over the day and holds them
   while three things already need you. Bad luck and the truck wait for room too.
+- **Art drops in.** Every sprite is listed in `src/assets/manifest.json`. A missing file draws a placeholder (a flat
+  shape and the key's name), so the game is fully playable with no art. Put `src/assets/art/<key>.png` (a single PNG,
+  a strip of frames, or an Aseprite PNG + JSON) and it's used instead; same for sounds. `ART_CHECKLIST.md` is the
+  list to work through (`npm run art` regenerates it; a test fails if it's stale). Switching to hand-drawn art later
+  is a change in `src/view/config.ts` and the manifest's base size.
 - **Hidden meters.** Manager heat is never shown as a number, only through messages, the report's tone line, and the
   manager's verdict. Dev mode shows the true state.
 - **Content is data.** Lines are tagged (`moment`, `request`, `mood`, `cause`, ...); a line fits when its tags match,

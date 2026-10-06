@@ -22,11 +22,13 @@ export interface StepData {
   hands?: Hand[]; // how you do it by hand, in order (none: one tap)
 }
 
-// One part of doing a step by hand (see ui/hands.ts).
+// One part of doing a step by hand, naming the scene objects it's done on (manifest keys, or "box" for the package
+// you're working on, "held" for what's in your hand, "hands" for the hand slot, "customer"). See view/hands.ts.
 export interface Hand {
   tap?: string; // tap n of these
   n?: number;
-  hold?: string; // press and hold until the bar fills
+  hold?: string; // press and hold this tool...
+  on?: string; // ...over this (left out: on the tool itself); the progress shows there
   drag?: string; // drag this...
   to?: string; // ...here
   pick?: "box" | "bag" | "package"; // pick the right one

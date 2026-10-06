@@ -1,50 +1,135 @@
 {
   "order": {
-    "print": ["quantity", "pages", "color", "duplex", "media", "finishing", "timing"],
-    "ship": ["service"],
-    "order_pickup": ["name"],
-    "package_pickup": ["name"]
+    "print": [
+      "quantity",
+      "pages",
+      "color",
+      "duplex",
+      "media",
+      "finishing",
+      "timing"
+    ],
+    "ship": [
+      "service"
+    ],
+    "order_pickup": [
+      "name"
+    ],
+    "package_pickup": [
+      "name"
+    ]
   },
   "lines": {
     "quantity": {
-      "any": ["I need {copies} copies of this {item}.", "Can I get {copies} copies of my {item}?", "It's a {item}. {copies} copies."]
+      "any": [
+        "I need {copies} copies of this {item}.",
+        "Can I get {copies} copies of my {item}?",
+        "It's a {item}. {copies} copies."
+      ],
+      "one": [
+        "Just one copy of this {item}.",
+        "One copy of my {item}, please."
+      ]
     },
     "pages": {
-      "one": ["It's just the one page.", "Only one page."],
-      "many": ["It's {originals} pages.", "There are {originals} pages."]
+      "one": [
+        "It's just the one page.",
+        "Only one page."
+      ],
+      "many": [
+        "It's {originals} pages.",
+        "There are {originals} pages."
+      ]
     },
     "color": {
-      "bw": ["Black and white is fine.", "Just black and white."],
-      "color": ["In color, please.", "It has to be in color."]
+      "bw": [
+        "Black and white is fine.",
+        "Just black and white."
+      ],
+      "color": [
+        "In color, please.",
+        "It has to be in color."
+      ]
     },
     "duplex": {
-      "false": ["One-sided.", "Single-sided is fine."],
-      "true": ["Double-sided, please.", "Print on both sides."]
+      "false": [
+        "One-sided.",
+        "Single-sided is fine."
+      ],
+      "true": [
+        "Double-sided, please.",
+        "Print on both sides."
+      ]
     },
     "media": {
-      "letter": ["On regular paper.", "Normal letter paper is fine."],
-      "legal": ["On legal paper, the long kind.", "Legal size, please."],
-      "tabloid": ["On the big paper, 11 by 17.", "Tabloid size, the big sheets."],
-      "cardstock": ["On cardstock, the thick stuff.", "Cardstock, please."]
+      "letter": [
+        "On regular paper.",
+        "Normal letter paper is fine."
+      ],
+      "legal": [
+        "On legal paper, the long kind.",
+        "Legal size, please."
+      ],
+      "tabloid": [
+        "On the big paper, 11 by 17.",
+        "Tabloid size, the big sheets."
+      ],
+      "cardstock": [
+        "On cardstock, the thick stuff.",
+        "Cardstock, please."
+      ]
     },
     "finishing": {
-      "none": ["No stapling or anything.", "Just loose is fine."],
-      "staple": ["Stapled, please.", "Staple each set."],
-      "cut": ["They need to be cut down.", "Can you cut them to size?"],
-      "laminate": ["Laminated, please.", "Can you laminate it?"]
+      "none": [
+        "No stapling or anything.",
+        "Just loose is fine."
+      ],
+      "staple": [
+        "Stapled, please.",
+        "Staple each set."
+      ],
+      "cut": [
+        "They need to be cut down.",
+        "Can you cut them to size?"
+      ],
+      "laminate": [
+        "Laminated, please.",
+        "Can you laminate it?"
+      ]
     },
     "timing": {
-      "wait": ["I'll wait. I need it by {needBy}.", "I can wait. I have to go by {needBy}."],
-      "back": ["I'll come back for it around {needBy}.", "I'll be back by {needBy}."],
-      "tomorrow": ["Tomorrow is fine.", "No rush. I'll get it tomorrow."]
+      "wait": [
+        "I'll wait. I need it by {needBy}.",
+        "I can wait. I have to go by {needBy}."
+      ],
+      "back": [
+        "I'll come back for it around {needBy}.",
+        "I'll be back by {needBy}."
+      ],
+      "tomorrow": [
+        "Tomorrow is fine.",
+        "No rush. I'll get it tomorrow."
+      ]
     },
     "service": {
-      "ground": ["Ground is fine.", "The cheapest way."],
-      "two_day": ["It needs to get there in two days.", "Two-day, please."],
-      "overnight": ["Overnight. It's urgent.", "It has to be there tomorrow."]
+      "ground": [
+        "Ground is fine.",
+        "The cheapest way."
+      ],
+      "two_day": [
+        "It needs to get there in two days.",
+        "Two-day, please."
+      ],
+      "overnight": [
+        "Overnight. It's urgent.",
+        "It has to be there tomorrow."
+      ]
     },
     "name": {
-      "any": ["It's under {name}.", "The name's {name}."]
+      "any": [
+        "It's under {name}.",
+        "The name's {name}."
+      ]
     }
   }
 }

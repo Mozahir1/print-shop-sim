@@ -41,7 +41,7 @@
       "hint": "Hand it over",
       "hands": [
         {
-          "drag": "bag",
+          "drag": "held",
           "to": "customer"
         }
       ]
@@ -142,7 +142,7 @@
       "hint": "Fix the reader",
       "hands": [
         {
-          "hold": "Hold the reset button"
+          "hold": "computer/reader_box"
         }
       ]
     },
@@ -157,7 +157,7 @@
       "hint": "Restart the router",
       "hands": [
         {
-          "hold": "Hold the power button"
+          "hold": "computer/router"
         }
       ]
     },
@@ -172,7 +172,7 @@
       "hint": "Collect",
       "hands": [
         {
-          "drag": "paper",
+          "drag": "printer/stack",
           "to": "hands"
         }
       ]
@@ -208,7 +208,11 @@
       "hint": "Clear the jam",
       "hands": [
         {
-          "tap": "jammed sheet",
+          "tap": "printer/jam_panel",
+          "n": 1
+        },
+        {
+          "tap": "printer/jam_sheet",
           "n": 4
         }
       ]
@@ -224,8 +228,8 @@
       "hint": "Load paper",
       "hands": [
         {
-          "drag": "ream",
-          "to": "tray"
+          "drag": "printer/ream",
+          "to": "printer/tray"
         }
       ]
     },
@@ -255,16 +259,16 @@
       "hint": "Bag and shelve",
       "hands": [
         {
-          "drag": "paper",
-          "to": "bag"
+          "drag": "finishing/stack",
+          "to": "finishing/bag"
         },
         {
-          "drag": "label",
-          "to": "bag"
+          "drag": "finishing/name_label",
+          "to": "finishing/bag"
         },
         {
-          "drag": "bag",
-          "to": "shelf"
+          "drag": "finishing/bag",
+          "to": "finishing/shelf_cart"
         }
       ]
     },
@@ -299,7 +303,7 @@
       "hint": "Fix the copier",
       "hands": [
         {
-          "tap": "copier panel",
+          "tap": "counter/copier",
           "n": 1
         }
       ]
@@ -326,7 +330,7 @@
       "hands": [
         {
           "drag": "box",
-          "to": "scale"
+          "to": "shipping/scale"
         }
       ]
     },
@@ -344,11 +348,11 @@
           "pick": "box"
         },
         {
-          "drag": "item",
+          "drag": "shipping/item",
           "to": "box"
         },
         {
-          "tap": "packing paper",
+          "tap": "shipping/paper",
           "n": 3
         }
       ]
@@ -364,7 +368,8 @@
       "hint": "Tape it",
       "hands": [
         {
-          "hold": "Tape it"
+          "hold": "shipping/tape_gun",
+          "on": "box"
         }
       ]
     },
@@ -382,11 +387,12 @@
           "pick": "box"
         },
         {
-          "drag": "item",
+          "drag": "shipping/item",
           "to": "box"
         },
         {
-          "hold": "Tape it shut"
+          "hold": "shipping/tape_gun",
+          "on": "box"
         }
       ]
     },
@@ -404,7 +410,7 @@
           "form": "label"
         },
         {
-          "drag": "label",
+          "drag": "shipping/label",
           "to": "box"
         }
       ]
@@ -421,7 +427,7 @@
       "hands": [
         {
           "drag": "box",
-          "to": "bin"
+          "to": "shipping/bin"
         }
       ]
     },
@@ -436,7 +442,7 @@
       "hint": "Scan it",
       "hands": [
         {
-          "tap": "label",
+          "tap": "shipping/dropoff",
           "n": 1
         }
       ]
@@ -497,7 +503,7 @@
       "hint": "Make the copies",
       "hands": [
         {
-          "hold": "Run the copies"
+          "hold": "counter/copier"
         }
       ]
     },

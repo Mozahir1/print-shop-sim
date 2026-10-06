@@ -1,0 +1,1428 @@
+{
+ "base": {
+  "width": 640,
+  "height": 360,
+  "pixelArt": true,
+  "stationTop": 20,
+  "stationBottom": 316
+ },
+ "layers": [
+  "background",
+  "props",
+  "interactive",
+  "held",
+  "ui"
+ ],
+ "sprites": {
+  "counter/bg": {
+   "size": [
+    640,
+    296
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "background",
+   "color": "#d9d0c0",
+   "purpose": "Counter: the shop floor seen from behind the counter, wall and window"
+  },
+  "counter/door": {
+   "size": [
+    70,
+    170
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "props",
+   "color": "#b8ad98",
+   "purpose": "Front door customers walk in and out of"
+  },
+  "counter/desk": {
+   "size": [
+    640,
+    70
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "props",
+   "color": "#a8865c",
+   "purpose": "The counter top, in front of the customer"
+  },
+  "counter/register": {
+   "size": [
+    70,
+    50
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#4a525e",
+   "purpose": "Register: shows the total, opens the keypad when ringing up"
+  },
+  "counter/reader": {
+   "size": [
+    30,
+    24
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#2f3a48",
+   "purpose": "Card reader on the counter"
+  },
+  "counter/reader_down": {
+   "size": [
+    30,
+    24
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#b3261e",
+   "purpose": "Card reader showing an error"
+  },
+  "counter/bell": {
+   "size": [
+    20,
+    16
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "color": "#c9a13a",
+   "purpose": "Service bell"
+  },
+  "counter/copier": {
+   "size": [
+    90,
+    110
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#9aa3ad",
+   "purpose": "Self-serve copier at the side of the floor"
+  },
+  "counter/copier_broken": {
+   "size": [
+    90,
+    110
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#b3261e",
+   "purpose": "Self-serve copier, broken (blinking error)"
+  },
+  "counter/sign": {
+   "size": [
+    40,
+    30
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "color": "#e8b94a",
+   "purpose": "Out of order sign taped on the copier"
+  },
+  "customer/body_a": {
+   "size": [
+    70,
+    110
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "color": "#5d8bb8",
+   "purpose": "Customer body, variant a (tinted per customer). Idle: a slow breathing loop",
+   "animations": {
+    "idle": {
+     "frames": 2,
+     "fps": 2
+    },
+    "walk": {
+     "frames": 4,
+     "fps": 8
+    }
+   }
+  },
+  "customer/body_b": {
+   "size": [
+    70,
+    110
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "color": "#8d6aa8",
+   "purpose": "Customer body, variant b (tinted per customer). Idle: a slow breathing loop",
+   "animations": {
+    "idle": {
+     "frames": 2,
+     "fps": 2
+    },
+    "walk": {
+     "frames": 4,
+     "fps": 8
+    }
+   }
+  },
+  "customer/body_c": {
+   "size": [
+    70,
+    110
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "color": "#5f9e72",
+   "purpose": "Customer body, variant c (tinted per customer). Idle: a slow breathing loop",
+   "animations": {
+    "idle": {
+     "frames": 2,
+     "fps": 2
+    },
+    "walk": {
+     "frames": 4,
+     "fps": 8
+    }
+   }
+  },
+  "customer/body_business": {
+   "size": [
+    70,
+    110
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "color": "#2f3a48",
+   "purpose": "Business client in a suit",
+   "animations": {
+    "idle": {
+     "frames": 2,
+     "fps": 2
+    },
+    "walk": {
+     "frames": 4,
+     "fps": 8
+    }
+   }
+  },
+  "customer/face_fine": {
+   "size": [
+    40,
+    40
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#f1d0b5",
+   "purpose": "Customer face: fine"
+  },
+  "customer/face_annoyed": {
+   "size": [
+    40,
+    40
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#e8b48a",
+   "purpose": "Customer face: annoyed"
+  },
+  "customer/face_angry": {
+   "size": [
+    40,
+    40
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#e0866b",
+   "purpose": "Customer face: angry"
+  },
+  "customer/bubble": {
+   "size": [
+    70,
+    24
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "ui",
+   "color": "#ffffff",
+   "purpose": "Impatience speech bubble (\"Hello?\")"
+  },
+  "computer/bg": {
+   "size": [
+    640,
+    296
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "background",
+   "color": "#cfd6dd",
+   "purpose": "Computer: the back desk"
+  },
+  "computer/monitor": {
+   "size": [
+    440,
+    260
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "props",
+   "color": "#1f2328",
+   "purpose": "Monitor frame; the order form, print queue, inbox and label form show inside it"
+  },
+  "computer/router": {
+   "size": [
+    50,
+    30
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#3b4250",
+   "purpose": "Wi-Fi router (hold the power button to restart it)"
+  },
+  "computer/reader_box": {
+   "size": [
+    50,
+    34
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#4f6b7a",
+   "purpose": "Card reader base station (hold reset to fix it)"
+  },
+  "printer/bg": {
+   "size": [
+    640,
+    296
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "background",
+   "color": "#d6d2c8",
+   "purpose": "Printer: the production printer against the back wall"
+  },
+  "printer/body": {
+   "size": [
+    220,
+    150
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "props",
+   "color": "#e9e7e1",
+   "purpose": "The production printer"
+  },
+  "printer/tray": {
+   "size": [
+    80,
+    16
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#cfc8b6",
+   "purpose": "Paper tray, closed"
+  },
+  "printer/tray_open": {
+   "size": [
+    80,
+    30
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#f0e9d6",
+   "purpose": "Paper tray, pulled open to load"
+  },
+  "printer/ream": {
+   "size": [
+    54,
+    30
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#f4efe1",
+   "purpose": "A ream of paper (drag it into the tray)"
+  },
+  "printer/stack": {
+   "size": [
+    64,
+    40
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "color": "#ffffff",
+   "purpose": "Printed stack in the output tray (grows sheet by sheet)"
+  },
+  "printer/jam_panel": {
+   "size": [
+    64,
+    44
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#b9b4a8",
+   "purpose": "Side panel, closed"
+  },
+  "printer/jam_panel_open": {
+   "size": [
+    64,
+    44
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#6d6a62",
+   "purpose": "Side panel, opened to reach the jam"
+  },
+  "printer/jam_sheet": {
+   "size": [
+    34,
+    22
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#f6f2e6",
+   "purpose": "A crumpled jammed sheet (tap to pull it out)"
+  },
+  "printer/light_idle": {
+   "size": [
+    12,
+    12
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "color": "#9aa3ad",
+   "purpose": "Status light: idle"
+  },
+  "printer/light_printing": {
+   "size": [
+    12,
+    12
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "color": "#2e7d4f",
+   "purpose": "Status light: printing",
+   "animations": {
+    "blink": {
+     "frames": 2,
+     "fps": 3
+    }
+   }
+  },
+  "printer/light_jammed": {
+   "size": [
+    12,
+    12
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "color": "#b3261e",
+   "purpose": "Status light: jammed"
+  },
+  "printer/light_tray_empty": {
+   "size": [
+    12,
+    12
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "color": "#a86400",
+   "purpose": "Status light: tray_empty"
+  },
+  "finishing/bg": {
+   "size": [
+    640,
+    296
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "background",
+   "color": "#d8d2c4",
+   "purpose": "Finishing: the work table"
+  },
+  "finishing/table": {
+   "size": [
+    600,
+    100
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "props",
+   "color": "#a8865c",
+   "purpose": "Work table"
+  },
+  "finishing/stack": {
+   "size": [
+    64,
+    40
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "color": "#ffffff",
+   "purpose": "The collected stack on the table"
+  },
+  "finishing/set": {
+   "size": [
+    30,
+    20
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#f6f2e6",
+   "purpose": "One set to staple (tap to punch it)"
+  },
+  "finishing/stapler": {
+   "size": [
+    56,
+    32
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#b0505a",
+   "purpose": "Heavy stapler (hold over the stack for big runs)"
+  },
+  "finishing/cutter": {
+   "size": [
+    100,
+    44
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#9aa3ad",
+   "purpose": "Paper cutter (hold to cut)"
+  },
+  "finishing/laminator": {
+   "size": [
+    96,
+    54
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#6d7680",
+   "purpose": "Laminator (hold to feed it through)"
+  },
+  "finishing/bag": {
+   "size": [
+    50,
+    56
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#9bb7d4",
+   "purpose": "Paper bag for a finished order"
+  },
+  "finishing/name_label": {
+   "size": [
+    40,
+    16
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#ffffff",
+   "purpose": "Name label for the bag"
+  },
+  "finishing/shelf_cart": {
+   "size": [
+    80,
+    60
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#8a7a5c",
+   "purpose": "Cart to the pickup shelf (drop the bag here)"
+  },
+  "shipping/bg": {
+   "size": [
+    640,
+    296
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "background",
+   "color": "#d5cfc2",
+   "purpose": "Shipping: the packing table, scale, label printer, outbound bin"
+  },
+  "shipping/table": {
+   "size": [
+    470,
+    100
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "props",
+   "color": "#a8865c",
+   "purpose": "Packing table"
+  },
+  "shipping/item": {
+   "size": [
+    40,
+    34
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#c2723a",
+   "purpose": "The customer's item to ship"
+  },
+  "shipping/box_small": {
+   "size": [
+    46,
+    40
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#b98b55",
+   "purpose": "Small box (open)"
+  },
+  "shipping/box_medium": {
+   "size": [
+    60,
+    52
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#b98b55",
+   "purpose": "Medium box (open)"
+  },
+  "shipping/box_large": {
+   "size": [
+    80,
+    66
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#a87a46",
+   "purpose": "Large box (open)"
+  },
+  "shipping/box_closed": {
+   "size": [
+    60,
+    52
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#a87a46",
+   "purpose": "A taped box (drawn at the size of its box)"
+  },
+  "shipping/box_damaged": {
+   "size": [
+    60,
+    52
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "color": "#7a5a36",
+   "purpose": "A box that came back crushed (complaint scene)"
+  },
+  "shipping/paper": {
+   "size": [
+    22,
+    22
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#e9e3d3",
+   "purpose": "Packing paper (tap to stuff it in)"
+  },
+  "shipping/tape_gun": {
+   "size": [
+    44,
+    32
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#d9c06a",
+   "purpose": "Tape gun (hold across the flaps)"
+  },
+  "shipping/scale": {
+   "size": [
+    90,
+    40
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#9aa3ad",
+   "purpose": "Shipping scale; the readout ticks up to the weight"
+  },
+  "shipping/label_printer": {
+   "size": [
+    70,
+    44
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "color": "#4a525e",
+   "purpose": "Label printer"
+  },
+  "shipping/label": {
+   "size": [
+    44,
+    26
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#ffffff",
+   "purpose": "Printed shipping label (drag it onto the box)"
+  },
+  "shipping/dropoff": {
+   "size": [
+    44,
+    36
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#b98b55",
+   "purpose": "A prepaid drop-off package with its label"
+  },
+  "shipping/bin": {
+   "size": [
+    120,
+    90
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#59626c",
+   "purpose": "Outbound bin (fills up)"
+  },
+  "shipping/truck": {
+   "size": [
+    170,
+    90
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#e9e7e1",
+   "purpose": "Carrier truck at the back door (tap to hand off)"
+  },
+  "shelf/bg": {
+   "size": [
+    640,
+    296
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "background",
+   "color": "#d8d0c0",
+   "purpose": "Pickup shelf"
+  },
+  "shelf/rack": {
+   "size": [
+    600,
+    240
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "props",
+   "color": "#8a7a5c",
+   "purpose": "Shelving: orders on the left, held packages on the right"
+  },
+  "shelf/bag": {
+   "size": [
+    44,
+    50
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#9bb7d4",
+   "purpose": "A bagged order with a name label"
+  },
+  "shelf/package": {
+   "size": [
+    48,
+    40
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "color": "#b98b55",
+   "purpose": "A held package with a name label"
+  },
+  "item/bag": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#9bb7d4",
+   "purpose": "Held item icon: bag (hand slot, and on the counter when handing over)"
+  },
+  "item/paper": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#ffffff",
+   "purpose": "Held item icon: paper (hand slot, and on the counter when handing over)"
+  },
+  "item/ream": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#f4efe1",
+   "purpose": "Held item icon: ream (hand slot, and on the counter when handing over)"
+  },
+  "item/box": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#b98b55",
+   "purpose": "Held item icon: box (hand slot, and on the counter when handing over)"
+  },
+  "item/tape": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#d9c06a",
+   "purpose": "Held item icon: tape (hand slot, and on the counter when handing over)"
+  },
+  "item/label": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#ffffff",
+   "purpose": "Held item icon: label (hand slot, and on the counter when handing over)"
+  },
+  "item/pen": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#3b5b8a",
+   "purpose": "Held item icon: pen (hand slot, and on the counter when handing over)"
+  },
+  "item/wrench": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#8a8f98",
+   "purpose": "Held item icon: wrench (hand slot, and on the counter when handing over)"
+  },
+  "item/sign": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#e8b94a",
+   "purpose": "Held item icon: sign (hand slot, and on the counter when handing over)"
+  },
+  "item/card": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#3b5b8a",
+   "purpose": "Held item icon: card (hand slot, and on the counter when handing over)"
+  },
+  "item/cash": {
+   "size": [
+    28,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "held",
+   "color": "#7fae7a",
+   "purpose": "Held item icon: cash (hand slot, and on the counter when handing over)"
+  },
+  "ui/hand_slot": {
+   "size": [
+    44,
+    44
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "ui",
+   "color": "#22252a",
+   "purpose": "Hand slot frame"
+  },
+  "ui/keypad_key": {
+   "size": [
+    26,
+    20
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "ui",
+   "color": "#e9e7e1",
+   "purpose": "Keypad key"
+  },
+  "ui/button": {
+   "size": [
+    120,
+    22
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "ui",
+   "color": "#2f5d8a",
+   "purpose": "In-world action button"
+  },
+  "fx/sparkle": {
+   "size": [
+    16,
+    16
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "ui",
+   "color": "#ffe36a",
+   "purpose": "Sparkle when a step is done",
+   "animations": {
+    "pop": {
+     "frames": 4,
+     "fps": 12
+    }
+   }
+  },
+  "fx/check": {
+   "size": [
+    18,
+    18
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "ui",
+   "color": "#2e7d4f",
+   "purpose": "Check mark when a step is done"
+  }
+ },
+ "scenes": {
+  "counter": [
+   {
+    "key": "counter/bg",
+    "x": 0,
+    "y": 20
+   },
+   {
+    "key": "counter/door",
+    "x": 560,
+    "y": 60
+   },
+   {
+    "key": "counter/copier",
+    "x": 60,
+    "y": 95,
+    "starts": [
+     "fix_copier",
+     "out_of_order_sign",
+     "help_self_serve",
+     "escort",
+     "make_copies"
+    ]
+   },
+   {
+    "key": "counter/desk",
+    "x": 0,
+    "y": 246
+   },
+   {
+    "key": "counter/bell",
+    "x": 410,
+    "y": 238
+   },
+   {
+    "key": "counter/reader",
+    "x": 540,
+    "y": 238,
+    "starts": [
+     "fix_card_reader"
+    ]
+   },
+   {
+    "key": "counter/register",
+    "x": 598,
+    "y": 226
+   }
+  ],
+  "computer": [
+   {
+    "key": "computer/bg",
+    "x": 0,
+    "y": 20
+   },
+   {
+    "key": "computer/monitor",
+    "x": 100,
+    "y": 32
+   },
+   {
+    "key": "computer/router",
+    "x": 590,
+    "y": 270,
+    "starts": [
+     "restart_router"
+    ]
+   },
+   {
+    "key": "computer/reader_box",
+    "x": 45,
+    "y": 270,
+    "starts": [
+     "fix_card_reader"
+    ]
+   }
+  ],
+  "printer": [
+   {
+    "key": "printer/bg",
+    "x": 0,
+    "y": 20
+   },
+   {
+    "key": "printer/ream",
+    "x": 110,
+    "y": 270,
+    "starts": [
+     "load_paper"
+    ]
+   },
+   {
+    "key": "printer/body",
+    "x": 210,
+    "y": 60
+   },
+   {
+    "key": "printer/jam_panel",
+    "x": 250,
+    "y": 110,
+    "starts": [
+     "clear_jam"
+    ]
+   },
+   {
+    "key": "printer/tray",
+    "x": 300,
+    "y": 196,
+    "starts": [
+     "load_paper"
+    ]
+   },
+   {
+    "key": "printer/stack",
+    "x": 380,
+    "y": 140,
+    "starts": [
+     "collect"
+    ]
+   }
+  ],
+  "finishing": [
+   {
+    "key": "finishing/bg",
+    "x": 0,
+    "y": 20
+   },
+   {
+    "key": "finishing/table",
+    "x": 20,
+    "y": 210
+   },
+   {
+    "key": "finishing/stapler",
+    "x": 110,
+    "y": 195
+   },
+   {
+    "key": "finishing/stack",
+    "x": 260,
+    "y": 212,
+    "starts": [
+     "finish",
+     "skip_finish",
+     "bag",
+     "reprint",
+     "use_anyway"
+    ]
+   },
+   {
+    "key": "finishing/cutter",
+    "x": 400,
+    "y": 190
+   },
+   {
+    "key": "finishing/laminator",
+    "x": 530,
+    "y": 185
+   },
+   {
+    "key": "finishing/name_label",
+    "x": 120,
+    "y": 240
+   },
+   {
+    "key": "finishing/bag",
+    "x": 190,
+    "y": 240
+   },
+   {
+    "key": "finishing/shelf_cart",
+    "x": 590,
+    "y": 280
+   }
+  ],
+  "shipping": [
+   {
+    "key": "shipping/bg",
+    "x": 0,
+    "y": 20
+   },
+   {
+    "key": "shipping/truck",
+    "x": 520,
+    "y": 75,
+    "starts": [
+     "hand_off"
+    ]
+   },
+   {
+    "key": "shipping/label_printer",
+    "x": 410,
+    "y": 150
+   },
+   {
+    "key": "shipping/table",
+    "x": 0,
+    "y": 210
+   },
+   {
+    "key": "shipping/item",
+    "x": 50,
+    "y": 195
+   },
+   {
+    "key": "shipping/box_small",
+    "x": 120,
+    "y": 200
+   },
+   {
+    "key": "shipping/box_medium",
+    "x": 180,
+    "y": 195
+   },
+   {
+    "key": "shipping/box_large",
+    "x": 255,
+    "y": 190
+   },
+   {
+    "key": "shipping/paper",
+    "x": 120,
+    "y": 255
+   },
+   {
+    "key": "shipping/tape_gun",
+    "x": 340,
+    "y": 200
+   },
+   {
+    "key": "shipping/scale",
+    "x": 410,
+    "y": 230
+   },
+   {
+    "key": "shipping/label",
+    "x": 470,
+    "y": 150
+   },
+   {
+    "key": "shipping/dropoff",
+    "x": 60,
+    "y": 245
+   },
+   {
+    "key": "shipping/bin",
+    "x": 565,
+    "y": 250,
+    "starts": [
+     "bin"
+    ]
+   }
+  ],
+  "shelf": [
+   {
+    "key": "shelf/bg",
+    "x": 0,
+    "y": 20
+   },
+   {
+    "key": "shelf/rack",
+    "x": 20,
+    "y": 50
+   }
+  ]
+ },
+ "spots": {
+  "counterCustomer": [
+   460,
+   246
+  ],
+  "counterHeld": [
+   380,
+   262
+  ],
+  "doorway": [
+   600,
+   246
+  ],
+  "shippingWork": [
+   230,
+   200
+  ],
+  "shelfBags": [
+   60,
+   95,
+   64,
+   78,
+   6
+  ],
+  "shelfPackages": [
+   470,
+   95,
+   60,
+   78,
+   2
+  ],
+  "handSlot": [
+   30,
+   338
+  ],
+  "keypad": [
+   470,
+   40
+  ]
+ }
+}

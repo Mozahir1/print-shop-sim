@@ -1,5 +1,6 @@
 // The flow director: brings in the day's 6 to 12 customers (budgeted by how much work they are), spread over the day,
 // and the truck, rarely more than two or three things at once. Every roll comes from its own stream.
+import { emit } from "./bus";
 import type { Customer, GameState } from "./types";
 import { BUSINESS, DIRECTOR, MOOD, REACTIONS, SHIPPING, WORK_COST, type Arrival } from "./config";
 import { keyedRoll, randInt } from "./rng";
@@ -78,6 +79,7 @@ export function runDirector(sim: Sim): void {
   const early = state.time >= t.arrivesAt - DIRECTOR.truckHold && active < DIRECTOR.floor; // quiet while we wait for it
   if (t.status === "coming" && (early || (state.time >= t.arrivesAt && (active < DIRECTOR.ceiling || state.time > state.closeAt)))) {
     t.status = "waiting";
+    emit("truck_arrived", {});
     t.leavesAt = state.time + SHIPPING.truckWaits;
     log(state, "The carrier truck is here.");
     return;

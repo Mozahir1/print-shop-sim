@@ -1,5 +1,6 @@
 // Who walks in and what they want. Every roll here comes from the rng you pass in, so the caller decides which
 // stream pays for it (the flow director's own stream during a day, a separate one for dev mode).
+import { emit } from "./bus";
 import type { Customer, FlagKind, GameState, Job, JobSpec, RequestKind, ShipService, Timing } from "./types";
 import { FLAGS, MOOD, PAYS_CASH, PICKUP_AFTER, PRINT_REQUESTS, SHIPPING, TIMING } from "./config";
 import { keyedRoll, randInt, pick, type Rng } from "./rng";
@@ -84,6 +85,7 @@ export function spawnCustomer(state: GameState, rng: Rng, kind: Exclude<RequestK
     state.packages.push({ id: c.packageId, customerId: c.id, kind: "held", weightLb: randInt(rng, 1, 10), service: null, box: null, priceCents: 0, status: "held", taped: false, paid: true, label: null });
   }
   state.customers.push(c);
+  emit("customer_arrived", { customerId: c.id });
   return c;
 }
 
@@ -132,6 +134,7 @@ export function returnCustomer(state: GameState, c: Customer): void {
   c.arrivedAt = state.time;
   c.lineTicket = state.nextLineNo++;
   resetPatience(state, c);
+  emit("customer_arrived", { customerId: c.id });
 }
 
 export interface JobTerms {

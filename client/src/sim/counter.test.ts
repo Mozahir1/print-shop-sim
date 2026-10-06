@@ -44,7 +44,7 @@ describe("the customer says what they want, in words", () => {
         const lines = requestLines(sim.state, c);
         expect(lines.length).toBe(8); // what they came for, then seven details
         const all = lines.join(" ");
-        expect(all).toContain(`${s.copies} copies`);
+        expect(all).toMatch(s.copies === 1 ? /one copy/i : `${s.copies} copies`);
         expect(all).toContain(s.item);
         expect(heard(lines, "pages")).toEqual([s.originals === 1 ? "one" : "many"]);
         if (s.originals > 1) expect(all).toContain(`${s.originals} pages`);

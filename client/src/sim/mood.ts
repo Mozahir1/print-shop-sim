@@ -1,4 +1,5 @@
 // Choices, customer mood, and patience. Your attitude isn't graded: customers feel what happens to them.
+import { emit } from "./bus";
 import type { Choice, ChoiceType, CounterAction, Customer, CustomerOutcome, GameState, Mood, PatienceStage, RequestKind } from "./types";
 import { BUSY_PATIENCE, GIVE_UP, MOOD, PATIENCE_RAMP, PATIENCE_STAGES } from "./config";
 import { isOverdue, jobById, log } from "./util";
@@ -58,6 +59,7 @@ export function wear(state: GameState, c: Customer, minutes: number): void {
   const stage = stageFor(c);
   if (stage === c.stage) return;
   c.stage = stage;
+  emit("mood_changed", { customerId: c.id, stage });
   if (stage === "annoyed") customerSay(c, "annoyed", {}, state.time);
   if (stage === "angry") {
     c.mood += MOOD.fedUp;
@@ -94,4 +96,5 @@ export function leave(state: GameState, c: Customer, outcome: CustomerOutcome): 
     p.queue = p.queue.filter((id) => id !== job.id); // nobody's coming for it
   }
   onLeave(state, c, outcome === "left");
+  emit("customer_left", { customerId: c.id, mood: moodOf(c) });
 }

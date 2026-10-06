@@ -2,6 +2,7 @@
 // You are one employee. Everything you do is a short task at one of the stations.
 // The UI and the bot both act through canStart()/startTask()/stopTask().
 
+import { emit, SHEETS_PER_EVENT } from "./bus";
 import type { CounterAction, Customer, EventKind, Workflow, WorkflowKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
 import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
@@ -325,6 +326,7 @@ function runPrinter(state: GameState, dt: number): void {
     const starting = jobById(state, next)!;
     starting.status = "printing";
     starting.attempt++;
+    emit("job_printing", { jobId: next });
   }
   p.status = "printing";
   const job = jobById(state, p.currentJobId)!;
@@ -337,7 +339,9 @@ function runPrinter(state: GameState, dt: number): void {
   if (left <= 0) return;
   const room = Math.max(0, p.paperOutAt - p.sheetsToday);
   const n = Math.min(PRINTER.sheetsPerMinute * left, job.sheets - job.sheetsPrinted, room);
+  const before = Math.floor(job.sheetsPrinted / SHEETS_PER_EVENT);
   job.sheetsPrinted += n;
+  if (Math.floor(job.sheetsPrinted / SHEETS_PER_EVENT) > before) emit("sheet_printed", { jobId: job.id, sheets: Math.floor(job.sheetsPrinted) });
   p.sheetsToday += n;
   state.stats.sheets += n;
   if (job.sheetsPrinted >= job.sheets - 1e-9) {
@@ -347,8 +351,10 @@ function runPrinter(state: GameState, dt: number): void {
     p.currentJobId = null;
     p.status = p.queue.length ? "printing" : "idle";
     log(state, `Order #${job.id} finished printing.`);
+    emit("job_printed", { jobId: job.id });
   } else if (p.sheetsToday >= p.paperOutAt) {
     p.status = "tray_empty";
+    emit("tray_empty", {});
     log(state, "The printer stopped: tray empty.");
   }
 }
@@ -360,6 +366,7 @@ function runTruck(state: GameState): void {
   const t = state.truck;
   if (t.status === "waiting" && state.time >= t.leavesAt) {
     t.status = "gone";
+    emit("truck_left", {});
     log(state, "The truck left.");
     if (state.packages.some((p) => p.status === "binned")) recordChoice(state, "ignore", "truck");
     truckGone(state);
@@ -920,6 +927,7 @@ function runStep(state: GameState, t: Task): void {
       return;
     case "bag":
       job!.status = "bagged";
+      emit("bag_shelved", { jobId: job!.id });
       if (isOverdue(state, job!) && !job!.late) {
         onLate(state, job!);
         const owner = customerById(state, job!.customerId);
@@ -979,6 +987,7 @@ function runStep(state: GameState, t: Task): void {
     }
     case "bin":
       pkg!.status = "binned";
+      emit("package_binned", { packageId: pkg!.id });
       return;
     case "scan_dropoff": {
       if (c!.state !== "waiting") return;
@@ -997,12 +1006,14 @@ function runStep(state: GameState, t: Task): void {
       for (const p of out) p.status = "shipped";
       state.truck.handedOff = true;
       state.truck.status = "gone";
+      emit("truck_left", {});
       recordChoice(state, "do", "truck");
       log(state, `Handed ${out.length} package${out.length === 1 ? "" : "s"} to the driver.`);
       return;
     }
     case "let_truck_go":
       state.truck.status = "gone";
+      emit("truck_left", {});
       recordChoice(state, "dont", "truck");
       log(state, "Let the driver leave.");
       truckGone(state);
@@ -1018,6 +1029,7 @@ export function cashGiven(due: number): number {
 
 function pay(state: GameState, c: Customer, t: Task, due: number): void {
   if (t.type === "hand_over") return;
+  emit("payment_done", { customerId: c.id, cents: due });
   const off = c.pays === "cash" ? (t.change ?? cashGiven(due) - due) - (cashGiven(due) - due) : (t.amount ?? due) - due;
   if (off) {
     state.drawerOffCents += Math.abs(off);

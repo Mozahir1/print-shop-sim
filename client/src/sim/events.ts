@@ -1,5 +1,6 @@
 // Bad luck: about one thing a day goes wrong. Each one is obvious, takes a task or two to fix, and gets worse if
 // you leave it. Rolled from its own stream when the day starts.
+import { emit } from "./bus";
 import type { BadLuck, EventKind, GameState, Package } from "./types";
 import { DIRECTOR, EVENTS } from "./config";
 import type { Rng } from "./rng";
@@ -72,10 +73,12 @@ function fire(sim: Sim, e: BadLuck): void {
   switch (e.kind) {
     case "printer_jam":
       state.printer.status = "jammed";
+      emit("jam", {});
       state.stats.jams++;
       break;
     case "copier_dies":
       state.copier.status = "broken";
+      emit("copier_broken", {});
       state.copier.sign = false;
       break;
     case "card_reader_down":
@@ -90,6 +93,7 @@ function fire(sim: Sim, e: BadLuck): void {
   }
   log(state, eventText(e.kind).prompt);
   mcSay(state, "bad_luck");
+  emit("event_started", { kind: e.kind });
 }
 
 // A box you just packed: on a box-rips day, the first one rips and has to be packed again.
@@ -110,6 +114,7 @@ export function resolveEvent(state: GameState, kind: EventKind, how: "fixed" | "
   const e = state.event;
   if (e?.kind !== kind || e.status !== "active") return;
   e.status = how;
+  emit("event_resolved", { kind });
 }
 
 export function wifiBack(state: GameState, restarted: boolean): void {

@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "batch": "tsx scripts/batch-sim.ts"
+    "batch": "tsx scripts/batch-sim.ts",
+    "art": "tsx scripts/art-checklist.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -16,5 +17,8 @@
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
     "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
   }
 }

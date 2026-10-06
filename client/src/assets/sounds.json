@@ -1,0 +1,71 @@
+{
+ "note": "Each sound plays src/assets/sounds/<key>.(ogg|mp3|wav) if it exists; otherwise a short tone (Hz, ms) stands in. Silence is fine too.",
+ "sounds": {
+  "door_bell": {
+   "tone": [
+    1320,
+    600
+   ]
+  },
+  "thunk": {
+   "tone": [
+    180,
+    90
+   ]
+  },
+  "tape_rip": {
+   "tone": [
+    520,
+    220
+   ]
+  },
+  "printer_hum": {
+   "tone": [
+    110,
+    250
+   ]
+  },
+  "stapler": {
+   "tone": [
+    260,
+    60
+   ]
+  },
+  "register_ding": {
+   "tone": [
+    1560,
+    350
+   ]
+  },
+  "pick_up": {
+   "tone": [
+    660,
+    60
+   ]
+  },
+  "drop": {
+   "tone": [
+    330,
+    80
+   ]
+  },
+  "nope": {
+   "tone": [
+    150,
+    160
+   ]
+  },
+  "done": {
+   "tone": [
+    990,
+    140
+   ]
+  },
+  "jam": {
+   "tone": [
+    90,
+    300
+   ]
+  }
+ }
+}
