@@ -5,16 +5,17 @@
 import { emit, SHEETS_PER_EVENT } from "./bus";
 import type { CounterAction, Customer, EventKind, Workflow, WorkflowKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
-import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, RUSH_BUFFER, EASE_IN, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
+import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, EASE_IN, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
 import { choiceType, leave, recordChoice, resetPatience, runPatience, wear } from "./mood";
-import { handlingMinutes, printMinutes, quoteFor, type CounterQuote } from "./quote";
+import { lastDueAt, morningDueAt, quoteFor, type CounterQuote } from "./quote";
+import { postMessage } from "./messages";
 import { formatClock } from "./time";
-import { BOX_ORDER, boxFor, finishMinutes, selfServePriceCents, selfServeSeconds, shipQuote, totalSheets, walkUpMinutes, wrongFields } from "./orders";
+import { BOX_ORDER, boxFor, finishMinutes, selfServePriceCents, selfServeSeconds, shipQuote, totalSheets, wrongFields } from "./orders";
 import { ALT_OF, STEP, WORKFLOWS, currentStep, isChoice, isCurrentStep, lockMessage, workflowFor } from "./workflow";
 import { recordFailure } from "./failures";
 import { closeEvents, onPacked, resolveEvent, rollEvent, runEvents, wifiBack } from "./events";
 import { addHeat, lostBusiness, createManager, deliver, onIgnore, onLate, onSmudgedHandedOver, onTapedBoxShipped, onTurnAway, onUnfinished, onWrongLabel, runConsequences } from "./consequences";
-import { createJob, createShipment, isPrintKind, morningTime, weighted } from "./customers";
+import { createJob, createShipment, isPrintKind, weighted } from "./customers";
 import { FINISHING_LABEL } from "./orders";
 import { customerById, isOverdue, jobById, log, money, packageById } from "./util";
 import { createDirector, refundArrival, runDirector } from "./director";
@@ -102,7 +103,7 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
   };
   mcSay(state, "start_of_day");
   const note = pickLine(POOLS.messages, "corporate_note", {}, day - 1);
-  state.messages.push({ id: state.nextId++, kind: "note", at: 0, subject: note.subject ?? "", body: note.text, jobId: null, read: false, snoozed: false });
+  postMessage(state, { kind: "note", from: "Corporate", subject: note.subject ?? "", body: note.text, at: 0 });
   for (const d of opts.morning ?? []) deliver(state, d);
   log(state, `Day ${day}. Store open.`);
   return { state, rng };
@@ -159,6 +160,11 @@ function closeTheStore(state: GameState): void {
       continue;
     }
     customerSay(c, "closed", {}, state.time);
+    const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
+    if (job && !["picked_up", "canceled"].includes(job.status)) {
+      c.state = "away"; // here for an order: they'll be back for it in the morning
+      continue;
+    }
     leave(state, c, "closed");
   }
 }
@@ -527,11 +533,6 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       if (!c || !["line", "talking", "waiting"].includes(c.state)) return "They're not in the store.";
       return null;
     }
-    case "make_copies": {
-      const job = jobFor(state, req);
-      if (typeof job === "string") return job;
-      return job.walkUp && job.status === "new" ? null : `Order #${job.id} isn't a job to make here.`;
-    }
     case "escort": {
       const c = waitingCustomer(state, req);
       if (typeof c === "string") return c;
@@ -656,7 +657,6 @@ export function previewTask(state: GameState, req: TaskRequest): Task {
 
 export function taskDuration(state: GameState, req: TaskRequest): number {
   if (req.type === "finish") return finishMinutes(jobById(state, req.jobId!)!.spec);
-  if (req.type === "make_copies") return walkUpMinutes(jobById(state, req.jobId!)!.spec);
   if (req.type === "respond") {
     // Writing up a print order takes a couple of minutes; saying "sure" to anything else doesn't.
     const c = customerById(state, req.customerId!);
@@ -680,8 +680,6 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
       return "What was that?";
     case "escort":
       return `Show ${name} the copier`;
-    case "make_copies":
-      return `Make the copies for ${job}`;
     case "usher_out":
       return `Show ${name} out`;
     case "make_good":
@@ -786,13 +784,6 @@ function runStep(state: GameState, t: Task): void {
       return;
     case "fetch_bag":
       c!.fetched = t.jobId!;
-      return;
-    case "make_copies":
-      job!.status = "bagged";
-      customerById(state, job!.customerId)!.fetched = job!.id; // it's in your hands
-      job!.sheetsPrinted = job!.sheets;
-      state.stats.sheets += job!.sheets;
-      log(state, `Made the copies for order #${job!.id}.`);
       return;
     case "usher_out":
       if (!["line", "talking", "waiting"].includes(c!.state)) return;
@@ -1165,7 +1156,7 @@ export function answer(state: GameState, c: Customer, action: CounterAction, aut
       } else if (isPrintKind(c.kind)) {
         takeOrder(state, c, q, action === "rush");
         const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
-        if (job && c.state !== "gone") follow(job.walkUp ? "walk_up" : "take_order", { jobId: job.id });
+        if (job && c.state !== "gone") follow("take_order", { jobId: job.id });
       } else {
         takeRequest(state, c);
         if (c.kind === "ship") follow("ship", { packageId: c.packageId! });
@@ -1217,7 +1208,9 @@ function makeItRight(state: GameState, c: Customer): void {
   c.state = "waiting";
   if (c.about !== "smudged_return") return;
   c.spec = { item: "document", originals: 2, copies: 10, color: "bw", media: "letter", duplex: false, finishing: "none" };
-  const job = createJob(state, c, "counter", { rush: true, dueDay: state.day, dueAt: state.time + STANDARD_LEAD });
+  const tomorrow = state.time + STANDARD_LEAD > lastDueAt(state); // (too late today: first thing tomorrow, and they go)
+  const job = createJob(state, c, "counter", { rush: true, dueDay: tomorrow ? state.day + 1 : state.day, dueAt: tomorrow ? morningDueAt(state, c.spec, c.id) : state.time + STANDARD_LEAD });
+  if (tomorrow) c.state = "away";
   job.priceCents = job.printCents = job.serviceFeeCents = job.rushCents = 0; // on us
   job.prepaid = true;
   job.status = "entered"; // the same file, run again: nothing to type in
@@ -1274,11 +1267,8 @@ function agreeOnTime(state: GameState, c: Customer, q: CounterQuote, rush: boole
     say(c, "accept_later");
   }
   const tomorrow = rush ? false : q.tomorrow;
-  // (Tomorrow morning, with time to make it first: nothing prints overnight.)
-  const morning = () => Math.max(morningTime(state.seed, c.id), Math.round(printMinutes(c.spec!) + handlingMinutes(c.spec!) + RUSH_BUFFER));
-  const dueAt = tomorrow ? morning() : c.timing === "back" ? Math.max(promise, c.needBy ?? promise) : promise;
-  const walkUp = q.walkUp && !rush;
-  const job = createJob(state, c, "counter", { rush, walkUp, dueDay: tomorrow ? state.day + 1 : state.day, dueAt });
+  const dueAt = tomorrow ? q.morningAt : c.timing === "back" ? Math.max(promise, c.needBy ?? promise) : promise;
+  const job = createJob(state, c, "counter", { rush, dueDay: tomorrow ? state.day + 1 : state.day, dueAt });
   state.stats.ordersTaken++;
   if (c.kind === "business") {
     state.revenueCents += job.priceCents; // billed on account

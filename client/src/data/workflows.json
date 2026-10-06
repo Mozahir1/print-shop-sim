@@ -525,22 +525,6 @@
       "block": "tap",
       "hint": "Show them out"
     },
-    "make_copies": {
-      "station": "self_serve",
-      "held": "paper",
-      "pose": "work",
-      "duration": 0,
-      "thought": "Make the copies.",
-      "doing": "making copies for someone",
-      "block": "hold",
-      "hint": "Make the copies",
-      "hands": [
-        {
-          "hold": "counter/copier",
-          "say": "Hold the copier to make the copies"
-        }
-      ]
-    },
     "skip_finish": {
       "station": "finishing",
       "held": "paper",
@@ -734,15 +718,6 @@
       "label": "Show them out",
       "steps": [
         "usher_out"
-      ]
-    },
-    "walk_up": {
-      "label": "Make copies while they wait",
-      "steps": [
-        "talk",
-        "respond",
-        "make_copies",
-        "ring_up"
       ]
     }
   }

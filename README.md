@@ -33,8 +33,8 @@ for, or use the in-world buttons. Nothing tests speed or precision; big jobs cos
 holding something, where it goes glows and everything else fades. The top bar says what you're doing ("Helping Dana:
 Take an order, step 3 of 4") and what's next, and if that's at another station, its tab glows. Tap the wrong thing
 and a few words appear right there saying what it is and what to do instead.
-- **Print job:** fill in the order form on the computer from what they said (paper, color, sides, copies,
-  finishing), send it, and it prints while you do other things. Then pick up the stack, staple (a tap per set on
+- **Print job:** taking an order is always full service, 2 pages or 200. Fill in the order form on the computer
+  from what they said (it's quoted above the form), send it, and it prints while you do other things. Then pick up the stack, staple (a tap per set on
   small runs, a hold on big ones), cut, or laminate (hold), then put it in a bag, put the name label on, and put it on
   the cart to the shelf.
 - **Pickup:** find their bag on the shelf, then ring them up at the counter: type the total for a card, or the change
@@ -60,7 +60,8 @@ while you're elsewhere.
 
 **The decision is still the game.** Six to twelve customers a day, budgeted by how much work they are (a heavy day
 has fewer people), spread over the day, with quick drop-offs and pickups more likely while something's printing.
-Sending a simple job to self-serve costs you a minute; making it yourself pays more but ties you up. Business clients
+Sending a simple job to self-serve costs you a minute and earns less; taking it is a whole production job (enter,
+print, collect, finish, bag, ring up) for the full-service price plus the small-order fee. Business clients
 come in on their own schedule with big orders and won't wait long. Turning away work you could have done is a lost
 sale. The manager watches sales.
 
@@ -95,7 +96,18 @@ The first time you turn someone away, walk away from a job, or go home with work
 - **Customers** want quick copies, a bigger print job (some wait, some come back later, some are fine with tomorrow),
   a poster laminated, a box shipped (ground, 2-day, or overnight), a drop-off scanned, an order or a held package
   picked up, or help at the self-serve copier. Some people with simple jobs go straight to the self-serve copier.
-  Online orders land in the inbox and can't be turned away. Later days lean toward requests with more steps.
+  Online orders land in Email and can't be turned away. Later days lean toward requests with more steps.
+- **Promises keep to open hours.** Nothing's due later than 30 minutes before close. What a customer asks for is
+  capped there; a job that can't make it today is promised for tomorrow morning ("ready tomorrow morning, by
+  10:26 AM", and on the note), with time to print it first. Every order gets its pickup: anyone in line for an order
+  at 5 PM goes home and comes back for it in the morning.
+- **The computer** has four apps (icons on the left, with badges for what needs you). **Orders:** the order form,
+  and every open order with where it is (entered, printing, ready to collect, bagged, picked up); tap one for
+  everything about it. **Email:** every message, newest first, each with a sender and a real body: web orders (the
+  job, the price, the pickup time, and "Enter this order", which opens the form filled in), customer feedback (who,
+  what happened, which order), the manager's notes (a warning or write-up says why), corporate memos, and the hollow
+  rewards. **Devices:** the printer, the self-serve copier, the card reader, and the Wi-Fi: OK, or what's wrong and
+  where to fix it. **Shipping:** today's outbound packages and where each one is, and when the truck comes.
 - **The counter quote.** Under what they said: the full-service price with fees itemized (a $2 service fee on small
   orders, a rush fee if it's a rush), the self-serve price if it's an option (plain paper, no back-counter finishing,
   and they're staying), and when it could be ready from what's in the printer queue. A rush is offered when they
@@ -130,7 +142,7 @@ The first time you turn someone away, walk away from a job, or go home with work
   staying late annoys the manager (and the clock drags, because the MC wants to go home); going home with work left
   undone is penalized. Stay long enough and the manager locks up and sends you home.
 - **Consequences.** Every failure has a moment: it's shown when it happens, notable ones get a note from the manager
-  in the inbox, and the end-of-day report lists them by name ("Order #112 was never finished. Dana left without
+  in Email, and the end-of-day report lists them by name ("Order #112 was never finished. Dana left without
   it."). Heat with the manager comes from ignoring (people who walk out after being ignored, problems left
   alone), late or unfinished orders, complaints about bad work (taped boxes come back damaged a day or two later,
   smudged copies come back, a broken copier upsets whoever needed it, packages left in the bin are a complaint the
@@ -284,7 +296,7 @@ The early walkouts left are a late order and some bad luck on the same day.
 
 - **smart** sends simple jobs to self-serve, rushes only when that won't make another order late, turns away what
   can't be done in time or isn't worth doing, works on whatever's due soonest, and does all the work properly.
-- **do_everything** says yes to everything: makes every walk-up job itself instead of sending it to self-serve,
+- **do_everything** says yes to everything: takes every small job as full service instead of sending it to self-serve,
   rushes whenever someone needs it sooner (bumping other orders), and works first come, first served. It survives,
   but loses more business clients while it's tied up.
 - **careless** plays like smart but gets something wrong by hand a quarter of the time (the order form, the total,

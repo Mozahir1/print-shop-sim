@@ -1,9 +1,9 @@
 // What you know when someone reaches the counter: what it costs (fees itemized), whether self-serve is an option,
 // when they need it, when it could be ready, and how much of your time each way of doing it takes.
 import type { Customer, GameState, Job, JobSpec, Timing } from "./types";
-import { DURATIONS, PRINTER, RESPOND_MINUTES, RUSH_BUFFER, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
-import { finishMinutes, fullServiceQuote, selfServeBlocker, selfServePriceCents, shipQuote, totalSheets, walkUpMinutes, type FullServiceQuote, type ShipQuote } from "./orders";
-import { isPrintKind } from "./customers";
+import { CLOSING, DURATIONS, PRINTER, RESPOND_MINUTES, RUSH_BUFFER, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
+import { finishMinutes, fullServiceQuote, selfServeBlocker, selfServePriceCents, shipQuote, totalSheets, type FullServiceQuote, type ShipQuote } from "./orders";
+import { isPrintKind, morningTime } from "./customers";
 import { jobById } from "./util";
 
 export interface CounterQuote {
@@ -16,8 +16,8 @@ export interface CounterQuote {
   needBy: number | null; // null: tomorrow is fine
   standardReadyAt: number;
   rushReadyAt: number;
-  tomorrow: boolean; // it can't be ready before close (or they're fine with tomorrow): it's promised for tomorrow morning
-  walkUp: boolean; // a simple job and they're waiting: full service means you make the copies yourself, right now
+  tomorrow: boolean; // it can't be ready in time today (or they're fine with tomorrow): it's promised for tomorrow morning
+  morningAt: number; // when, tomorrow
   yourMinutes: number; // your time if you take it (a walk-up job: all at once, and you can't leave it)
   printMinutes: number; // the production printer's time (it runs on its own)
   selfServeMinutes: number; // your time if they go to self-serve: just showing them the copier
@@ -51,6 +51,16 @@ function printerBacklog(state: GameState, rush: boolean): number {
 }
 
 // A simple estimate of when a new order could be ready, from the printer queue.
+// The latest anything's promised for today: a little before close, so it's ready and they can get here.
+export function lastDueAt(state: GameState): number {
+  return state.closeAt - CLOSING.dueBuffer;
+}
+
+// A promise for tomorrow morning, with time to make it first (nothing prints overnight), and still inside open hours.
+export function morningDueAt(state: GameState, spec: JobSpec, key: number): number {
+  return Math.min(lastDueAt(state), Math.max(morningTime(state.seed, key), Math.round(printMinutes(spec) + handlingMinutes(spec) + RUSH_BUFFER)));
+}
+
 export function estimateReadyAt(state: GameState, spec: JobSpec, rush: boolean): number {
   return Math.round(state.time + printerBacklog(state, rush) + printMinutes(spec) + handlingMinutes(spec));
 }
@@ -80,7 +90,7 @@ export function quoteFor(state: GameState, c: Customer): CounterQuote {
     standardReadyAt: state.time,
     rushReadyAt: state.time,
     tomorrow: false,
-    walkUp: false,
+    morningAt: 0,
     yourMinutes: 0,
     printMinutes: 0,
     selfServeMinutes: RESPOND_MINUTES.self_serve + DURATIONS.escort,
@@ -94,20 +104,15 @@ export function quoteFor(state: GameState, c: Customer): CounterQuote {
     q.timing = c.timing;
     q.needBy = c.needBy;
     q.standard = fullServiceQuote(spec, false);
-    q.walkUp = c.timing === "wait" && selfServeBlocker(spec) === null;
-    if (q.walkUp) {
-      // You make the copies yourself, now, while they wait: ready when you're done.
-      q.yourMinutes = RESPOND_MINUTES.take + walkUpMinutes(spec) + DURATIONS.ring_up;
-      q.standardReadyAt = q.rushReadyAt = state.time + q.yourMinutes - DURATIONS.ring_up;
-    }
-    q.printMinutes = q.walkUp ? 0 : Math.round(printMinutes(spec));
-    if (!q.walkUp) q.yourMinutes = RESPOND_MINUTES.take + handlingMinutes(spec) + DURATIONS.ring_up;
-    const ready = q.walkUp ? q.standardReadyAt : estimateReadyAt(state, spec, false);
-    q.standardReadyAt = q.walkUp ? ready : Math.max(ready, state.time + STANDARD_LEAD);
-    if (!q.walkUp) q.rushReadyAt = estimateReadyAt(state, spec, true) + RUSH_BUFFER;
-    q.tomorrow = !q.walkUp && (c.timing === "tomorrow" || q.standardReadyAt > state.closeAt);
+    // Taking it is always full service, 2 pages or 200: enter it, print it, finish it, bag it, ring it up.
+    q.printMinutes = Math.round(printMinutes(spec));
+    q.yourMinutes = RESPOND_MINUTES.take + handlingMinutes(spec) + DURATIONS.ring_up;
+    q.standardReadyAt = Math.max(estimateReadyAt(state, spec, false), state.time + STANDARD_LEAD);
+    q.rushReadyAt = estimateReadyAt(state, spec, true) + RUSH_BUFFER;
+    q.tomorrow = c.timing === "tomorrow" || q.standardReadyAt > lastDueAt(state);
+    q.morningAt = morningDueAt(state, spec, c.id);
     // A rush is offered when they need it sooner than standard, and a rush would actually get it to them sooner.
-    if (!q.walkUp && c.needBy !== null && c.needBy < q.standardReadyAt && q.rushReadyAt < q.standardReadyAt && q.rushReadyAt <= state.closeAt) q.rush = fullServiceQuote(spec, true);
+    if (c.needBy !== null && c.needBy < q.standardReadyAt && q.rushReadyAt < q.standardReadyAt && q.rushReadyAt <= lastDueAt(state)) q.rush = fullServiceQuote(spec, true);
     q.selfServeBlocker = selfServeBlocker(spec) ?? (c.timing !== "wait" ? "They aren't staying in the store." : null) ?? (c.refusedSelfServe ? "They want full service." : null) ?? (state.copier.status !== "ok" ? "The self-serve copier is broken." : null);
     if (!q.selfServeBlocker) q.selfServeCents = selfServePriceCents(spec);
     q.doable = c.needBy === null || Math.min(q.standardReadyAt, q.rushReadyAt) <= c.needBy;

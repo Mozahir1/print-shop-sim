@@ -44,7 +44,6 @@ export interface Job {
   serviceFeeCents: number;
   rushCents: number;
   rush: boolean; // jumps the printer queue
-  walkUp: boolean; // a simple job you make yourself while they wait (instead of the production printer)
   sheetsPrinted: number; // float while printing
   orderedAt: number;
   dueDay: number; // the day it's promised for...
@@ -218,6 +217,7 @@ export type MessageKind = "web_order" | "note" | "complaint" | "survey" | "warni
 export interface Message {
   id: number;
   kind: MessageKind;
+  from: string; // who it's from: a customer, the manager, corporate, the website
   at: number;
   subject: string;
   body: string;
@@ -245,6 +245,7 @@ export interface Flag {
 // A message that hasn't arrived yet.
 export interface MessageDraft {
   kind: MessageKind;
+  from: string;
   subject: string;
   body: string;
   at: number; // when it arrives (same day), or 0 for the next morning
@@ -310,7 +311,6 @@ export type WorkflowKind =
   | "dropoff"
   | "release_package"
   | "pickup"
-  | "walk_up"
   | "missing_order"
   | "self_serve_help"
   | "complaint"
@@ -372,7 +372,6 @@ export type TaskType =
   | "fetch_bag"
   // self-serve
   | "help_self_serve"
-  | "make_copies" // full service on a walk-up job: you make the copies while they wait
   | "escort"
   | "fix_copier"
   | "out_of_order_sign"

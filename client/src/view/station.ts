@@ -14,7 +14,7 @@ import { LAYOUT, SPRITES, sound, sprite } from "./assets";
 import { FONT, HOLD_MS, RES, SNAP } from "./config";
 import { ACTIONS, ART, BUTTON_H, REGION, STAGE_W } from "./layout";
 import { ctl, doTask, hands, hintOf, holding, nextPart, part, picked, sayNow, state, stepKey, tapped } from "./run";
-import { tooltip } from "./hud";
+import { modalRect, tooltip } from "./hud";
 import { bounce, say, snapBack, sparkle, squash } from "./juice";
 import { tabOf, TABS, type Tab } from "../ui/view";
 
@@ -34,7 +34,8 @@ export abstract class Station extends Phaser.Scene {
   private holdTool: Obj | null = null;
   private holdOn: Obj | null = null;
   private holdingNow = false;
-  private bar!: Phaser.GameObjects.Graphics;
+  private bar!: Phaser.GameObjects.Graphics; // the hold meter: always on top, never covered (see guide())
+  meter: Phaser.Geom.Rectangle | null = null; // where it is, while a hold part's up
   private tipFor: Obj | null = null; // what the tooltip is naming
   private press: { x: number; y: number; picked: boolean } | null = null; // the press in progress
 
@@ -67,7 +68,7 @@ export abstract class Station extends Phaser.Scene {
       if (SPRITES[o.key].layer === "interactive") s.setInteractive({ useHandCursor: true });
       s.setData("starts", o.starts ?? []);
     }
-    this.bar = this.add.graphics().setDepth(55);
+    this.bar = this.add.graphics().setDepth(80);
     this.build();
     // Order matters: an object's press comes first (picking something up), then the scene's (putting it down).
     this.input.on("gameobjectdown", (_p: Phaser.Input.Pointer, o: Obj) => this.down(o));
@@ -111,9 +112,9 @@ export abstract class Station extends Phaser.Scene {
         return;
       }
       const frac = Math.min(1, d.held / HOLD_MS);
-      const b = this.holdOn.getBounds();
-      this.bar.fillStyle(0x1f2328, 0.7).fillRect(b.centerX - 26, b.top - 10, 52, 6);
-      this.bar.fillStyle(0x2e7d4f, 1).fillRect(b.centerX - 25, b.top - 9, 50 * frac, 4);
+      const m = (this.meter = meterFor(this.holdOn));
+      this.bar.fillStyle(0x1f2328, 0.85).fillRect(m.x, m.y, m.width, m.height);
+      this.bar.fillStyle(0x2e7d4f, 1).fillRect(m.x + 1, m.y + 1, (m.width - 2) * frac, m.height - 2);
     }
   }
 
@@ -137,6 +138,7 @@ export abstract class Station extends Phaser.Scene {
     this.dimmed.forEach((o) => o.setAlpha(1));
     this.dimmed = [];
     this.holdTool = this.holdOn = null;
+    this.meter = null;
     // Whatever you were carrying from here is back (or put where it went): the scene shows it as it should be.
     for (const o of [...this.objs.values(), ...this.specials()]) if (o.getData("dragging") && ctl.carry?.tab !== this.tab) o.setData("dragging", false).setVisible(true);
   }
@@ -265,6 +267,7 @@ export abstract class Station extends Phaser.Scene {
       this.holdTool?.setVisible(true);
       if (this.holdTool && !this.holdTool.input) this.holdTool.setInteractive({ useHandCursor: true });
       this.pulse(this.holdTool);
+      if (this.holdOn) this.meter = meterFor(this.holdOn); // (so the arrow keeps clear of it)
       if (this.holdTool) this.guide(this.holdTool, text);
     }
     if (p.pick) {
@@ -280,26 +283,61 @@ export abstract class Station extends Phaser.Scene {
   private pulse(o: Obj | null): void {
     if (!o) return;
     const b = o.getBounds();
-    const glow = this.add.rectangle(b.centerX, b.centerY, b.width + 8, b.height + 8, 0xffd27a, 0.18).setStrokeStyle(3, 0xf2b441).setDepth(44);
+    const glow = this.add.rectangle(b.centerX, b.centerY, b.width + 8, b.height + 8, 0xffd27a, 0.18).setStrokeStyle(3, 0xf2b441).setDepth(44).setData("glow", true);
     this.tweens.add({ targets: glow, alpha: 0.35, duration: 450, yoyo: true, repeat: -1 });
     this.temp.push(glow);
   }
 
-  // A bouncing arrow at something, with what to do there. It sits above it (below it, if there's no room above).
+  // A bouncing arrow at something, with what to do there. It goes above it, or below, or beside: the first place
+  // that's on the stage and covers nothing that glows and not the hold meter (bounce included).
   private guide(at: Obj | Phaser.Geom.Rectangle, text: string): void {
     const b = at instanceof Phaser.Geom.Rectangle ? at : at.getBounds();
-    const below = b.top < 40;
-    const tip = below ? b.bottom + 6 : b.top - 6;
-    const dir = below ? -1 : 1;
+    const label = this.add.text(0, 0, text, { ...FONT, color: "#ffffff", backgroundColor: "#10141aee", padding: { x: 4, y: 2 }, fontStyle: "bold" });
+    const lw = label.width;
+    const lh = label.height;
+    const m = modalRect(); // (a popup over the stage covers what's under it)
+    const popup = m && new Phaser.Geom.Rectangle(m.x / ART, m.y / ART, m.w / ART, m.h / ART);
+    const keepClear = [...this.glows(), ...(this.meter ? [this.meter] : [])].filter((r) => !Phaser.Geom.Rectangle.Overlaps(r, b) || r === this.meter);
+    if (popup) keepClear.push(popup);
+    const spots: { tip: [number, number]; dir: [number, number]; box: Phaser.Geom.Rectangle }[] = [];
+    const clampX = (x: number) => Phaser.Math.Clamp(x, 2, STAGE_W - lw - 2);
+    // Above, below: the arrow points down (or up) at its middle, the label past it, kept on the stage.
+    for (const d of [1, -1]) {
+      const y = d > 0 ? b.top - 4 : b.bottom + 4;
+      const ly = d > 0 ? y - 12 - lh : y + 12;
+      spots.push({ tip: [b.centerX, y], dir: [0, d], box: new Phaser.Geom.Rectangle(Math.min(clampX(b.centerX - lw / 2), b.centerX - 7), Math.min(ly, y) - 4, Math.max(lw, 14), lh + 16) });
+    }
+    // Right, left: the arrow points sideways at its middle.
+    for (const d of [1, -1]) {
+      const x = d > 0 ? b.right + 4 : b.left - 4;
+      const lx = d > 0 ? x + 12 : x - 12 - lw;
+      spots.push({ tip: [x, b.centerY], dir: [d, 0], box: new Phaser.Geom.Rectangle(Math.min(lx, x) - 4, b.centerY - lh / 2, lw + 16, lh) });
+    }
+    const stage = new Phaser.Geom.Rectangle(0, 0, STAGE_W, ACTIONS.y + ACTIONS.h);
+    const fits = (r: Phaser.Geom.Rectangle) => r.x >= 0 && r.y >= 0 && r.right <= stage.right && r.bottom <= stage.bottom && !keepClear.some((k) => Phaser.Geom.Rectangle.Overlaps(k, r));
+    // Nowhere for the words: just the arrow (the top bar says what to do).
+    const arrowOnly = (s: (typeof spots)[number]) => new Phaser.Geom.Rectangle(s.tip[0] - 8 - s.dir[0] * 12, s.tip[1] - 8 - s.dir[1] * 12, 16, 16);
+    const spot = spots.find((s) => fits(s.box)) ?? spots.find((s) => fits(arrowOnly(s))) ?? spots[0];
+    const wordless = !fits(spot.box);
+    const [tx, ty] = spot.tip;
+    const [dx, dy] = spot.dir;
     const g = this.add.graphics();
     g.fillStyle(0xf2b441).lineStyle(1, 0x10141a);
-    g.fillTriangle(-7, -10 * dir, 7, -10 * dir, 0, 0).strokeTriangle(-7, -10 * dir, 7, -10 * dir, 0, 0);
-    const label = this.add.text(0, -12 * dir, text, { ...FONT, color: "#ffffff", backgroundColor: "#10141aee", padding: { x: 4, y: 2 }, fontStyle: "bold" }).setOrigin(0.5, below ? 0 : 1);
-    const half = label.width / 2;
-    label.x = Phaser.Math.Clamp(b.centerX, half + 2, STAGE_W - half - 2) - b.centerX; // (kept on the stage)
-    const arrow = this.add.container(b.centerX, tip, [g, label]).setDepth(70);
-    this.tweens.add({ targets: arrow, y: tip - 4 * dir, duration: 380, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    // A triangle pointing at the tip, from 10 back along the way it points.
+    const back = (n: number) => [-dx * 10 + -dy * n, -dy * 10 + dx * n] as const;
+    const [ax, ay] = back(7);
+    const [bx, by] = back(-7);
+    g.fillTriangle(ax, ay, bx, by, 0, 0).strokeTriangle(ax, ay, bx, by, 0, 0);
+    if (dy !== 0) label.setPosition(clampX(tx - lw / 2) - tx, dy > 0 ? -12 - lh : 12);
+    else label.setPosition(dx > 0 ? 12 : -12 - lw, -lh / 2);
+    if (wordless) label.setVisible(false);
+    const arrow = this.add.container(tx, ty, [g, label]).setDepth(70).setData("guide", !wordless);
+    this.tweens.add({ targets: arrow, x: tx - dx * 4, y: ty - dy * 4, duration: 380, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     this.temp.push(arrow);
+  }
+
+  private glows(): Phaser.Geom.Rectangle[] {
+    return this.temp.filter((o) => o.getData("glow")).map((o) => (o as Phaser.GameObjects.Rectangle).getBounds());
   }
 
   // While you're holding something, everything you can't put it on fades back.
@@ -431,4 +469,10 @@ export abstract class Station extends Phaser.Scene {
     if (!alreadyAdvanced) nextPart();
     this.sig = "";
   }
+}
+
+// Where a hold's progress meter goes: just above what you're holding the tool on, and always on the stage.
+function meterFor(on: Obj): Phaser.Geom.Rectangle {
+  const b = on.getBounds();
+  return new Phaser.Geom.Rectangle(Phaser.Math.Clamp(b.centerX - 26, 2, STAGE_W - 54), Math.max(2, b.top - 10), 52, 6);
 }

@@ -6,7 +6,7 @@ import { moodOf } from "./mood";
 import { quoteFor } from "./quote";
 import { activeCount, todoList } from "./todo";
 import { ANSWER_WITHIN, DURATIONS, FULL_SERVICE, GIVE_UP, HEAT, REACTIONS, RESPOND_MINUTES, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
-import { walkUpMinutes } from "./orders";
+import { handlingMinutes } from "./quote";
 import { calm, doTask, makeReady, runUntil, talkTo } from "./testkit";
 import type { Customer, JobSpec } from "./types";
 
@@ -37,14 +37,13 @@ function make(sim: Sim, c: Customer) {
 }
 
 describe("the counter quote", () => {
-  it("a walk-up job: fees itemized, the self-serve price, and how much of your time each way takes", () => {
+  it("a small job: full service like any other (with the small-order fee), against self-serve's price and your time", () => {
     const sim = quiet();
     const c = spawnCustomer(sim.state, sim.rng.dev, "quick_copies", { spec: plain({ originals: 4, copies: 10 }), timing: "wait", needIn: 300 });
     const q = at(sim, c);
     expect(q.standard).toEqual({ printCents: 600, serviceFeeCents: FULL_SERVICE.serviceFeeCents, rushCents: 0, totalCents: 600 + FULL_SERVICE.serviceFeeCents });
-    expect(q.walkUp).toBe(true); // full service means you make them yourself, now
-    expect(q.yourMinutes).toBe(RESPOND_MINUTES.take + walkUpMinutes(c.spec!) + DURATIONS.ring_up);
-    expect(q.yourMinutes).toBeGreaterThan(10);
+    expect(q.yourMinutes).toBe(RESPOND_MINUTES.take + handlingMinutes(c.spec!) + DURATIONS.ring_up); // the whole production job
+    expect(q.printMinutes).toBeGreaterThan(0); // on the production printer, not the copier
     expect(q.selfServeCents!).toBeLessThan(q.standard!.totalCents); // less money...
     expect(q.selfServeMinutes).toBeLessThanOrEqual(2); // ...but almost none of your time
     expect(q.rush).toBeNull();
@@ -54,7 +53,6 @@ describe("the counter quote", () => {
     const sim = quiet();
     const c = spawnCustomer(sim.state, sim.rng.dev, "large_job", { spec: plain({ copies: 10, media: "cardstock" }), timing: "back", needIn: 300 });
     const q = at(sim, c);
-    expect(q.walkUp).toBe(false);
     expect(q.standardReadyAt).toBe(sim.state.time + STANDARD_LEAD);
     expect(q.selfServeCents).toBeNull();
     expect(q.printMinutes).toBeGreaterThan(0);

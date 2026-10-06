@@ -16,6 +16,7 @@ import { getLeaderboard, postShift } from "../api";
 import * as html from "../ui/view";
 import type { Tab } from "../ui/view";
 import { toast } from "./hud";
+import type { App } from "../ui/computer";
 import type { SPAWN_KINDS } from "../ui/dev";
 import { HOLD_MS, LINE_MS, MAX_TAPS, SPEEDS } from "./config";
 import { clockRate, isQuiet } from "../sim/clock";
@@ -58,6 +59,9 @@ export const ctl = {
   confirming: null as { key: string; until: number } | null,
   note: null as number | null, // the sticky note you've unfolded (its order); the clock waits while you read it
   carry: null as Carry | null, // what you've picked up for the part you're on, until you put it where it goes
+  app: "orders" as App, // the computer app on the monitor
+  mail: null as number | null, // the email you've opened
+  webForm: null as number | null, // the web order whose form you've brought up (from its email)
   tip: (msg: string) => toast(msg),
 };
 const confirmedOnce = new Set<string>();
@@ -112,7 +116,7 @@ function playDay(): void {
   if (seedParam !== null) sim.state.devUsed = true;
   sim.state.handsOn = true; // you do every step by hand
   Object.assign(window, { sim, game: ctl.game, ctl }); // (for the console)
-  Object.assign(ctl, { sim, tab: "counter", doing: null, followed: "", talk: { id: -1, n: 0, at: 0 }, screen: null, paused: false, note: null });
+  Object.assign(ctl, { sim, tab: "counter", doing: null, followed: "", talk: { id: -1, n: 0, at: 0 }, screen: null, paused: false, note: null, app: "orders", mail: null, webForm: null });
 }
 
 async function finishDay(): Promise<void> {
@@ -474,6 +478,30 @@ export function act(el: HTMLElement): void {
       return;
     case "putBack":
       return putBack();
+    case "app":
+      ctl.app = d.app as App;
+      ctl.mail = ctl.webForm = null;
+      return;
+    case "mail": {
+      // Opening an email reads it (a minute). A web order is read by entering it ("Enter this order").
+      const id = d.msg ? Number(d.msg) : null;
+      ctl.mail = id;
+      ctl.webForm = null;
+      const m = id !== null ? s.messages.find((x) => x.id === id) : undefined;
+      if (m && !m.read && m.kind !== "web_order") doTask({ type: "open_message", messageId: m.id });
+      return;
+    }
+    case "webForm":
+      ctl.webForm = Number(d.msg);
+      return;
+    case "webSubmit": {
+      const err = canStart(s, { type: "open_message", messageId: Number(d.msg) });
+      if (err) return ctl.tip(err);
+      doTask({ type: "open_message", messageId: Number(d.msg) });
+      ctl.webForm = ctl.mail = null;
+      ctl.app = "orders"; // (where it goes next: send it to the printer)
+      return;
+    }
     case "home":
       return home();
     case "abandon":

@@ -7,7 +7,7 @@ import { scale } from "./hud";
 import { ctl } from "./run";
 
 export interface Problem {
-  kind: "overlap" | "outside" | "modals" | "small text" | "small target" | "clipped";
+  kind: "overlap" | "outside" | "modals" | "small text" | "small target" | "clipped" | "covered";
   what: string;
   detail: string;
 }
@@ -31,6 +31,7 @@ function visible(el: Element): boolean {
   return true;
 }
 
+const intersects = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 const over = (a: DOMRect, b: DOMRect, s: number) => a.left < b.right - s && b.left < a.right - s && a.top < b.bottom - s && b.top < a.bottom - s;
 const within = (a: DOMRect, b: DOMRect, s: number) => a.left >= b.left - s && a.top >= b.top - s && a.right <= b.right + s && a.bottom <= b.bottom + s;
 
@@ -76,6 +77,21 @@ export function audit(game?: Phaser.Game): Problem[] {
       if (!o.visible || !("getBounds" in o)) continue;
       const b = o.getBounds();
       if (o.input?.enabled && Math.min(b.width, b.height) * ART < MIN.target - SLACK) add("small target", `${scene.sys.settings.key}: ${o.name || o.type}`, `${(b.width * ART).toFixed(0)}x${(b.height * ART).toFixed(0)}`);
+      // An arrow's words (during hold, drag, tap, pick steps) never cover the hold meter, or anything else that glows.
+      if (o.getData("guide")) {
+        const c = o as unknown as Phaser.GameObjects.Container;
+        const tip = { x: c.x, y: c.y };
+        const words = (c.list[1] as Phaser.GameObjects.Text).getBounds();
+        const meter = (scene as unknown as { meter: Phaser.Geom.Rectangle | null }).meter;
+        const label = `${scene.sys.settings.key}: "${(c.list[1] as Phaser.GameObjects.Text).text}"`;
+        if (meter && intersects(words, meter)) add("covered", label, "covers the hold meter");
+        for (const g of scene.children.list) {
+          if (!g.getData("glow")) continue;
+          const r = (g as Phaser.GameObjects.Rectangle).getBounds();
+          const pointsAtIt = tip.x >= r.left - 8 && tip.x <= r.right + 8 && tip.y >= r.top - 8 && tip.y <= r.bottom + 8;
+          if (!pointsAtIt && intersects(words, r)) add("covered", label, `covers something to click (${Math.round(r.x)},${Math.round(r.y)})`);
+        }
+      }
       if (o.type === "Text") {
         const t = o as unknown as Phaser.GameObjects.Text;
         const px = parseFloat(String(t.style.fontSize)) * t.scaleY * ART;

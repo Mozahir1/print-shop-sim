@@ -12,7 +12,6 @@ import {
   SHIPPING,
   SHIP_RATE,
   FINISH,
-  WALK_UP,
 } from "./config";
 
 export function sheetsPerCopy(spec: JobSpec): number {
@@ -84,10 +83,6 @@ export function finishMinutes(spec: JobSpec): number {
 }
 
 // Minutes to make a walk-up job yourself (full service while they wait), finishing included.
-export function walkUpMinutes(spec: JobSpec): number {
-  return Math.round(WALK_UP.setupMinutes + impressions(spec) / WALK_UP.sidesPerMinute) + finishMinutes(spec);
-}
-
 // ---------- self-serve ----------
 
 // Why this job can't be done at the self-serve copier, or null if it can: plain paper and nothing that needs the

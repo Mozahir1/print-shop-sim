@@ -12,6 +12,8 @@ import { pickLine, POOLS } from "./lines";
 import { mcSay } from "./mc";
 import { morningTime } from "./customers";
 import { recordFailure } from "./failures";
+import { postMessage } from "./messages";
+import { wrongFields } from "./orders";
 
 type MessagePool = Exclude<MessageKind, "web_order" | "note"> | "packages_left";
 
@@ -25,15 +27,18 @@ export function addHeat(state: GameState, amount: number, cause: HeatCause): voi
   m.heatBy[cause] += amount;
 }
 
-// A message from the pool for this kind. `index` picks a variant deterministically.
-export function draft(pool: MessagePool, vars: Record<string, string | number>, at: number, heat: number, cause: HeatCause, index = 0): MessageDraft {
-  const line = pickLine(POOLS.messages, pool, {}, index);
+const SENDER: Record<MessagePool, string> = { complaint: "", packages_left: "", survey: "Customer survey", warning: "Manager", write_up: "Manager", fired: "Manager", reward: "Corporate" };
+
+// A message from the pool for this kind. `index` picks a variant deterministically; `tags` pick the fitting line
+// (what a complaint is about, why the manager wrote).
+export function draft(pool: MessagePool, vars: Record<string, string | number>, at: number, heat: number, cause: HeatCause, index = 0, tags: Record<string, string | undefined> = {}): MessageDraft {
+  const line = pickLine(POOLS.messages, pool, tags, index);
   const kind: MessageKind = pool === "packages_left" ? "complaint" : pool;
-  return { kind, subject: fill(line.subject ?? "", vars), body: fill(line.text, vars), at, heat, cause };
+  return { kind, from: SENDER[pool] || String(vars.name ?? "A customer"), subject: fill(line.subject ?? "", vars), body: fill(line.text, vars), at, heat, cause };
 }
 
 export function deliver(state: GameState, d: MessageDraft): void {
-  state.messages.push({ id: state.nextId++, kind: d.kind, at: state.time, subject: d.subject, body: d.body, jobId: null, read: false, snoozed: false });
+  postMessage(state, { kind: d.kind, from: d.from, subject: d.subject, body: d.body });
   if (d.heat) addHeat(state, d.heat, d.cause);
   if (d.kind === "reward") mcSay(state, "hollow_reward");
   if (d.kind === "warning") mcSay(state, "warning");
@@ -93,7 +98,8 @@ export function onLeave(state: GameState, c: Customer, walkedOut: boolean): void
   const cause = angerCause(c);
   const timing = keyedRoll(state.seed, "complaint-when", c.id, state.day);
   const at = state.time + between(keyedRoll(state.seed, "complaint-delay", c.id), COMPLAINT_DELAY);
-  const msg = draft("complaint", { name: c.name }, at, HEAT.complaint, cause);
+  const about = complaintAbout(state, c);
+  const msg = draft("complaint", { name: c.name, job: about.job ?? "" }, at, HEAT.complaint, cause, 0, { about: about.key, job: about.job !== undefined ? "yes" : undefined });
   if (timing < COMPLAINT_SAME_DAY && at < state.closeAt) state.manager.scheduled.push(msg);
   else state.manager.morning.push({ ...msg, at: 0 });
 }
@@ -102,13 +108,26 @@ export function onLeave(state: GameState, c: Customer, walkedOut: boolean): void
 function maybeSurvey(state: GameState, c: Customer, walkedOut: boolean): void {
   if (keyedRoll(state.seed, "survey", c.id, state.day) >= SURVEY.chance) return;
   const mood = moodOf(c);
-  const reason = c.couldSelfServe ? "could_self_serve" : walkedOut ? "walked_out" : c.jobId !== null && state.jobs.find((j) => j.id === c.jobId)?.walkUp ? "full_service" : undefined;
+  const reason = c.couldSelfServe ? "could_self_serve" : walkedOut ? "walked_out" : (state.jobs.find((j) => j.id === c.jobId)?.serviceFeeCents ?? 0) > 0 ? "full_service" : undefined; // (a small job done for them)
   const result = c.couldSelfServe || walkedOut || mood === "angry" ? "bad" : mood === "happy" && c.outcome === "served" ? "good" : null;
   if (!result) return;
   const line = pickLine(POOLS.messages, "survey", { result, reason });
   state.stats.surveys++;
   if (result === "bad") state.stats.badSurveys++;
-  deliver(state, { kind: "survey", subject: fill(line.subject ?? "", { name: c.name }), body: line.text, at: state.time, heat: result === "bad" ? SURVEY.badHeat : SURVEY.goodHeat, cause: "complaints" });
+  deliver(state, { kind: "survey", from: "Customer survey", subject: fill(line.subject ?? "", { name: c.name }), body: line.text, at: state.time, heat: result === "bad" ? SURVEY.badHeat : SURVEY.goodHeat, cause: "complaints" });
+}
+
+// What a complaint says happened: the worst thing about their visit, and which order, if there was one.
+function complaintAbout(state: GameState, c: Customer): { key: string; job?: number } {
+  const job = c.jobId !== null ? state.jobs.find((j) => j.id === c.jobId) : undefined;
+  if (job && wrongFields(job.asked, job.spec).length) return { key: "wrong_order", job: job.id };
+  if (job?.late) return { key: "late", job: job.id };
+  if (job?.smudge === "accepted") return { key: "smudged", job: job.id };
+  if (job?.skipped) return { key: "unfinished", job: job.id };
+  if (c.outcome === "left") return { key: "walked_out", job: job?.id };
+  if (c.outcome === "turned_away") return { key: "turned_away", job: job?.id };
+  if (c.ignored > 0) return { key: "ignored", job: job?.id };
+  return { key: "general", job: job?.id };
 }
 
 // What a customer is mostly unhappy about, for when getting fired needs a reason.

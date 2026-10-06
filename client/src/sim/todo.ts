@@ -111,8 +111,7 @@ export function todoList(state: GameState): TodoItem[] {
     if (job.status === "collected" && job.spec.finishing !== "none") add(`Finish order #${job.id}`, "finishing", { type: "finish", jobId: job.id }, owner?.id, [{ type: "skip_finish", jobId: job.id }]);
     if (job.status === "collected" || job.status === "finished") add(`Bag order #${job.id}`, "finishing", { type: "bag", jobId: job.id }, owner?.id);
     if (job.status === "entered") add(`Send order #${job.id} to the printer`, "computer", { type: "send_job", jobId: job.id }, owner?.id);
-    if (job.status === "new" && job.walkUp) add(`Make ${who} copies (order #${job.id})`, "self_serve", { type: "make_copies", jobId: job.id }, owner?.id);
-    else if (job.status === "new") add(`Enter ${who} order #${job.id}`, "computer", { type: "enter_order", jobId: job.id }, owner?.id);
+    if (job.status === "new") add(`Enter ${who} order #${job.id}`, "computer", { type: "enter_order", jobId: job.id }, owner?.id);
   }
 
   for (const m of state.messages) {

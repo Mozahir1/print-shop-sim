@@ -91,7 +91,7 @@ function plan(state: GameState, wf: Workflow): TaskType[] {
       case "make_good":
         return wf.kind === "complaint" && (c?.about === "damaged_box" || c?.about === "wrong_label");
       case "fetch_bag":
-        return job !== undefined && !job.walkUp;
+        return job !== undefined;
       case "enter_order":
         return wf.kind !== "complaint"; // a free reprint goes straight to the printer
       case "send_job":
@@ -150,8 +150,6 @@ function stepDone(state: GameState, wf: Workflow, t: TaskType): boolean {
       return c !== undefined && (c.state === "self_serve" || c.state === "gone");
     case "help_self_serve":
       return c !== undefined && c.state === "gone";
-    case "make_copies":
-      return jobAt("bagged", "picked_up");
     case "fix_copier":
       return wf.kind === "fix_copier" ? wf.done.includes(t) : state.copier.status === "ok";
     default:
@@ -185,7 +183,6 @@ function requestFor(state: GameState, wf: Workflow, t: TaskType): TaskRequest {
       return { type: t, customerId: c?.id };
     case "enter_order":
     case "send_job":
-    case "make_copies":
     case "collect":
     case "reprint":
     case "use_anyway":
@@ -309,8 +306,6 @@ export function workflowFor(state: GameState, req: TaskRequest): Workflow {
       return wf("self_serve_help", { customerId: req.customerId });
     case "escort":
       return wf("self_serve", { customerId: req.customerId });
-    case "make_copies":
-      return wf("walk_up", { jobId: req.jobId, customerId: jobById(state, req.jobId!)?.customerId });
     case "fix_copier":
     case "out_of_order_sign":
       return wf("fix_copier");

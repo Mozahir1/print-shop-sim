@@ -5,6 +5,7 @@ import type { FailureKind, GameState, ManagerMood } from "./types";
 import { HEAT } from "./config";
 import { POOLS, pickLine, say } from "./lines";
 import { fill, log } from "./util";
+import { postMessage } from "./messages";
 
 // Notes from the manager during the day, for the ones they'd hear about.
 const NOTE: ReadonlySet<FailureKind> = new Set(["walked_out", "missing_order", "never_ready", "packages_left", "copier_broken", "lost_sale", "lost_business", "wrong_order"]);
@@ -17,7 +18,7 @@ export function recordFailure(state: GameState, kind: FailureKind, vars: Record<
   // One note per kind per day is plenty.
   if (NOTE.has(kind) && state.failures.filter((f) => f.kind === kind).length === 1) {
     const note = pickLine(POOLS.failures, "manager_note", { kind });
-    state.messages.push({ id: state.nextId++, kind: "note", at: state.time, subject: note.subject ?? "", body: fill(note.text, vars), jobId: null, read: false, snoozed: false });
+    postMessage(state, { kind: "note", from: "Manager", subject: note.subject ?? "", body: fill(note.text, vars) });
   }
 }
 

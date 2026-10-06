@@ -7,13 +7,14 @@ import { customerById, jobById, packageById } from "../sim/util";
 import { on } from "../sim/bus";
 import { boxFor } from "../sim/orders";
 import type { BoxSize, Customer } from "../sim/types";
-import { atCounter, inLine, computerPanel, dialogueHtml, keypadHtml, labelForm, orderForm } from "../ui/view";
+import { atCounter, inLine, dialogueHtml, keypadHtml, labelForm } from "../ui/view";
+import { appIcons, devicesApp, emailApp, ordersApp, shippingApp, stepBar } from "../ui/computer";
 import { SPOT, playAnim, sound, sprite } from "./assets";
 import { FONT } from "./config";
 import { ctl, part, register, state } from "./run";
 import { bounce, say, shake, sparkle } from "./juice";
 import { Station, type Candidate, type Obj } from "./station";
-import { modalBox } from "./hud";
+import { modalBox, modalPart } from "./hud";
 import { SMALL } from "./config";
 
 function listen(scene: Phaser.Scene, offs: (() => void)[]): void {
@@ -157,8 +158,9 @@ export class CounterScene extends Station {
 // ---------- the computer ----------
 
 export class ComputerScene extends Station {
-  private screen!: (html: string) => void;
-  protected freeButtons = false; // (the monitor lists them)
+  private screen!: ReturnType<typeof modalBox>;
+  private formWas = "";
+  protected freeButtons = false; // (the apps list them)
   protected stepButtons = false;
 
   constructor() {
@@ -167,12 +169,21 @@ export class ComputerScene extends Station {
 
   protected build(): void {
     this.screen = modalBox("computer", "monitor");
+    this.screen(`<nav class="apps"></nav><div class="app-body"></div>`);
   }
 
+  // The four apps (ui/computer.ts). A form you need to fill in brings up its app.
   protected refresh(): void {
     const s = state();
     const d = ctl.doing;
-    this.screen(d && part(d).form === "order" ? orderForm(s, d.req.jobId!) : computerPanel(s));
+    const order = d && part(d).form === "order" ? d.req.jobId! : null;
+    const label = d && part(d).form === "label" ? d.req.packageId! : null;
+    const form = order !== null ? `order:${order}` : label !== null ? `label:${label}` : "";
+    if (form && form !== this.formWas) ctl.app = order !== null ? "orders" : "shipping";
+    this.formWas = form;
+    const body = { orders: () => ordersApp(s, order), email: () => emailApp(s, ctl.mail, ctl.webForm), devices: () => devicesApp(s), shipping: () => shippingApp(s, label) }[ctl.app]();
+    modalPart(this.screen.el, ".apps", appIcons(s, ctl.app));
+    modalPart(this.screen.el, ".app-body", stepBar(s) + body);
   }
 }
 

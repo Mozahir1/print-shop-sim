@@ -2,14 +2,16 @@
 // stream pays for it (the flow director's own stream during a day, a separate one for dev mode).
 import { emit } from "./bus";
 import type { Customer, FlagKind, GameState, Job, JobSpec, RequestKind, ShipService, Timing } from "./types";
-import { FLAGS, MOOD, PAYS_CASH, PICKUP_AFTER, PRINT_REQUESTS, RUSH_BUFFER, SHIPPING, TIMING } from "./config";
-import { estimateReadyAt } from "./quote";
+import { FLAGS, LATEST_ASK, MOOD, PAYS_CASH, PICKUP_AFTER, PRINT_REQUESTS, RUSH_BUFFER, SHIPPING, TIMING } from "./config";
+import { estimateReadyAt, lastDueAt, morningDueAt } from "./quote";
 import { keyedRoll, randInt, pick, type Rng } from "./rng";
 import { giveUpFor, resetPatience } from "./mood";
 import { boxFor, fullServiceQuote, shipQuote, totalSheets } from "./orders";
 import names from "../data/names.json";
 import { pickLine, POOLS } from "./lines";
-import { fill } from "./util";
+import { fill, money } from "./util";
+import { describeSpec, postMessage } from "./messages";
+import { formatClock } from "./time";
 
 export type PrintKind = "quick_copies" | "large_job" | "poster" | "business";
 export const PRINT_KINDS: RequestKind[] = ["quick_copies", "large_job", "poster", "business"];
@@ -70,7 +72,12 @@ export function spawnCustomer(state: GameState, rng: Rng, kind: Exclude<RequestK
     c.timing = opts.timing ?? weighted<Timing>(timingRoll, { wait: t.wait, back: t.back, tomorrow: t.tomorrow });
     if (c.timing !== "tomorrow") {
       const [lo, hi] = c.timing === "wait" ? t.waitIn : t.backIn;
-      c.needBy = state.time + (opts.needIn ?? lo + Math.floor(inRoll * (hi - lo + 1)));
+      // What they ask for is inside open hours. Too close to closing for anything today: they'll take tomorrow.
+      c.needBy = Math.min(state.time + (opts.needIn ?? lo + Math.floor(inRoll * (hi - lo + 1))), lastDueAt(state));
+      if (c.needBy < state.time + LATEST_ASK) {
+        c.timing = "tomorrow";
+        c.needBy = null;
+      }
     }
   }
   if (kind === "complaint") {
@@ -140,7 +147,6 @@ export function returnCustomer(state: GameState, c: Customer): void {
 
 export interface JobTerms {
   rush: boolean;
-  walkUp?: boolean; // you make it yourself while they wait
   dueDay: number;
   dueAt: number;
 }
@@ -162,7 +168,6 @@ export function createJob(state: GameState, c: Customer, channel: Job["channel"]
     serviceFeeCents: q.serviceFeeCents,
     rushCents: q.rushCents,
     rush: terms.rush,
-    walkUp: terms.walkUp ?? false,
     prepaid: channel === "web" || c.kind === "business", // businesses are billed on account
     status: channel === "web" ? "unread" : "new",
     sheetsPrinted: 0,
@@ -196,14 +201,16 @@ export function placeWebOrder(state: GameState, rng: Rng, opts: SpawnOptions = {
   c.timing = "back";
   state.customers.push(c);
   const [lo, hi] = PICKUP_AFTER;
-  // (The website promises a time it can actually be done by: what's printing ahead of it, then making it.)
-  const dueAt = Math.max(state.time + lo + Math.floor(rng() * (hi - lo + 1)), estimateReadyAt(state, c.spec, false) + RUSH_BUFFER);
-  c.needBy = dueAt;
-  const job = createJob(state, c, "web", { rush: false, dueDay: state.day, dueAt });
+  // (The website promises a time it can actually be done by: what's printing ahead of it, then making it. Past what
+  // today's open hours allow, it's tomorrow morning.)
+  const today = Math.max(state.time + lo + Math.floor(rng() * (hi - lo + 1)), estimateReadyAt(state, c.spec, false) + RUSH_BUFFER);
+  const tomorrow = today > lastDueAt(state);
+  const dueAt = tomorrow ? morningDueAt(state, c.spec, c.id) : today;
+  c.needBy = tomorrow ? null : dueAt;
+  const job = createJob(state, c, "web", { rush: false, dueDay: tomorrow ? state.day + 1 : state.day, dueAt });
   const text = pickLine(POOLS.messages, "web_order");
-  const vars = { job: job.id, name: c.name };
-  const msg = { id: state.nextId++, kind: "web_order" as const, at: state.time, subject: fill(text.subject ?? "", vars), body: fill(text.text, vars), jobId: job.id, read: false, snoozed: false };
-  (state.wifi.down ? state.heldMessages : state.messages).push(msg);
+  const vars = { job: job.id, name: c.name, specs: describeSpec(c.spec), due: `${tomorrow ? "tomorrow " : ""}${formatClock(dueAt)}`, price: money(job.priceCents) };
+  postMessage(state, { kind: "web_order", from: "Website", subject: fill(text.subject ?? "", vars), body: fill(text.text, vars), jobId: job.id }, { held: state.wifi.down });
   state.stats.webOrders++;
   return job;
 }

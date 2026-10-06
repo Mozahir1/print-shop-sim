@@ -111,7 +111,7 @@ describe("complaints", () => {
   it("a complaint that arrives adds heat when it lands", () => {
     const game = newGame(1);
     const sim = quietDay(game);
-    sim.state.manager.scheduled.push({ kind: "complaint", subject: "x", body: "y", at: 5, heat: HEAT.complaint, cause: "complaints" });
+    sim.state.manager.scheduled.push({ kind: "complaint", from: "A customer", subject: "x", body: "y", at: 5, heat: HEAT.complaint, cause: "complaints" });
     const before = sim.state.manager.heat;
     runUntil(sim, () => sim.state.messages.some((m) => m.kind === "complaint"));
     expect(sim.state.manager.heat).toBe(before + HEAT.complaint);

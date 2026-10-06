@@ -32,12 +32,11 @@ export function taskButton(state: GameState, req: TaskRequest, opts: { label?: s
   return `<button class="${cls}" data-act="task" data-req="${esc(JSON.stringify(req))}" data-err="${esc(err ?? "")}" title="${esc(err ?? "")}">${sub}${esc(opts.label ?? t.label)}${dur}</button>`;
 }
 
-// Today's bad luck, while it needs you.
+// Today's bad luck, while it needs you: a few words in the top bar (what it means is in the log, and on the Devices app).
 export function banner(state: GameState): string | null {
   const e = state.event;
   if (e?.status !== "active") return null;
-  const t = eventText(e.kind);
-  return `${t.title}. ${t.prompt}`;
+  return `${eventText(e.kind).title}.`;
 }
 
 // ---------- where things are: the tabs ----------
@@ -65,7 +64,7 @@ export function attention(state: GameState): Set<Tab> {
   if (p.status === "jammed" || p.status === "tray_empty" || state.jobs.some((j) => j.status === "printed")) s.add("printer");
   if (state.jobs.some((j) => j.status === "collected" || j.status === "finished")) s.add("finishing");
   if (state.truck.status === "waiting" || state.packages.some((x) => x.status === "labeled" || x.status === "scanned")) s.add("shipping");
-  if (state.cardReader === "down" || state.wifi.down || state.jobs.some((j) => j.status === "new" && !j.walkUp) || state.messages.some((m) => !m.read && !m.snoozed && m.kind === "web_order")) s.add("computer");
+  if (state.cardReader === "down" || state.wifi.down || state.jobs.some((j) => j.status === "new") || state.messages.some((m) => !m.read && !m.snoozed && m.kind === "web_order")) s.add("computer");
   if (state.customers.some((c) => c.state === "line") || state.copier.status === "broken") s.add("counter");
   return s;
 }
@@ -90,7 +89,7 @@ function answerLabels(state: GameState, c: Customer): { take: string; turnAway: 
     default: {
       const q = quoteFor(state, c);
       if (!isPrintKind(c.kind) || !q.standard) return { take: c.kind === "ship" && q.ship ? `Take the package (${money(q.ship.totalCents)})` : "Help them", turnAway: "Turn them away" };
-      const take = q.walkUp ? `Make them yourself (${money(q.standard.totalCents)}, ${formatDuration(q.yourMinutes)})` : `Take the order (${money(q.standard.totalCents)})`;
+      const take = `Take the order (${money(q.standard.totalCents)})`;
       return { take, turnAway: "Turn them away" };
     }
   }
@@ -101,8 +100,8 @@ function quoteLine(state: GameState, c: Customer): string {
   const q = quoteFor(state, c);
   if (!isPrintKind(c.kind) || !q.standard || sceneOf(state, c)) return "";
   const fee = q.standard.serviceFeeCents ? ` (incl. ${money(q.standard.serviceFeeCents)} fee)` : "";
-  const ready = q.walkUp ? "made now while they wait" : q.tomorrow ? "ready tomorrow" : `ready by ${formatClock(q.standardReadyAt)}`;
-  const yours = q.walkUp ? `${formatDuration(q.yourMinutes)} of your time, all at once` : `about ${formatDuration(q.yourMinutes)} of your time, printer ${formatDuration(q.printMinutes)}`;
+  const ready = q.tomorrow ? `ready tomorrow morning, by ${formatClock(q.morningAt)}` : `ready by ${formatClock(q.standardReadyAt)}`;
+  const yours = `about ${formatDuration(q.yourMinutes)} of your time, printer ${formatDuration(q.printMinutes)}`;
   return `<p class="small muted">Full service ${money(q.standard.totalCents)}${fee}, ${ready}: ${yours}.${q.rush ? ` Rush ready by ${formatClock(q.rushReadyAt)}.` : ""}</p>`;
 }
 
@@ -193,22 +192,24 @@ const FORM: { field: keyof OrderEntry; label: string; options: [string, string][
   { field: "finishing", label: "Finishing", options: [["none", "None"], ["staple", "Staple"], ["cut", "Cut"], ["laminate", "Laminate"]] },
 ];
 
-// The order form, blank: you fill it in from what they said. (Its HTML only depends on the order, so redrawing the
-// panel never wipes what you've picked.)
-export function orderForm(state: GameState, jobId: number): string {
+// The order form: blank, filled in from what they said (it's quoted at the top while it's only in their words); or,
+// for a web order, filled in already from the website (check it, and enter it). Its HTML only depends on the order,
+// so redrawing never wipes what you've picked.
+export function orderForm(state: GameState, jobId: number, web?: { messageId: number }): string {
   const job = jobById(state, jobId)!;
   const who = customerById(state, job.customerId);
-  return `<form class="orderform" data-job="${job.id}"><h2>New order #${job.id}: ${esc(who?.name ?? "")}, ${esc(job.spec.item)}</h2>
-    <label class="field"><span>Copies</span><input type="number" name="copies" min="1" max="9999" inputmode="numeric" required></label>
-    ${FORM.map((f) => `<fieldset class="field"><span>${f.label}</span><div class="chips">${f.options.map(([v, l]) => `<label class="chip-opt"><input type="radio" name="${f.field}" value="${v}"><span>${l}</span></label>`).join("")}</div></fieldset>`).join("")}
-    <button type="button" class="btn primary" data-act="form">Enter order</button></form>`;
-}
-
-// The monitor when there's no form up: the step you're on, what you could do, the print queue, and the inbox.
-export function computerPanel(state: GameState): string {
-  const queue = state.printer.queue.map((id) => `#${id}`);
-  if (state.printer.currentJobId !== null) queue.unshift(`#${state.printer.currentJobId} (printing)`);
-  return stepButtons(state, "computer") + stationTasks(state, ["computer"]) + `<h2 style="margin-top:8px">Print queue</h2><p class="small">${queue.join(", ") || "Empty."}</p>` + inbox(state);
+  const pre = web ? job.spec : undefined;
+  const said = !web && who && isPrintKind(who.kind) && who.jobId === job.id ? requestLines(state, who) : [];
+  const value = (f: keyof OrderEntry) => (pre ? String(pre[f]) : "");
+  const quote = said.length ? `<blockquote class="said">${said.map((l) => `<p>${esc(l)}</p>`).join("")}</blockquote>` : "";
+  const submit = web ? `<button type="button" class="btn primary" data-act="webSubmit" data-msg="${web.messageId}">Enter order</button>` : `<button type="button" class="btn primary" data-act="form">Enter order</button>`;
+  return `<form class="orderform" data-job="${job.id}"><h2>${web ? "Web order" : "New order"} #${job.id}: ${esc(who?.name ?? "")}, ${esc(job.spec.item)}</h2>${quote}
+    <div class="fields"><label class="field"><span>Copies</span><input type="number" name="copies" min="1" max="9999" inputmode="numeric" required value="${value("copies")}"></label>
+    ${["color", "duplex", "media", "finishing"]
+      .map((k) => FORM.find((f) => f.field === k)!)
+      .map((f) => `<fieldset class="field${f.field === "media" || f.field === "finishing" ? " wide" : ""}"><span>${f.label}</span><div class="chips">${f.options.map(([v, l]) => `<label class="chip-opt"><input type="radio" name="${f.field}" value="${v}"${value(f.field) === v ? " checked" : ""}><span>${l}</span></label>`).join("")}</div></fieldset>`)
+      .join("")}</div>
+    ${submit}</form>`;
 }
 
 // The shipping label: the weight you read off the scale and the service they asked for. (Depends only on the
@@ -221,33 +222,14 @@ export function labelForm(state: GameState, packageId: number): string {
     <button type="button" class="btn primary" data-act="form">Print the label</button></form>`;
 }
 
-function inbox(state: GameState): string {
-  const msgs = state.messages.slice().reverse().slice(0, 6);
-  if (!msgs.length) return "";
-  return `<h2 style="margin-top:10px">Inbox</h2>${msgs
-    .map((m) => {
-      const body = m.read || m.kind !== "web_order" ? `<div class="small">${esc(m.body)}</div>` : `<div class="small muted">Open it to see the order.</div>`;
-      return `<div class="msg ${m.read ? "" : "unread"}"><div class="subj">${esc(m.subject)}${m.snoozed && !m.read ? ` <span class="muted small">(left unread)</span>` : ""}</div>${body}</div>`;
-    })
-    .join("")}`;
-}
-
 // The step you're on, if it's done here and waits for you (a choice: do it, or cut the corner). A step you do by hand
 // with no choice to make shows its hands-on part instead (main.ts).
-function stepButtons(state: GameState, tab: Tab): string {
+export function stepButtons(state: GameState, tab: Tab): string {
   const step = currentStep(state);
   if (!step || state.employee.task || tabOf(step.type) !== tab || step.type === "respond") return "";
   if (STEP[step.type].hands?.length && !step.alts.length) return "";
   if (isChoice(step)) return `<div class="choices">${taskButton(state, step.req, { primary: true, sub: "Do", key: "Enter" })}${step.alts.map((a) => taskButton(state, a, { sub: "Don't", key: "X" })).join("")}</div>`;
   return `<div class="btns">${taskButton(state, step.req, { primary: true, sub: "Next step", key: "Enter" })}</div>`;
-}
-
-// Everything else you could start here (most of it picks a workflow back up, or starts one).
-function stationTasks(state: GameState, stations: Station[]): string {
-  if (state.workflow) return ""; // you're in the middle of something
-  const reqs = stations.flatMap((st) => availableTasks(state, st)).filter((r) => r.type !== "talk");
-  if (state.time >= state.closeAt) for (const c of state.customers) if (stations.includes("counter") && canStart(state, { type: "usher_out", customerId: c.id }) === null) reqs.push({ type: "usher_out", customerId: c.id });
-  return reqs.length ? `<div class="btns" style="margin-top:8px">${reqs.map((r) => taskButton(state, r)).join("")}</div>` : "";
 }
 
 // ---------- notes (the to-do list) ----------

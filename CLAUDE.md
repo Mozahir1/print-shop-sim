@@ -76,6 +76,13 @@ whether a first-time human can understand and do it. See `SIM_SPEC.md`.
   promises leave time to print, bad luck eases in (EASE_IN), `suggested()` ordering for "Next:" and the human bot.
   Result (smart, 30 games): walkout days 0% / 3% / 7% on days 1 to 3, 10% on day 5; residual = late order + bad luck.
   Next: Phase 4 (computer redesign).
+- Spec v8.1 done (2026-10-06): promises inside open hours (`CLOSING.dueBuffer`, `lastDueAt`/`morningDueAt` in
+  quote.ts), closing sends people with open orders home to come back (`pickups.test.ts`); walk-up removed (taking is
+  always full service; quick copies wait 50 to 90 min); computer = four apps (`ui/computer.ts`; `ctl.app/mail/webForm`),
+  every message through `postMessage()` in `sim/messages.ts` (sender + real body, `messages.test.ts`); arrows place
+  themselves clear of glows, the hold meter (depth 80) and popups, `audit()` reports covered labels. Screenshots in
+  `playtest/v8.1/`. Human pace now: smart 0/3/0% walkout days on days 1 to 3; do_everything worse (small jobs are
+  real work now).
 - Known for later phases: phone sizes are the same layout scaled down (about 11px text on an 844x390 phone, worse in
   portrait).
 - Art: placeholders only. The owner will draw custom pixel art later from `ART_CHECKLIST.md` (2x art grid, 500x266 per

@@ -47,8 +47,8 @@ Layers, back to front: background, props, interactive, held, ui.
 |---|---|---|---|---|---|---|---|---|---|
 | [ ] | `computer/bg` | Back office | `src/assets/art/computer/bg.png` | 500x266 | 0, 0 | 1 | background | room | Computer: the back desk |
 | [ ] | `computer/monitor` | Computer | `src/assets/art/computer/monitor.png` | 400x236 | 0, 0 | 1 | props | machine | Monitor frame; the order form, print queue, inbox and label form show inside it |
-| [ ] | `computer/router` | Router | `src/assets/art/computer/router.png` | 46x30 | 0.5, 0.5 | 1 | interactive | machine | Wi-Fi router (hold the power button to restart it) |
-| [ ] | `computer/reader_box` | Card reader box | `src/assets/art/computer/reader_box.png` | 46x32 | 0.5, 0.5 | 1 | interactive | machine | Card reader base station (hold reset to fix it) |
+| [ ] | `computer/router` | Router | `src/assets/art/computer/router.png` | 30x40 | 0.5, 0.5 | 1 | interactive | machine | Wi-Fi router (hold the power button to restart it) |
+| [ ] | `computer/reader_box` | Card reader box | `src/assets/art/computer/reader_box.png` | 30x40 | 0.5, 0.5 | 1 | interactive | machine | Card reader base station (hold reset to fix it) |
 
 ## printer
 

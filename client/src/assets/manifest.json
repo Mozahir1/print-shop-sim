@@ -356,8 +356,8 @@
   "computer/router": {
    "label": "Router",
    "size": [
-    46,
-    30
+    30,
+    40
    ],
    "anchor": [
     0.5,
@@ -371,8 +371,8 @@
   "computer/reader_box": {
    "label": "Card reader box",
    "size": [
-    46,
-    32
+    30,
+    40
    ],
    "anchor": [
     0.5,
@@ -1281,8 +1281,7 @@
      "fix_copier",
      "out_of_order_sign",
      "help_self_serve",
-     "escort",
-     "make_copies"
+     "escort"
     ]
    },
    {
@@ -1322,16 +1321,16 @@
    },
    {
     "key": "computer/router",
-    "x": 474,
-    "y": 212,
+    "x": 482,
+    "y": 210,
     "starts": [
      "restart_router"
     ]
    },
    {
     "key": "computer/reader_box",
-    "x": 26,
-    "y": 212,
+    "x": 18,
+    "y": 210,
     "starts": [
      "fix_card_reader"
     ]

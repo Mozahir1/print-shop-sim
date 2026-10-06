@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { canStart, createSim, startTask, tick, type Sim } from "./sim";
 import { placeWebOrder, returnCustomer, spawnCustomer } from "./customers";
 import { DURATIONS, PRINTER, RESPOND_MINUTES } from "./config";
-import { walkUpMinutes } from "./orders";
+import { currentStep } from "./workflow";
 import { doTask, makeReady, runUntil, talkTo, calm } from "./testkit";
 import type { JobSpec } from "./types";
 
@@ -21,25 +21,21 @@ function quiet(): Sim {
 }
 
 describe("each request, arrival to done, as workflows", () => {
-  it("quick copies, done yourself while they wait: you make them, ring them up, done (and locked in the whole time)", () => {
+  it("quick copies taken at the counter are full service, same as 200 pages: the order form, the production printer", () => {
     const sim = quiet();
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.director, "quick_copies", { spec: plain({ originals: 3, copies: 10, finishing: "staple" }), timing: "wait", needIn: 300 });
     doTask(sim, { type: "talk", customerId: c.id });
-    const start = s.time;
-    expect(startTask(s, { type: "respond", customerId: c.id, choice: "take" })).toBeNull();
-    tick(sim, 3);
-    expect(s.workflow?.kind).toBe("walk_up");
-    expect(canStart(s, { type: "fix_copier" })).toBe("You can't do that, you're making copies for someone.");
-    runUntil(sim, () => s.workflow === null);
+    doTask(sim, { type: "respond", customerId: c.id, choice: "take" });
+    expect(s.workflow?.kind).toBe("take_order");
+    expect(currentStep(s)?.type).toBe("enter_order"); // nothing goes to the self-serve copier unless you send them
     const job = s.jobs[0];
-    expect(job.walkUp).toBe(true);
-    expect(job.status).toBe("picked_up");
-    expect(c.outcome).toBe("served");
-    expect(s.revenueCents).toBe(job.priceCents);
-    const expected = RESPOND_MINUTES.take + walkUpMinutes(job.spec) + DURATIONS.ring_up;
-    expect(s.time - start).toBeGreaterThanOrEqual(expected);
-    expect(s.time - start).toBeLessThanOrEqual(expected + 1); // (steps start the minute the last one ends)
+    expect(job.serviceFeeCents).toBeGreaterThan(0); // the small-order fee
+    doTask(sim, { ...currentStep(s)!.req, entry: { ...job.spec } });
+    expect(job.status === "queued" || job.status === "printing").toBe(true);
+    expect(c.state).toBe("waiting");
+    makeReady(sim, job);
+    expect(job.status).toBe("bagged");
   });
 
   it("a production order (cardstock): taking it enters and sends it on its own; you staple it (or not), it's bagged", () => {
@@ -49,7 +45,6 @@ describe("each request, arrival to done, as workflows", () => {
     talkTo(sim, c);
     expect(c.state).toBe("waiting");
     const job = s.jobs[0];
-    expect(job.walkUp).toBe(false);
     expect(job.status === "queued" || job.status === "printing").toBe(true); // entered and sent
     expect(s.workflow).toBeNull();
     runUntil(sim, () => job.status === "printed");

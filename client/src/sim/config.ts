@@ -28,6 +28,7 @@ export const CLOSING = {
   overtimeHeatPer10Min: 1, // past the grace period, per 10 minutes you stay
   leftUndoneHeat: 4, // per thing left undone when you go home
   sentHomeAfter: 240, // minutes after close (9 PM) the manager locks up and sends you home
+  dueBuffer: 30, // nothing's promised later than this long before close (later than that, it's tomorrow morning)
   overtimeLineEvery: 30, // minutes between the MC's "I want to go home" lines
   overtimeSpeed: 0.5, // the UI runs the clock this much slower after close (you're bored)
 };
@@ -82,13 +83,13 @@ export const WORK_COST: Record<Arrival, number> = {
 };
 
 // How long each step takes, in game minutes: from the workflow data (src/data/workflows.json). Short and fixed.
-// Finishing goes by FINISH, making copies by WALK_UP, and answering a customer by RESPOND_MINUTES instead.
+// Finishing goes by FINISH, and answering a customer by RESPOND_MINUTES instead.
 // Cutting the corner (Don't) is faster than doing it properly: that's the temptation.
 export const DURATIONS = Object.fromEntries(
   Object.entries(workflowData.steps)
-    .filter(([k]) => k !== "finish" && k !== "respond" && k !== "make_copies")
+    .filter(([k]) => k !== "finish" && k !== "respond")
     .map(([k, v]) => [k, v.duration]),
-) as Record<Exclude<TaskType, "finish" | "respond" | "make_copies">, number>;
+) as Record<Exclude<TaskType, "finish" | "respond">, number>;
 
 // Bad luck: about one thing a day, never two at once, from its own stream.
 // Bad luck eases in: the first days are for learning the job (none on day 1). Then it's the usual odds.
@@ -147,6 +148,9 @@ export const BUSY_PATIENCE_BUSINESS = 0.75;
 export const PATIENCE_STAGES = { annoyed: 0.4, angry: 0.75 }; // share of the give-up time
 export const PATIENCE_RAMP = { perDay: 0.01, min: 0.8 };
 
+// The least time a customer asks for today: less than this before the last due time, and they ask for tomorrow.
+export const LATEST_ASK = 20;
+
 // Web customers come back about this long after ordering, ready or not.
 export const PICKUP_AFTER: [number, number] = [60, 180];
 
@@ -158,7 +162,7 @@ export const RUSH_BUFFER = 35; // a rush is promised this long after the earlies
 // When print customers want it, by request: wait in the store, come back later, or tomorrow. The ranges are seconds
 // from arrival: the latest it's any use to them.
 export const TIMING: Record<"quick_copies" | "large_job" | "poster" | "business", { wait: number; back: number; tomorrow: number; waitIn: [number, number]; backIn: [number, number] }> = {
-  quick_copies: { wait: 1, back: 0, tomorrow: 0, waitIn: [20, 45], backIn: [0, 0] },
+  quick_copies: { wait: 1, back: 0, tomorrow: 0, waitIn: [50, 90], backIn: [0, 0] }, // (they'll wait for full service, or do it themselves)
   large_job: { wait: 0.35, back: 0.45, tomorrow: 0.2, waitIn: [45, 90], backIn: [90, 240] },
   poster: { wait: 0.6, back: 0.4, tomorrow: 0, waitIn: [30, 60], backIn: [60, 180] },
   business: { wait: 0, back: 0.4, tomorrow: 0.6, waitIn: [0, 0], backIn: [240, 420] },
@@ -220,7 +224,6 @@ export const FINISH: Record<Exclude<Finishing, "none">, { base: number; perCopy:
 
 // Full service on a simple job someone's waiting for: you make the copies yourself, start to finish. You can't
 // leave it once you start, so it's your time that it costs.
-export const WALK_UP = { setupMinutes: 3, sidesPerMinute: 6 };
 
 // Business clients: big orders, and they won't wait around if you're tied up. On their own schedule (not the
 // director's mix): how many a day, and when.

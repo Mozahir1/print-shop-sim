@@ -28,61 +28,55 @@
       "speaker": "system",
       "moment": "web_order",
       "subject": "Web order #{job}",
-      "text": "{name} ordered online and will pick it up in the store."
-    },
-    {
-      "speaker": "customer",
-      "moment": "complaint",
-      "subject": "Customer feedback: {name}",
-      "text": "Your employee was very unhelpful."
+      "text": "{name} ordered online and paid: {specs}. Total {price}. Pickup in the store, due {due}. Enter this order so it can be printed."
     },
     {
       "speaker": "customer",
       "moment": "packages_left",
-      "subject": "Customer feedback: packages",
-      "text": "My package was supposed to go out yesterday. It is still sitting in your store."
+      "subject": "Customer feedback: {name}",
+      "text": "From {name}: \"My package was supposed to go out yesterday. It is still sitting in your store.\""
     },
     {
       "speaker": "manager",
       "moment": "warning",
       "subject": "Quick chat",
-      "text": "Hey, can we talk about yesterday? Let's do better."
+      "text": "Hey, can we talk about yesterday? {reason} Let's do better today."
     },
     {
       "speaker": "manager",
       "moment": "write_up",
       "subject": "Write-up",
-      "text": "Please sign the attached write-up."
+      "text": "Please sign the attached write-up. Reason: {reason} This is write-up {count} of 3."
     },
     {
       "speaker": "corporate",
       "moment": "reward",
       "subject": "Great job team!",
-      "text": "Great job team!"
+      "text": "Great job team! Your store had zero complaints yesterday. Keep it up. (Sent to all locations.)"
     },
     {
       "speaker": "corporate",
       "moment": "reward",
       "subject": "A little something",
-      "text": "Pizza party coupon (expired)."
+      "text": "Thanks for a clean day. Enjoy a pizza party on us. Coupon attached (expired)."
     },
     {
       "speaker": "corporate",
       "moment": "reward",
       "subject": "Compensation update",
-      "text": "Congrats on your 3 cent raise."
+      "text": "Congrats on your 3 cent raise. It starts next pay period, pending approval."
     },
     {
       "speaker": "corporate",
       "moment": "reward",
       "subject": "Recognition",
-      "text": "Employee of the Month certificate attached. Please print it yourself."
+      "text": "You are Employee of the Month! Certificate attached. Please print it yourself, on your own time."
     },
     {
       "speaker": "manager",
       "moment": "fired",
       "subject": "Your employment",
-      "text": "We're going to have to let you go."
+      "text": "We're going to have to let you go. Reason: {reason} Please return your badge and apron."
     },
     {
       "speaker": "manager",
@@ -145,6 +139,122 @@
       "reason": "full_service",
       "subject": "Customer survey: {name}",
       "text": "5 out of 5. They made the copies for me while I waited!"
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "general",
+      "subject": "Customer feedback: {name}",
+      "text": "From {name}: \"Your employee was not very helpful. I expected better.\""
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "ignored",
+      "subject": "Customer feedback: {name}",
+      "text": "From {name}: \"I stood at the counter and nobody would help me.\""
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "walked_out",
+      "subject": "Customer feedback: {name}",
+      "text": "From {name}: \"I waited and waited. Nobody helped me, so I left.\""
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "turned_away",
+      "subject": "Customer feedback: {name}",
+      "text": "From {name}: \"I was told no. I'll take my business somewhere else.\""
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "ignored",
+      "subject": "Customer feedback: {name}, order #{job}",
+      "text": "From {name}, about order #{job}: \"I stood at the counter and nobody would help me.\"",
+      "job": "yes"
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "walked_out",
+      "subject": "Customer feedback: {name}, order #{job}",
+      "text": "From {name}, about order #{job}: \"I came for my order and nobody helped me, so I left without it.\"",
+      "job": "yes"
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "turned_away",
+      "subject": "Customer feedback: {name}, order #{job}",
+      "text": "From {name}, about order #{job}: \"I was sent away without my order.\"",
+      "job": "yes"
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "general",
+      "subject": "Customer feedback: {name}, order #{job}",
+      "text": "From {name}, about order #{job}: \"The service was not great.\"",
+      "job": "yes"
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "late",
+      "subject": "Customer feedback: {name}, order #{job}",
+      "text": "From {name}, about order #{job}: \"It wasn't ready when they said it would be.\"",
+      "job": "yes"
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "wrong_order",
+      "subject": "Customer feedback: {name}, order #{job}",
+      "text": "From {name}, about order #{job}: \"This isn't what I asked for. I had to explain it twice.\"",
+      "job": "yes"
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "smudged",
+      "subject": "Customer feedback: {name}, order #{job}",
+      "text": "From {name}, about order #{job}: \"The copies were smudged. I paid for clean copies.\"",
+      "job": "yes"
+    },
+    {
+      "speaker": "customer",
+      "moment": "complaint",
+      "about": "unfinished",
+      "subject": "Customer feedback: {name}, order #{job}",
+      "text": "From {name}, about order #{job}: \"It wasn't finished the way I asked.\"",
+      "job": "yes"
+    },
+    {
+      "speaker": "manager",
+      "moment": "reason",
+      "cause": "complaints",
+      "text": "Customers complained, and orders weren't ready on time."
+    },
+    {
+      "speaker": "manager",
+      "moment": "reason",
+      "cause": "ignoring",
+      "text": "Customers were ignored or left waiting, and problems were left alone."
+    },
+    {
+      "speaker": "manager",
+      "moment": "reason",
+      "cause": "lost_sales",
+      "text": "We turned away work we could have done. That's lost sales."
+    },
+    {
+      "speaker": "manager",
+      "moment": "reason",
+      "cause": "overtime",
+      "text": "You stayed far past closing."
     }
   ]
 }

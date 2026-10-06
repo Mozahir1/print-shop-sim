@@ -104,8 +104,11 @@ export function endDay(game: Game, sim: Sim): DayResult {
     heat -= HEAT.writeUpRelief;
     outcome = game.writeUps >= HEAT.writeUpsToFire ? "fired" : "write_up";
   } else if (heat >= HEAT.warnAt) outcome = "warning";
-  if (outcome === "write_up") morning.push(draft("write_up", {}, 0, 0, "complaints"));
-  if (outcome === "warning") morning.push(draft("warning", {}, 0, 0, "complaints"));
+  // (The note says why: whatever added the most heat today.)
+  const why = (Object.keys(m.heatBy) as HeatCause[]).reduce((a, b) => (m.heatBy[b] > m.heatBy[a] ? b : a));
+  const reason = say(POOLS.messages, "reason", { cause: why });
+  if (outcome === "write_up") morning.push(draft("write_up", { reason, count: game.writeUps }, 0, 0, "complaints"));
+  if (outcome === "warning") morning.push(draft("warning", { reason }, 0, 0, "complaints"));
   const clean = m.complaints === 0;
   if (clean) {
     heat -= HEAT.cleanDayCool;
@@ -123,7 +126,7 @@ export function endDay(game: Game, sim: Sim): DayResult {
     game.ending = {
       cause,
       text: say(POOLS.endings, "ending", { cause }),
-      message: say(POOLS.messages, "fired"),
+      message: say(POOLS.messages, "fired", {}, 0, { reason: say(POOLS.messages, "reason", { cause }) }),
       mc: say(POOLS.mc, "fired", {}, game.day),
     };
   }

@@ -34,9 +34,9 @@ export function noteText(state: GameState, j: Job): string {
   const name = (customerById(state, j.customerId)?.name ?? "").split(" ")[0];
   const s = j.spec;
   const item = `${s.item[0].toUpperCase()}${s.item.slice(1)}`;
-  const due = j.dueDay > state.day ? "tomorrow" : formatClock(j.dueAt);
+  const due = j.dueDay > state.day ? `tomorrow ${formatClock(j.dueAt)}` : formatClock(j.dueAt);
   // Until it's in the computer, the details are only in what they said.
-  if (j.status === "new" && !j.walkUp) return fill(NOTE_TEXT.new, { item, name, due });
+  if (j.status === "new") return fill(NOTE_TEXT.new, { item, name, due });
   const parts = [`${item} x${s.copies}`, s.color === "color" ? "color" : "B&W", PAPER[s.media]];
   if (s.duplex) parts.push("2-sided");
   if (s.finishing !== "none") parts.push(s.finishing);
@@ -51,7 +51,7 @@ function hintFor(state: GameState, j: Job): string {
 function nextStep(j: Job): TaskType {
   switch (j.status) {
     case "new":
-      return j.walkUp ? "make_copies" : "enter_order";
+      return "enter_order";
     case "entered":
       return "send_job";
     case "printed":
@@ -99,18 +99,16 @@ export function noteDetail(state: GameState, jobId: number): NoteDetail | null {
   ];
   const rank = RANK[j.status];
   const fin = FINISHING_LABEL[s.finishing];
-  const plan: [TaskType | "printing", boolean][] = j.walkUp
-    ? [["make_copies", rank > 0], [j.prepaid ? "hand_over" : "ring_up", rank >= 7]]
-    : [
-        ["enter_order", rank > 0],
-        ["send_job", rank > 1],
-        ["printing", rank > 2],
-        ["collect", rank > 3],
-        ...(j.smudge === "found" ? ([["reprint", false]] as [TaskType, boolean][]) : []),
-        ...(s.finishing !== "none" ? ([["finish", rank > 4 || (rank === 4 && j.skipped)]] as [TaskType, boolean][]) : []),
-        ["bag", rank > 5],
-        [j.prepaid ? "hand_over" : "ring_up", rank >= 7],
-      ];
+  const plan: [TaskType | "printing", boolean][] = [
+    ["enter_order", rank > 0],
+    ["send_job", rank > 1],
+    ["printing", rank > 2],
+    ["collect", rank > 3],
+    ...(j.smudge === "found" ? ([["reprint", false]] as [TaskType, boolean][]) : []),
+    ...(s.finishing !== "none" ? ([["finish", rank > 4 || (rank === 4 && j.skipped)]] as [TaskType, boolean][]) : []),
+    ["bag", rank > 5],
+    [j.prepaid ? "hand_over" : "ring_up", rank >= 7],
+  ];
   let now = j.status !== "canceled";
   const steps = plan.map(([t, isDone]) => {
     const st = isDone ? "done" : now ? "now" : "todo";
@@ -118,7 +116,7 @@ export function noteDetail(state: GameState, jobId: number): NoteDetail | null {
     if (t === "printing") return { text: NOTE_TEXT.printing, station: "printer" as Station, state: st as "done" | "now" | "todo" };
     const hint = fill(STEP[t].hint, { finishing: fin });
     const when = t === "ring_up" || t === "hand_over" ? `${hint} when they come back` : hint;
-    return { text: j.walkUp && (t === "ring_up" || t === "hand_over") ? hint : when, station: STEP[t].station, state: st as "done" | "now" | "todo" };
+    return { text: when, station: STEP[t].station, state: st as "done" | "now" | "todo" };
   });
-  return { jobId: j.id, name, item: `${s.item[0].toUpperCase()}${s.item.slice(1)}`, entered: j.walkUp || rank > 0, rows, steps, done: rank >= 7 };
+  return { jobId: j.id, name, item: `${s.item[0].toUpperCase()}${s.item.slice(1)}`, entered: rank > 0, rows, steps, done: rank >= 7 };
 }

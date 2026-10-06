@@ -84,19 +84,37 @@ const boxes = new Map<HTMLElement, { tab: Tab; html: string }>();
 
 // A station's modal box (its dialogue, form, or keypad). It's shown while you're at that station and it has something
 // in it, and redrawn only when what it shows changes (so a form never loses what you've typed).
-export function modalBox(tab: Tab, cls: string): (html: string, as?: string) => void {
+export function modalBox(tab: Tab, cls: string): ((html: string, as?: string) => void) & { el: HTMLElement } {
   const el = document.createElement("div");
   el.className = `modal-box ${cls}`;
   el.hidden = true;
   $("modal").append(el);
   boxes.set(el, { tab, html: "" });
-  return (html, as = cls) => {
+  const set = (html: string, as = cls) => {
     const b = boxes.get(el)!;
     if (html === b.html) return;
     b.html = html;
     el.className = `modal-box ${as}`; // (the counter's box is the dialogue, or the keypad)
     el.innerHTML = html;
   };
+  return Object.assign(set, { el });
+}
+
+// Where the modal that's up sits, in layout pixels from the stage's corner (so things on the stage can keep clear of it).
+export function modalRect(): { x: number; y: number; w: number; h: number } | null {
+  const box = [...document.querySelectorAll<HTMLElement>("#modal .modal-box")].find((el) => !el.hidden);
+  if (!box) return null;
+  const r = box.getBoundingClientRect();
+  const st = $("stage").getBoundingClientRect();
+  return { x: (r.left - st.left) / u, y: (r.top - st.top) / u, w: r.width / u, h: r.height / u };
+}
+
+// A part of a modal box, redrawn only when it changes (so the computer's badges never redraw a form you're typing in).
+export function modalPart(box: HTMLElement, selector: string, html: string): void {
+  const el = box.querySelector<HTMLElement>(selector);
+  if (!el || el.dataset.html === html) return;
+  el.dataset.html = html;
+  el.innerHTML = html;
 }
 
 // What's up, in order: a screen (start, report), the note you opened, or the station's own.
