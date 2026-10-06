@@ -36,10 +36,13 @@ whether a first-time human can understand and do it. See `SIM_SPEC.md`.
   - `consequences.ts`, `mood.ts`, `events.ts` heat, write-ups, delayed flags, bad luck events
   - `game.ts`, `summary.ts` days, saving, endings, reports
   - `bot.ts` playstyles for batch balancing
-- `view/`: Phaser layer. `run.ts` controller, `station.ts` base station scene and interaction components,
-  `scenes.ts` per-station scenes, `ui.ts` top bar/tabs/notes, `juice.ts` feedback effects, `assets.ts` manifest loading
-  and generated placeholders, `config.ts` view settings.
-- `ui/`: older DOM helpers (`view.ts`, `dev.ts`). Dev mode lives here.
+- `view/`: the view. `layout.ts` the 1280x720 screen regions (top bar, stage, right rail, bottom bar) and the stage's
+  action strip, in one place; `hud.ts` the DOM HUD over the canvas (bars, sticky notes, one modal at a time, toasts,
+  tooltips); `audit.ts` runtime layout checks (`window.audit()` in dev); `run.ts` controller; `station.ts` base station
+  scene (camera on the stage region, art pixels at 2x) and interaction components; `scenes.ts` per-station scenes;
+  `ui.ts` boot + clock scene; `juice.ts` feedback effects; `assets.ts` manifest loading and placeholders (category
+  color + pixel icon from `icons.ts`); `config.ts` view settings (render resolution, fonts, clock).
+- `ui/`: DOM HTML builders (`view.ts`: dialogue, forms, keypad, unfolded notes, screens; `dev.ts` dev drawer).
 - `assets/manifest.json` every sprite (size, anchor, layer, layout); `assets/sounds.json`.
 - `data/` all content as JSON (customers, dialogue, MC lines, messages, failures, workflows).
 - `scripts/batch-sim.ts` headless balancing; `scripts/art-checklist.ts` generates the art to-do list.
@@ -59,5 +62,21 @@ whether a first-time human can understand and do it. See `SIM_SPEC.md`.
   human-play checks in `SIM_SPEC.md`.
 
 ## Status
-- Git: the v7 Phaser work (manifest, scenes, juice) is uncommitted. Commit it first as a checkpoint before changing anything.
-- Art: placeholders only. The owner will draw custom pixel art later from `ART_CHECKLIST.md`.
+- Spec v8 Phase 1 done (2026-10-05): 1280x720 FIT at device resolution, DOM HUD in rem (1rem = 20 layout px), fixed
+  regions with `layout.test.ts` + `audit.ts`, readable placeholders, tooltips. Screenshots in `playtest/phase1/`.
+  Also added (owner request): tap a sticky note to unfold it (full details + step checklist; the clock waits).
+- Phase 2 done (2026-10-05): no hand slot; tap to pick up / tap to place (or drag), `ctl.carry` + a pointer ghost +
+  "Holding:" in the top bar (tap it or Escape to put it back); glow + bouncing arrow with each part's `say`/`put`
+  (workflows.json) on what's next, the free next thing glows too; wrong taps say what it is and what to do; tabs glow
+  only for the next step while you're mid-workflow. Screenshots in `playtest/phase2/`.
+- Phase 3 done (2026-10-05): nobody steps up mid-workflow (`atCounter`/`inLine` in ui/view.ts), visible line +
+  "N waiting" + Counter tab badge, line walkouts animate and say how long they waited. Clock pacing moved to
+  `sim/clock.ts` (also slows while someone waits to be called). `sim/humanbot.ts` + `npm run batch -- --pace human`
+  tune against a first-time player. Tuning: business give-up 25 and 0.75 busy rate, RUSH_BUFFER 35, next-day and web
+  promises leave time to print, bad luck eases in (EASE_IN), `suggested()` ordering for "Next:" and the human bot.
+  Result (smart, 30 games): walkout days 0% / 3% / 7% on days 1 to 3, 10% on day 5; residual = late order + bad luck.
+  Next: Phase 4 (computer redesign).
+- Known for later phases: phone sizes are the same layout scaled down (about 11px text on an 844x390 phone, worse in
+  portrait).
+- Art: placeholders only. The owner will draw custom pixel art later from `ART_CHECKLIST.md` (2x art grid, 500x266 per
+  station).

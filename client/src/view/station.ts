@@ -1,17 +1,22 @@
 // A station scene: its objects come from the manifest layout, and the hands-on part of whatever step you're on is set
-// up on them from the step data: drag the actual sprite onto its target, hold a tool over something (progress shows
-// on it, letting go pauses), tap things, or pick one by looking. Steps with nothing to do by hand get in-world
-// buttons. Subclasses only add what that station shows (the stack growing, the customer walking in, ...).
+// up on them from the step data: pick something up and put it where it goes (tap it, then tap where it goes; or drag
+// it there), hold a tool over something (progress shows on it, letting go pauses), tap things, or pick one by
+// looking. What to do next always has a glow and a bouncing arrow with a few words on it. Steps with nothing to do by
+// hand get in-world buttons, in the action strip along the bottom. Subclasses only add what that station shows (the
+// stack growing, the customer walking in, ...). Everything here is in art pixels: the camera draws the scene on the
+// stage region at ART times that (see layout.ts).
 import Phaser from "phaser";
 import { availableTasks } from "../sim/todo";
-import { currentStep, STEP } from "../sim/workflow";
+import { currentStep } from "../sim/workflow";
 import { canStart, previewTask } from "../sim/sim";
 import type { Station as SimStation, TaskRequest } from "../sim/types";
-import { LAYOUT, SPOT, SPRITES, sound, sprite } from "./assets";
-import { BOTTOM, FONT, HOLD_MS, SNAP } from "./config";
-import { ctl, doTask, hands, holding, nextPart, part, picked, state, stepKey, tapped } from "./run";
+import { LAYOUT, SPRITES, sound, sprite } from "./assets";
+import { FONT, HOLD_MS, RES, SNAP } from "./config";
+import { ACTIONS, ART, BUTTON_H, REGION, STAGE_W } from "./layout";
+import { ctl, doTask, hands, hintOf, holding, nextPart, part, picked, sayNow, state, stepKey, tapped } from "./run";
+import { tooltip } from "./hud";
 import { bounce, say, snapBack, sparkle, squash } from "./juice";
-import { tabOf, type Tab } from "../ui/view";
+import { tabOf, TABS, type Tab } from "../ui/view";
 
 export type Obj = Phaser.GameObjects.Sprite | Phaser.GameObjects.Container;
 export interface Candidate {
@@ -19,16 +24,19 @@ export interface Candidate {
   value: string | number;
 }
 
+const DRAG = 6; // art pixels the pointer moves before a press counts as a drag
+
 export abstract class Station extends Phaser.Scene {
   objs = new Map<string, Phaser.GameObjects.Sprite>();
-  private home = new Map<Obj, { x: number; y: number }>();
   private temp: Phaser.GameObjects.GameObject[] = []; // what the current part or buttons put up
+  private dimmed: Obj[] = []; // what you can't put the thing you're holding on
   private sig = "";
   private holdTool: Obj | null = null;
   private holdOn: Obj | null = null;
   private holdingNow = false;
   private bar!: Phaser.GameObjects.Graphics;
-  doms: HTMLElement[] = []; // this station's overlays (see overlay() in scenes.ts)
+  private tipFor: Obj | null = null; // what the tooltip is naming
+  private press: { x: number; y: number; picked: boolean } | null = null; // the press in progress
 
   constructor(public tab: Tab, private stations: SimStation[]) {
     super(tab);
@@ -47,41 +55,47 @@ export abstract class Station extends Phaser.Scene {
     return this.objs.get(name);
   } // where tap targets that aren't in the layout appear
   protected showPart(): void {} // forms and the keypad
-  protected freeButtons = true;
+  protected freeButtons = true; // what you could start here, as buttons in the action strip
+  protected stepButtons = true; // the step you're on, as buttons in the action strip (the computer has its own)
 
   create(): void {
+    const st = REGION.stage;
+    this.cameras.main.setViewport(st.x * RES, st.y * RES, st.w * RES, st.h * RES).setOrigin(0, 0).setZoom(ART * RES);
     for (const o of LAYOUT[this.tab]) {
       const s = sprite(this, o.key, o.x, o.y);
       this.objs.set(o.key, s);
-      this.home.set(s, { x: o.x, y: o.y });
       if (SPRITES[o.key].layer === "interactive") s.setInteractive({ useHandCursor: true });
       s.setData("starts", o.starts ?? []);
     }
     this.bar = this.add.graphics().setDepth(55);
     this.build();
+    // Order matters: an object's press comes first (picking something up), then the scene's (putting it down).
     this.input.on("gameobjectdown", (_p: Phaser.Input.Pointer, o: Obj) => this.down(o));
-    this.input.on("pointerup", () => (this.holdingNow = false));
-    this.input.on("dragstart", (_p: Phaser.Input.Pointer, o: Obj) => {
-      o.setData("dragging", true).setDepth(50);
-      squash(o);
-      sound(this, "pick_up");
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => this.pressed(p));
+    this.input.on("pointerup", (p: Phaser.Input.Pointer) => this.released(p));
+    // Names show on hover, at a readable size (placeholders have no text on them).
+    this.input.on("gameobjectover", (_p: Phaser.Input.Pointer, o: Obj) => {
+      const name = (o.getData("tip") as string | undefined) ?? SPRITES[o.name]?.label;
+      const b = o.getBounds();
+      if (!name || ctl.carry) return;
+      this.tipFor = o;
+      tooltip(name, b.centerX * ART, Math.max(12, b.top * ART - 4));
     });
-    this.input.on("drag", (_p: Phaser.Input.Pointer, o: Obj, x: number, y: number) => o.setPosition(x, y));
-    this.input.on("dragend", (p: Phaser.Input.Pointer, o: Obj) => this.dropped(p, o));
-    // DOM overlays belong to the station you're looking at.
-    this.events.on("sleep", () => this.doms.forEach((d) => (d.style.display = "none")));
-    this.events.on("wake", () => {
-      this.doms.forEach((d) => (d.style.display = ""));
-      this.sig = "";
+    this.input.on("gameobjectout", () => {
+      this.tipFor = null;
+      tooltip(null);
     });
-    if (ctl.tab !== this.tab) {
-      this.scene.sleep(); // (the UI scene wakes the one you're looking at)
-      this.doms.forEach((d) => (d.style.display = "none"));
-    }
+    this.events.on("sleep", () => tooltip(null));
+    this.events.on("wake", () => (this.sig = ""));
+    if (ctl.tab !== this.tab) this.scene.sleep(); // (the UI scene wakes the one you're looking at)
   }
 
   update(_t: number, dt: number): void {
     if (!ctl.sim) return;
+    if (this.tipFor && (!this.tipFor.visible || !this.tipFor.active || ctl.carry)) {
+      this.tipFor = null;
+      tooltip(null); // (it went away under the pointer)
+    }
     this.refresh();
     const sig = this.signature();
     if (sig !== this.sig) {
@@ -107,7 +121,7 @@ export abstract class Station extends Phaser.Scene {
   private signature(): string {
     const s = state();
     const d = ctl.doing;
-    if (d) return `d:${d.key}:${d.i}:${tabOf(d.req.type) === this.tab}`;
+    if (d) return `d:${d.key}:${d.i}:${d.count}:${tabOf(d.req.type) === this.tab}:${ctl.carry?.ref ?? ""}`;
     const step = currentStep(s);
     if (step) return `s:${stepKey(step.req)}:${!!s.employee.task}:${step.alts.length}`;
     return `f:${this.free().map(stepKey).join(",")}`;
@@ -120,8 +134,11 @@ export abstract class Station extends Phaser.Scene {
   private clearTemp(): void {
     this.temp.forEach((o) => o.destroy());
     this.temp = [];
+    this.dimmed.forEach((o) => o.setAlpha(1));
+    this.dimmed = [];
     this.holdTool = this.holdOn = null;
-    for (const o of [...this.objs.values(), ...this.specials()]) if (o.input?.draggable) this.input.setDraggable(o, false);
+    // Whatever you were carrying from here is back (or put where it went): the scene shows it as it should be.
+    for (const o of [...this.objs.values(), ...this.specials()]) if (o.getData("dragging") && ctl.carry?.tab !== this.tab) o.setData("dragging", false).setVisible(true);
   }
 
   protected specials(): Obj[] {
@@ -140,11 +157,25 @@ export abstract class Station extends Phaser.Scene {
     if (step && !s.employee.task) {
       if (tabOf(step.type) !== this.tab || step.type === "respond" || step.type === "talk") return;
       if (hands(step.req) && !step.alts.length) return; // (it's started for you: see follow() in run.ts)
+      if (!this.stepButtons) return;
       const reqs = [step.req, ...step.alts];
-      this.buttons(reqs.map((r, i) => ({ label: `${reqs.length > 1 ? (i ? "Don't: " : "Do: ") : ""}${previewTask(s, r).label}`, req: r })), reqs.length > 1);
+      const first = this.buttons(reqs.map((r, i) => ({ label: `${reqs.length > 1 ? (i ? "Don't: " : "Do: ") : ""}${previewTask(s, r).label}`, req: r })), reqs.length > 1);
+      if (first) this.guide(first, hintOf(step.req));
       return;
     }
-    if (!step && this.freeButtons) this.buttons(this.free().map((r) => ({ label: previewTask(s, r).label, req: r })));
+    if (step) return;
+    // Free: whatever you could start here glows (tap it to start), and the first gets the arrow.
+    const free = this.free();
+    if (this.freeButtons) this.buttons(free.map((r) => ({ label: previewTask(s, r).label, req: r })));
+    let first = true;
+    for (const o of this.objs.values()) {
+      const starts = (o.getData("starts") ?? []) as string[];
+      const req = free.find((r) => starts.includes(r.type));
+      if (!req || !o.visible) continue;
+      this.pulse(o);
+      if (first) this.guide(o, previewTask(s, req).label);
+      first = false;
+    }
   }
 
   // What you could start here while you're free.
@@ -154,46 +185,57 @@ export abstract class Station extends Phaser.Scene {
     return this.stations.flatMap((st) => availableTasks(s, st)).filter((r) => r.type !== "talk" && tabOf(r.type) === this.tab);
   }
 
-  // In-world buttons along the bottom of the station.
-  protected buttons(list: { label: string; req: TaskRequest }[], choice = false): void {
-    let x = 8;
-    let y = BOTTOM - 22;
+  // In-world buttons in the action strip, one row. Labels never get cut off: if they don't all fit, the later ones
+  // wait (there are rarely more than two). Returns the first one.
+  protected buttons(list: { label: string; req: TaskRequest }[], choice = false): Obj | null {
+    let x = ACTIONS.x + 3;
+    const y = ACTIONS.y + ACTIONS.h / 2;
+    let first: Obj | null = null;
     for (const { label, req } of list.slice(0, 6)) {
       const t = this.add.text(0, 0, label, { ...FONT, color: "#ffffff" }).setOrigin(0, 0.5);
-      const w = Math.min(300, t.width + 12);
-      if (x + w > 632) {
-        x = 8;
-        y -= 22;
+      const w = t.width + 16;
+      if (x + w > STAGE_W - 3) {
+        t.destroy();
+        break;
       }
       const dont = choice && list.findIndex((l) => l.req === req) > 0;
-      const bg = this.add.rectangle(0, 0, w, 18, dont ? 0x6b4a2a : 0x2f5d8a).setOrigin(0, 0.5).setStrokeStyle(1, 0x10141a).setInteractive({ useHandCursor: true });
-      t.setPosition(6, 0).setCrop(0, 0, w - 10, 20);
-      const c = this.add.container(x, y, [bg, t]).setDepth(45);
+      const bg = this.add.rectangle(0, 0, w, BUTTON_H, dont ? 0x6b4a2a : 0x2f5d8a).setOrigin(0, 0.5).setStrokeStyle(1, 0x10141a).setInteractive({ useHandCursor: true });
+      bg.setData("button", true);
+      t.setPosition(8, 0);
+      const c = this.add.container(x, y, [bg, t]).setDepth(45).setSize(w, BUTTON_H);
       bg.on("pointerdown", () => {
         squash(c);
         doTask(req);
       });
       this.temp.push(c);
-      x += w + 6;
+      first ??= c;
+      x += w + 4;
     }
+    return first;
   }
 
   // ---------- the part you're on ----------
 
   private setUpPart(): void {
-    const p = part(ctl.doing!);
-    const hint = this.add.text(320, 30, STEP[ctl.doing!.req.type].hint.replace("{finishing}", "Finish it") + this.howTo(), { ...FONT, color: "#ffffff", backgroundColor: "#1f2328cc", padding: { x: 4, y: 2 } }).setOrigin(0.5, 0).setDepth(58);
-    this.temp.push(hint);
+    const d = ctl.doing!;
+    const p = part(d);
+    const text = sayNow(d);
     if (p.drag) {
       const o = this.find(p.drag);
       const to = p.to === "hands" ? undefined : this.find(p.to!);
       if (!o) return;
-      o.setVisible(true).setDepth(46); // on top, so it's what you grab
       if (!o.input) o.setInteractive({ useHandCursor: true });
-      this.input.setDraggable(o, true);
-      this.home.set(o, { x: o.x, y: o.y });
-      this.pulse(to ?? null);
-      this.pulse(o);
+      if (ctl.carry?.ref === p.drag) {
+        // You're holding it: it's off the table, where it goes glows, and nothing else does.
+        o.setData("dragging", true).setVisible(false);
+        this.dimAllBut(to ?? null);
+        this.pulse(to ?? null);
+        if (to) this.guide(to, text);
+      } else {
+        o.setVisible(true).setDepth(46); // on top, so it's what you pick up
+        this.pulse(o);
+        this.guide(o, text);
+      }
     }
     if (p.tap) {
       const n = p.n ?? 1;
@@ -201,15 +243,20 @@ export abstract class Station extends Phaser.Scene {
       if (n === 1 && own && own.visible) {
         own.setData("tap", true);
         this.pulse(own);
+        this.guide(own, text);
       } else {
         const around = this.tapAround(p.tap) ?? this.cameras.main.midPoint;
         const b = "getBounds" in around ? (around as Obj).getBounds() : new Phaser.Geom.Rectangle(around.x - 40, around.y - 30, 80, 60);
-        for (let i = ctl.doing!.count; i < n; i++) {
+        const ring: Obj[] = [];
+        for (let i = d.count; i < n; i++) {
           const a = (i / n) * Math.PI * 2;
           const t = sprite(this, p.tap, b.centerX + Math.cos(a) * (b.width / 2 + 14), b.centerY + Math.sin(a) * (b.height / 2 + 10)).setInteractive({ useHandCursor: true }).setDepth(40);
           t.setData("tap", true);
           this.temp.push(t);
+          ring.push(t);
+          this.pulse(t);
         }
+        if (ring.length) this.guide(ring.map((o) => o.getBounds()).reduce((a, b) => Phaser.Geom.Rectangle.Union(a, b)), text); // (above them all)
       }
     }
     if (p.hold) {
@@ -218,41 +265,78 @@ export abstract class Station extends Phaser.Scene {
       this.holdTool?.setVisible(true);
       if (this.holdTool && !this.holdTool.input) this.holdTool.setInteractive({ useHandCursor: true });
       this.pulse(this.holdTool);
+      if (this.holdTool) this.guide(this.holdTool, text);
     }
-    if (p.pick) for (const c of this.candidates(p.pick)) this.pulse(c.obj);
+    if (p.pick) {
+      const cs = this.candidates(p.pick);
+      for (const c of cs) this.pulse(c.obj);
+      // (Which one is up to you: the arrow points at the lot.)
+      if (cs.length) this.guide(cs.map((c) => c.obj.getBounds()).reduce((a, b) => Phaser.Geom.Rectangle.Union(a, b)), text);
+    }
     this.showPart();
   }
 
-  private howTo(): string {
-    const p = part(ctl.doing!);
-    if (p.drag) return ": drag it over";
-    if (p.hold) return ": press and hold";
-    if (p.tap) return (p.n ?? 1) > 1 ? `: tap each one (${(p.n ?? 1) - ctl.doing!.count})` : ": tap it";
-    if (p.pick) return ": pick the right one";
-    return "";
-  }
-
+  // A glow around something you should click.
   private pulse(o: Obj | null): void {
     if (!o) return;
     const b = o.getBounds();
-    const r = this.add.rectangle(b.centerX, b.centerY, b.width + 6, b.height + 6).setStrokeStyle(1, 0xe0a54a).setDepth(44);
-    this.tweens.add({ targets: r, alpha: 0.2, duration: 450, yoyo: true, repeat: -1 });
-    this.temp.push(r);
+    const glow = this.add.rectangle(b.centerX, b.centerY, b.width + 8, b.height + 8, 0xffd27a, 0.18).setStrokeStyle(3, 0xf2b441).setDepth(44);
+    this.tweens.add({ targets: glow, alpha: 0.35, duration: 450, yoyo: true, repeat: -1 });
+    this.temp.push(glow);
   }
 
+  // A bouncing arrow at something, with what to do there. It sits above it (below it, if there's no room above).
+  private guide(at: Obj | Phaser.Geom.Rectangle, text: string): void {
+    const b = at instanceof Phaser.Geom.Rectangle ? at : at.getBounds();
+    const below = b.top < 40;
+    const tip = below ? b.bottom + 6 : b.top - 6;
+    const dir = below ? -1 : 1;
+    const g = this.add.graphics();
+    g.fillStyle(0xf2b441).lineStyle(1, 0x10141a);
+    g.fillTriangle(-7, -10 * dir, 7, -10 * dir, 0, 0).strokeTriangle(-7, -10 * dir, 7, -10 * dir, 0, 0);
+    const label = this.add.text(0, -12 * dir, text, { ...FONT, color: "#ffffff", backgroundColor: "#10141aee", padding: { x: 4, y: 2 }, fontStyle: "bold" }).setOrigin(0.5, below ? 0 : 1);
+    const half = label.width / 2;
+    label.x = Phaser.Math.Clamp(b.centerX, half + 2, STAGE_W - half - 2) - b.centerX; // (kept on the stage)
+    const arrow = this.add.container(b.centerX, tip, [g, label]).setDepth(70);
+    this.tweens.add({ targets: arrow, y: tip - 4 * dir, duration: 380, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    this.temp.push(arrow);
+  }
+
+  // While you're holding something, everything you can't put it on fades back.
+  private dimAllBut(keep: Obj | null): void {
+    for (const o of [...this.objs.values(), ...this.specials()]) {
+      if (o === keep || !o.input || !o.visible || o.alpha < 1) continue;
+      o.setAlpha(0.35);
+      this.dimmed.push(o);
+    }
+  }
+
+  private worldOf(p: Phaser.Input.Pointer): Phaser.Math.Vector2 {
+    return this.cameras.main.getWorldPoint(p.x, p.y);
+  }
+
+  private label(o: Obj): string {
+    const name = (o.getData("tip") as string | undefined) ?? SPRITES[o.name]?.label ?? "that";
+    return name === "that" ? "That's not it" : `That's the ${name.toLowerCase()}`;
+  }
+
+  // Pressing on an object: pick it up, tap it, start holding it, pick it, or start what it's for.
   private down(o: Obj): void {
+    if (o.getData("button")) return; // (buttons do their own thing)
     const d = ctl.doing;
     if (d && tabOf(d.req.type) === this.tab) {
       const p = part(d);
+      if (p.drag && !ctl.carry && o === this.find(p.drag)) return this.pickUp(o, p.to === "hands");
+      if (ctl.carry) return; // (putting it down: see pressed())
       if (p.tap && o.getData("tap")) {
         sound(this, "stapler");
         const last = tapped();
         if (this.temp.includes(o)) {
+          o.disableInteractive(); // (done with; it shrinks away)
           this.tweens.add({ targets: o, scale: 0, alpha: 0, duration: 120, onComplete: () => o.destroy() });
           this.temp = this.temp.filter((x) => x !== o);
         } else bounce(o);
         if (last) this.done(o);
-        else this.sig = ""; // (the hint's count)
         return;
       }
       if (p.hold && (o === this.holdTool || o === this.holdOn)) {
@@ -262,43 +346,81 @@ export abstract class Station extends Phaser.Scene {
       }
       if (p.pick) {
         const c = this.candidates(p.pick).find((x) => x.obj === o);
-        if (!c) return;
-        const err = picked(c.value);
-        if (err) {
-          snapBack(o, o.x, o.y);
-          say(this, o.x, o.y - 30, err);
-          sound(this, "nope");
-        } else this.done(o);
-        return;
+        if (c) {
+          const err = picked(c.value);
+          if (err) {
+            snapBack(o, o.x, o.y);
+            say(this, o.x, o.y - 30, err);
+            sound(this, "nope");
+          } else this.done(o);
+          return;
+        }
       }
-      return;
+      return this.wrong(o.x, o.getBounds().top - 6, `${this.label(o)}. ${sayNow(d)}.`);
     }
+    if (ctl.carry) return;
     // Free: tapping an object starts what it's for.
     const starts = (o.getData("starts") ?? []) as string[];
-    if (!starts.length || state().workflow) return;
+    if (!starts.length) return;
+    if (state().workflow) return this.wrong(o.x, o.getBounds().top - 6, "Finish what you're doing first.");
     const req = this.free().find((r) => starts.includes(r.type)) ?? this.stations.flatMap((st) => availableTasks(state(), st)).find((r) => starts.includes(r.type) && canStart(state(), r) === null);
     if (req) doTask(req);
-    else shake(o, this);
+    else this.wrong(o.x, o.getBounds().top - 6, `Nothing to do with the ${(SPRITES[o.name]?.label ?? "that").toLowerCase()} right now.`);
   }
 
-  private dropped(p: Phaser.Input.Pointer, o: Obj): void {
-    o.setData("dragging", false);
-    const home = this.home.get(o) ?? { x: o.x, y: o.y };
+  private pickUp(o: Obj, isTheWholePart: boolean): void {
+    sound(this, "pick_up");
+    squash(o);
+    if (isTheWholePart) return this.done(o, false); // (collecting: picking it up is all there is to it)
+    ctl.carry = { ref: part(ctl.doing!).drag!, texture: o instanceof Phaser.GameObjects.Sprite ? o.texture.key : "item/box", tab: this.tab };
+    this.press = { ...this.worldOf(this.input.activePointer), picked: true };
+    this.sig = "";
+  }
+
+  // A press anywhere on the stage. While you're holding something, it's where you're putting it.
+  private pressed(p: Phaser.Input.Pointer): void {
+    this.tipFor = null;
+    tooltip(null);
+    if (this.press?.picked) return; // (this press just picked it up)
+    const at = this.worldOf(p);
+    this.press = { x: at.x, y: at.y, picked: false };
+    if (ctl.carry && ctl.carry.tab !== this.tab) return this.wrong(at.x, at.y - 12, `Take it back to ${TABS.find((t) => t.id === ctl.carry!.tab)!.label}.`);
+    if (ctl.carry) this.putDown(p);
+  }
+
+  // Letting go: of a tool you were holding, or of something you dragged (over where it goes, it's put there).
+  private released(p: Phaser.Input.Pointer): void {
+    this.holdingNow = false;
+    const press = this.press;
+    this.press = null;
+    if (!press?.picked || !ctl.carry) return;
+    const at = this.worldOf(p);
+    if (Phaser.Math.Distance.Between(press.x, press.y, at.x, at.y) >= DRAG) this.putDown(p); // (a drag, not a tap)
+  }
+
+  private putDown(p: Phaser.Input.Pointer): void {
     const d = ctl.doing;
-    const want = d ? part(d).to : undefined;
-    const hit = (t: Obj | { x: number; y: number }, r: number) => Phaser.Math.Distance.Between(p.x, p.y, t.x, t.y) <= r;
-    const target = want === "hands" ? { x: SPOT.handSlot[0], y: SPOT.handSlot[1] } : want ? this.find(want) : undefined;
-    const radius = target && "getBounds" in target ? SNAP + Math.max(target.getBounds().width, target.getBounds().height) / 2 : SNAP + 10;
-    const centre = target && "getBounds" in target ? { x: target.getBounds().centerX, y: target.getBounds().centerY } : target;
-    if (centre && hit(centre, radius)) {
-      sound(this, "drop");
-      this.tweens.add({ targets: o, x: centre.x, y: centre.y, scale: 0.8, duration: 120, onComplete: () => o.setPosition(home.x, home.y).setScale(1) });
-      this.done(target && "getBounds" in target ? target : o, false);
-      return;
+    if (!d || !ctl.carry) return;
+    const want = part(d).to;
+    const target = want ? this.find(want) : undefined;
+    const at = this.worldOf(p);
+    if (target) {
+      const b = target.getBounds();
+      const reach = SNAP + Math.max(b.width, b.height) / 2; // (forgiving)
+      if (Phaser.Math.Distance.Between(at.x, at.y, b.centerX, b.centerY) <= reach) {
+        sound(this, "drop");
+        this.done(target, false);
+        return;
+      }
     }
-    snapBack(o, home.x, home.y);
+    const hit = (this.input.hitTestPointer(p) as Obj[]).find((o) => o.visible && !o.getData("button"));
+    this.wrong(at.x, at.y - 12, `${hit ? `${this.label(hit)}. ` : ""}${sayNow(d)}.`);
+  }
+
+  // Not that: a few words where you clicked, and what to do instead.
+  private wrong(x: number, y: number, text: string): void {
     sound(this, "nope");
-    say(this, home.x, home.y - 30, `That goes ${want === "hands" ? "in your hands" : `on the ${(want ?? "").split("/").pop()?.replace(/_/g, " ")}`}.`);
+    say(this, x, y, text, "#b3261e", 1600);
   }
 
   // A part's done: a check mark, and on to the next (the last one does the step).
@@ -309,8 +431,4 @@ export abstract class Station extends Phaser.Scene {
     if (!alreadyAdvanced) nextPart();
     this.sig = "";
   }
-}
-
-function shake(o: Obj, scene: Phaser.Scene): void {
-  scene.tweens.add({ targets: o, x: o.x + 3, duration: 40, yoyo: true, repeat: 2 });
 }

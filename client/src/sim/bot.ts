@@ -14,7 +14,7 @@ import type { CounterAction, GameState, OrderEntry, TaskRequest } from "./types"
 import { createRng, type Rng } from "./rng";
 import { abandonWorkflow, goHome, startTask, workLeft } from "./sim";
 import { currentStep } from "./workflow";
-import { DONT, todoList, type TodoItem } from "./todo";
+import { DONT, suggested, todoList, type TodoItem } from "./todo";
 import { quoteFor, rushBumpsSomeone } from "./quote";
 import { isPrintKind } from "./customers";
 import { customerById, jobById, packageById } from "./util";
@@ -28,6 +28,14 @@ export interface Bot {
   rng: Rng;
   reaction: number; // seconds between looks at the store when idle
   cooldown: number;
+  guided?: boolean; // does what the game suggests next (todo.ts suggested(): what a person does; see humanbot.ts)
+  ready?: (state: GameState, req: TaskRequest) => boolean; // false: not yet (a person's still doing it by hand)
+}
+
+// Starts it, if whoever's playing is ready to (see Bot.ready). Returns whether that's the bot's move for now.
+function go(bot: Bot, state: GameState, req: TaskRequest): boolean {
+  if (bot.ready && !bot.ready(state, req)) return true;
+  return startTask(state, req) === null;
 }
 
 export function createBot(reaction = 1, style: BotStyle = "smart", seed = 1): Bot {
@@ -43,7 +51,7 @@ export function botAct(bot: Bot, state: GameState, dt: number): void {
   const step = currentStep(state);
   if (step) {
     const req = choose(bot, state, step.req, step.type === "respond" ? todoList(state)[0]?.alts ?? [] : step.alts);
-    if (req && startTask(state, req) === null) return;
+    if (req && go(bot, state, req)) return;
     if (!req) abandonWorkflow(state);
     return;
   }
@@ -67,9 +75,10 @@ export function botAct(bot: Bot, state: GameState, dt: number): void {
     }
   }
   if (bot.style === "do_everything") items.sort((a, b) => arrivalOrder(state, a) - arrivalOrder(state, b));
+  if (bot.guided) items = suggested(items); // (stable: within each rank, the style's own order)
   for (const item of items) {
     const req = choose(bot, state, item.req, item.alts);
-    if (req && startTask(state, req) === null) return;
+    if (req && go(bot, state, req)) return;
   }
 }
 

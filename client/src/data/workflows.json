@@ -42,7 +42,9 @@
       "hands": [
         {
           "drag": "held",
-          "to": "customer"
+          "to": "customer",
+          "say": "Pick up their order",
+          "put": "Hand it to them"
         }
       ]
     },
@@ -142,7 +144,8 @@
       "hint": "Fix the reader",
       "hands": [
         {
-          "hold": "computer/reader_box"
+          "hold": "computer/reader_box",
+          "say": "Hold the reset button on the reader box"
         }
       ]
     },
@@ -157,7 +160,8 @@
       "hint": "Restart the router",
       "hands": [
         {
-          "hold": "computer/router"
+          "hold": "computer/router",
+          "say": "Hold the router's power button"
         }
       ]
     },
@@ -173,7 +177,8 @@
       "hands": [
         {
           "drag": "printer/stack",
-          "to": "hands"
+          "to": "hands",
+          "say": "Pick up the stack"
         }
       ]
     },
@@ -209,11 +214,13 @@
       "hands": [
         {
           "tap": "printer/jam_panel",
-          "n": 1
+          "n": 1,
+          "say": "Open the jam door"
         },
         {
           "tap": "printer/jam_sheet",
-          "n": 4
+          "n": 4,
+          "say": "Pull out the jammed sheets"
         }
       ]
     },
@@ -229,7 +236,9 @@
       "hands": [
         {
           "drag": "printer/ream",
-          "to": "printer/tray"
+          "to": "printer/tray",
+          "say": "Pick up the ream",
+          "put": "Put it in the tray"
         }
       ]
     },
@@ -260,15 +269,21 @@
       "hands": [
         {
           "drag": "finishing/stack",
-          "to": "finishing/bag"
+          "to": "finishing/bag",
+          "say": "Pick up the stack",
+          "put": "Put it in the bag"
         },
         {
           "drag": "finishing/name_label",
-          "to": "finishing/bag"
+          "to": "finishing/bag",
+          "say": "Pick up the name label",
+          "put": "Stick it on the bag"
         },
         {
           "drag": "finishing/bag",
-          "to": "finishing/shelf_cart"
+          "to": "finishing/shelf_cart",
+          "say": "Pick up the bag",
+          "put": "Put it on the cart"
         }
       ]
     },
@@ -304,7 +319,8 @@
       "hands": [
         {
           "tap": "counter/copier",
-          "n": 1
+          "n": 1,
+          "say": "Tap the copier to fix it"
         }
       ]
     },
@@ -330,7 +346,9 @@
       "hands": [
         {
           "drag": "box",
-          "to": "shipping/scale"
+          "to": "shipping/scale",
+          "say": "Pick up the box",
+          "put": "Put it on the scale"
         }
       ]
     },
@@ -345,15 +363,19 @@
       "hint": "Box it",
       "hands": [
         {
-          "pick": "box"
+          "pick": "box",
+          "say": "Pick a box it fits in"
         },
         {
           "drag": "shipping/item",
-          "to": "box"
+          "to": "box",
+          "say": "Pick up their item",
+          "put": "Put it in the box"
         },
         {
           "tap": "shipping/paper",
-          "n": 3
+          "n": 3,
+          "say": "Tap in the packing paper"
         }
       ]
     },
@@ -369,7 +391,8 @@
       "hands": [
         {
           "hold": "shipping/tape_gun",
-          "on": "box"
+          "on": "box",
+          "say": "Hold the tape gun on the box"
         }
       ]
     },
@@ -384,15 +407,19 @@
       "hint": "Tape it shut",
       "hands": [
         {
-          "pick": "box"
+          "pick": "box",
+          "say": "Pick a box it fits in"
         },
         {
           "drag": "shipping/item",
-          "to": "box"
+          "to": "box",
+          "say": "Pick up their item",
+          "put": "Put it in the box"
         },
         {
           "hold": "shipping/tape_gun",
-          "on": "box"
+          "on": "box",
+          "say": "Hold the tape gun on the box"
         }
       ]
     },
@@ -411,7 +438,9 @@
         },
         {
           "drag": "shipping/label",
-          "to": "box"
+          "to": "box",
+          "say": "Pick up the label",
+          "put": "Stick it on the box"
         }
       ]
     },
@@ -427,7 +456,9 @@
       "hands": [
         {
           "drag": "box",
-          "to": "shipping/bin"
+          "to": "shipping/bin",
+          "say": "Pick up the box",
+          "put": "Put it in the outbound bin"
         }
       ]
     },
@@ -443,7 +474,8 @@
       "hands": [
         {
           "tap": "shipping/dropoff",
-          "n": 1
+          "n": 1,
+          "say": "Tap the package to scan it"
         }
       ]
     },
@@ -458,7 +490,8 @@
       "hint": "Find it on the shelf",
       "hands": [
         {
-          "pick": "package"
+          "pick": "package",
+          "say": "Find their package on the shelf"
         }
       ]
     },
@@ -503,7 +536,8 @@
       "hint": "Make the copies",
       "hands": [
         {
-          "hold": "counter/copier"
+          "hold": "counter/copier",
+          "say": "Hold the copier to make the copies"
         }
       ]
     },
@@ -528,7 +562,8 @@
       "hint": "Get it off the shelf",
       "hands": [
         {
-          "pick": "bag"
+          "pick": "bag",
+          "say": "Find the bag with their name"
         }
       ]
     }

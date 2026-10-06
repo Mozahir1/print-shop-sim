@@ -6,7 +6,7 @@ import { canStart, currentCustomer, previewTask, sceneOf, STATION, workLeft } fr
 import { availableTasks, DONT, IGNORE } from "../sim/todo";
 import { currentStep, isChoice, STEP } from "../sim/workflow";
 import { requestLines } from "../sim/dialogue";
-import { NOTE_FADE, notes } from "../sim/notes";
+import { NOTE_FADE, notes, type NoteDetail } from "../sim/notes";
 import { eventText } from "../sim/events";
 import { quoteFor } from "../sim/quote";
 import { isPrintKind } from "../sim/customers";
@@ -117,23 +117,33 @@ function answers(state: GameState, c: Customer, confirming: string | null): stri
     return taskButton(state, req, { label: sure, sub, key, primary });
   };
   const print = isPrintKind(c.kind) && !sceneOf(state, c);
-  return `<div class="choices">
+  return `<div class="choices answers">
     ${btn("take", labels.take, "Do", "Enter", true)}
     ${print && q.rush ? btn("rush", `Take it as a rush (${money(q.rush.totalCents)})`, "Do") : ""}
     ${print && q.selfServeCents !== null ? btn("self_serve", `Send to self-serve (${money(q.selfServeCents)})`, "Do") : ""}
     ${btn("turn_away", labels.turnAway, "Don't", "X")}
     ${btn("ignore", "Ignore them", "Ignore", "I")}
+    ${taskButton(state, { type: "ask_again", customerId: c.id }, { label: "What was that?", sub: "Ask" })}
   </div>`;
 }
 
-// Who's across the counter: the next in line, or whoever you're serving at the counter right now.
+// Who's across the counter: whoever you're serving there, or whoever you're talking to. Nobody steps up while you're
+// in the middle of something (a job printing on its own doesn't count): they wait in line until you're free.
 export function atCounter(state: GameState): Customer | undefined {
   const front = currentCustomer(state);
   const wf = state.workflow;
   const step = currentStep(state);
   const t = state.employee.task;
   const serving = wf?.customerId !== undefined && tabOf((t ?? step?.req ?? { type: "talk" }).type) === "counter" ? customerById(state, wf.customerId) : undefined;
-  return serving?.state === "waiting" ? serving : front;
+  if (serving?.state === "waiting") return serving;
+  if (front?.state === "talking") return front;
+  return wf ? undefined : front;
+}
+
+// Everyone in line who isn't at the counter.
+export function inLine(state: GameState): Customer[] {
+  const at = atCounter(state);
+  return state.customers.filter((c) => c.state === "line" && c.id !== at?.id);
 }
 
 // The dialogue box: what they say, one line at a time (shown says how many lines are out so far), and your answers.
@@ -141,23 +151,22 @@ export function dialogueHtml(state: GameState, shown: number, confirming: string
   const front = currentCustomer(state);
   const step = currentStep(state);
   let html = "";
-  if (front?.state === "talking") {
+  if (front?.state === "talking" && (!step || step.type === "talk" || step.type === "respond")) {
     const lines = requestLines(state, front);
     const out = lines.slice(0, Math.max(1, shown));
     if (front.said && !lines.includes(front.said) && shown >= lines.length) out.push(front.said); // how they took your answer
     const more = shown < lines.length;
-    html += `<div class="textbox" data-act="nextLine"><div class="who">${esc(front.name)}</div>${out.map((l, i) => `<p class="${i === out.length - 1 ? "" : "muted"}">${esc(l)}</p>`).join("")}${more ? `<span class="more">▸ tap</span>` : ""}</div>`;
+    const cols = out.length > 4 ? " cols" : ""; // (a long request reads in two columns, so the answers fit under it)
+    html += `<div class="textbox${cols}" data-act="nextLine"><div class="who">${esc(front.name)}</div>${out.map((l, i) => `<p class="${i === out.length - 1 ? "" : "muted"}">${esc(l)}</p>`).join("")}${more ? `<span class="more">▸ tap</span>` : ""}</div>`;
     if (!more && step?.type === "respond" && !state.employee.task) {
       html += quoteLine(state, front) + answers(state, front, confirming);
-      html += `<div class="row">${taskButton(state, { type: "ask_again", customerId: front.id }, { label: "What was that?" })}<span class="muted small">Waiting for your answer (${formatDuration(Math.max(0, (front.answerBy ?? state.time) - state.time))}).</span></div>`;
+      html += `<p class="small muted">Waiting for your answer (${formatDuration(Math.max(0, (front.answerBy ?? state.time) - state.time))}).</p>`;
     }
     return html;
   }
-  // (The textbox is always there, so nothing below it jumps when someone speaks up.)
-  const who = atCounter(state);
-  const said = who?.said && who.saidAt !== null && state.time - who.saidAt < 10;
-  html += `<div class="textbox"><div class="who">${esc(who?.name ?? "\u00a0")}</div><p class="${said ? "" : "muted"}">${said ? esc(who!.said!) : who ? "..." : "Nobody at the counter."}</p></div>`;
-  if (front?.state === "line") html += `<div class="btns">${taskButton(state, { type: "talk", customerId: front.id }, { primary: true, label: `Next, please (${front.name})`, key: "Enter" })}</div>`;
+  // Nobody talking: only what you can do here (call the next person, show people out at closing). Nothing to do, no
+  // modal: what they say while they wait shows over them (see CounterScene).
+  if (front?.state === "line" && !state.workflow) html += `<p>${esc(front.name)} is waiting.</p><div class="btns">${taskButton(state, { type: "talk", customerId: front.id }, { primary: true, label: `Next, please (${front.name})`, key: "Enter" })}</div>`;
   if (state.time >= state.closeAt) {
     const out = state.customers.filter((c) => canStart(state, { type: "usher_out", customerId: c.id }) === null);
     if (out.length) html += `<div class="btns">${out.map((c) => taskButton(state, { type: "usher_out", customerId: c.id })).join("")}</div>`;
@@ -165,6 +174,14 @@ export function dialogueHtml(state: GameState, shown: number, confirming: string
     html += `<p class="small ${left.length ? "warn" : "ok"}">${left.length ? `Still to do: ${esc(left.join(", "))}.` : "Everything's done. Go home on time."}</p>`;
   }
   return html;
+}
+
+// The register's keypad: what's due, the card or the cash they hand you, and what you've typed.
+export function keypadHtml(due: number, cash: number | null, typed: string): string {
+  const keys = ["7", "8", "9", "4", "5", "6", "1", "2", "3", ".", "0", "back"];
+  const label = (k: string) => (k === "back" ? "Del" : k);
+  return `<div class="display"><div>Due ${money(due)}</div><div>${cash === null ? "Card. Type the total." : `Cash ${money(cash)}. Type the change.`}</div><div class="typed">$ ${esc(typed || "_")}</div></div>
+    <div class="keys">${keys.map((k) => `<button class="btn" data-act="key" data-key="${k}">${label(k)}</button>`).join("")}<button class="btn okkey" data-act="key" data-key="ok">OK</button></div>`;
 }
 
 // ---------- the computer ----------
@@ -234,6 +251,28 @@ function stationTasks(state: GameState, stations: Station[]): string {
 }
 
 // ---------- notes (the to-do list) ----------
+
+// A note, unfolded: everything about the order, and what's left to do, step by step. Until it's in the computer, the
+// details are what they asked for (with what they said); after, what you entered (mistakes and all).
+export function noteHtml(state: GameState, d: NoteDetail, here: Tab): string {
+  const asked = !d.entered ? requestFor(state, d.jobId) : [];
+  const tab = (st: Station): Tab => (st === "self_serve" ? "counter" : st); // (self-serve is out front, by the counter)
+  const now = d.steps.find((x) => x.state === "now");
+  const go = now && tab(now.station) !== here ? `<button class="btn primary" data-act="tab" data-tab="${tab(now.station)}">Go to ${esc(TABS.find((t) => t.id === tab(now.station))!.label)}</button>` : "";
+  return `<h1>${esc(d.item)} for ${esc(d.name)}</h1>
+    <p class="small muted">${d.entered ? "What you entered on the computer." : "Not in the computer yet. This is what they asked for."}</p>
+    ${asked.length ? `<blockquote>${asked.map((l) => `<p>${esc(l)}</p>`).join("")}</blockquote>` : ""}
+    <div class="cols"><div><h2>Details</h2><dl class="spec">${d.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
+    <div><h2>Steps</h2><ol class="steps">${d.steps.map((x) => `<li class="${x.state}"><span class="mark" aria-hidden="true">${x.state === "done" ? "✓" : x.state === "now" ? "▶" : "○"}</span><span class="txt">${esc(x.text)}</span><span class="where">${esc(TABS.find((t) => t.id === tab(x.station))!.label)}</span></li>`).join("")}</ol></div></div>
+    <div class="btns">${go}<button class="btn" data-act="closeNote">Got it</button></div>`;
+}
+
+// What they said, while the order's only in their words.
+function requestFor(state: GameState, jobId: number): string[] {
+  const j = jobById(state, jobId);
+  const c = j ? customerById(state, j.customerId) : undefined;
+  return c && c.jobId === jobId && isPrintKind(c.kind) ? requestLines(state, c) : [];
+}
 
 export function notesHtml(state: GameState): string {
   const list = notes(state);

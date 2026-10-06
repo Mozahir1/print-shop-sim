@@ -37,10 +37,10 @@ function printing(sim: Sim, copies = 200) {
 }
 
 describe("the day's bad luck", () => {
-  it("about one a day, sometimes none, decided by the seed alone", () => {
+  it("about one a day once you know the job, sometimes none, decided by the seed alone", () => {
     let none = 0;
     for (let seed = 1; seed <= 200; seed++) {
-      const e = createSim(seed).state.event;
+      const e = createSim(seed, { day: 4 }).state.event;
       if (!e) none++;
       else expect(e.status).toBe("pending");
     }
@@ -52,7 +52,7 @@ describe("the day's bad luck", () => {
     let rolled = 0;
     let fired = 0;
     for (let seed = 1; seed <= 20; seed++) {
-      const sim = createSim(seed);
+      const sim = createSim(seed, { day: 4 });
       const bot = createBot();
       while (!isDayOver(sim.state)) {
         botAct(bot, sim.state, 1);
@@ -66,6 +66,13 @@ describe("the day's bad luck", () => {
       expect(["fixed", "worked_around"]).toContain(e.status); // e.g. ringing someone up by hand mid-checkout
     }
     expect(fired).toBeGreaterThan(rolled / 2);
+  });
+
+  it("eases in: none on day 1, fewer on days 2 and 3", () => {
+    const count = (day: number) => Array.from({ length: 200 }, (_, i) => createSim(i + 1, { day }).state.event).filter(Boolean).length;
+    expect(count(1)).toBe(0);
+    expect(count(2)).toBeLessThan(count(4));
+    expect(count(3)).toBeLessThan(count(4));
   });
 
   it("doesn't pile on: it waits while you're at the ceiling", () => {

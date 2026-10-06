@@ -12,8 +12,8 @@ import type { Customer, JobSpec } from "./types";
 
 const plain = (s: Partial<JobSpec> = {}): JobSpec => ({ item: "document", originals: 1, copies: 1, color: "bw", media: "letter", duplex: false, finishing: "none", ...s });
 
-function quiet(seed = 1): Sim {
-  const sim = createSim(seed);
+function quiet(seed = 1, day = 1): Sim {
+  const sim = createSim(seed, { day });
   sim.state.printer.paperOutAt = Infinity;
   sim.state.director.enabled = false;
   sim.state.event = null;
@@ -359,6 +359,14 @@ describe("patience", () => {
     expect(c.said).toBe("I'll go somewhere else.");
   });
 
+  it("someone who gives up in line says how long they waited, and it's on the report", () => {
+    const sim = quiet();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "quick_copies", { spec: plain(), timing: "wait", needIn: 300 });
+    runUntil(sim, () => c.state === "gone");
+    expect(s.failures.at(-1)!.text).toMatch(new RegExp(`^${c.name} left the line after waiting \\d+ min\\.$`));
+  });
+
   it("waiting for an order only counts once it's overdue", () => {
     const sim = quiet();
     const s = sim.state;
@@ -396,8 +404,8 @@ describe("Do / Don't / Ignore on the work", () => {
   });
 
   it("smudged copies: reprint (Do), or hand them over anyway (Don't) and the customer is unhappy", () => {
-    for (let seed = 1; ; seed++) {
-      const sim = quiet(seed);
+    for (let seed = 1; seed < 500; seed++) {
+      const sim = quiet(seed, 4); // (no smudges on day 1: bad luck eases in)
       const s = sim.state;
       const c = spawnCustomer(s, sim.rng.dev, "quick_copies", { spec: plain({ copies: 5, media: "cardstock" }), timing: "wait", needIn: 300 });
       talkTo(sim, c);
@@ -414,6 +422,7 @@ describe("Do / Don't / Ignore on the work", () => {
       expect(moodOf(c)).toBe("angry");
       return;
     }
+    throw new Error("no smudged run in 500 seeds");
   });
 
   it("broken copier: fix it (Do), or tape a sign on it (Don't) and whoever needed it is unhappy", () => {

@@ -12,6 +12,15 @@ export const TUNING = {
 // Closing time. Most people in line head out at close (now and then one stays anyway); people waiting on an order
 // stay until it's done or you show them out. The day ends when you go home: on time with everything done is
 // rewarded, overtime annoys the manager (and the clock drags), and leaving work undone is penalized.
+// The clock, in game minutes per real second: the speeds you can pick (1x, 2x, 4x), and how much slower or faster
+// it runs by what's going on (see clock.ts).
+export const CLOCK = {
+  speeds: [1.5, 3, 6],
+  deciding: 0.35, // a step's waiting on you
+  atTheCounter: 0, // a customer's explaining
+  quiet: 4, // nothing going on
+};
+
 export const CLOSING = {
   lingerChance: 0.2, // someone in line at close who stays anyway (at most one)
   onTimeGrace: 15, // minutes after close you can still leave "on time"
@@ -82,8 +91,11 @@ export const DURATIONS = Object.fromEntries(
 ) as Record<Exclude<TaskType, "finish" | "respond" | "make_copies">, number>;
 
 // Bad luck: about one thing a day, never two at once, from its own stream.
+// Bad luck eases in: the first days are for learning the job (none on day 1). Then it's the usual odds.
+export const EASE_IN = { eventChance: [0, 0.35, 0.5], smudge: [0, 0.05, 0.08] };
+
 export const EVENTS = {
-  chance: 0.85, // days with one
+  chance: 0.85, // days with one (after the first few: EASE_IN)
   window: [0.15, 0.7] as [number, number], // share of the day: earliest time it can happen
   weights: { printer_jam: 3, copier_dies: 2, card_reader_down: 2, box_rips: 2, wifi_drop: 2 } as Record<EventKind, number>,
   wifiOutage: 45, // minutes until the Wi-Fi comes back on its own
@@ -126,10 +138,12 @@ export const GIVE_UP: Record<RequestKind, number> = {
   package_pickup: 25,
   self_serve_help: 25,
   complaint: 25,
-  business: 18, // they have somewhere to be: long enough for a normal job, not for a long one you could have skipped
+  business: 25, // they have somewhere to be: long enough for a person to finish the job in front of them (about 33 minutes while you work), not for much more
 };
-// While you're busy with someone else they can see it, and it doesn't wear on them as fast.
+// While you're busy with someone else they can see it, and it doesn't wear on them as fast. A business client minds
+// more than most, but still sees you're working.
 export const BUSY_PATIENCE = 0.5;
+export const BUSY_PATIENCE_BUSINESS = 0.75;
 export const PATIENCE_STAGES = { annoyed: 0.4, angry: 0.75 }; // share of the give-up time
 export const PATIENCE_RAMP = { perDay: 0.01, min: 0.8 };
 
@@ -139,7 +153,7 @@ export const PICKUP_AFTER: [number, number] = [60, 180];
 // Full service turnaround: an order taken normally is promised this long from now (or later, if the printer queue
 // says so). A rush jumps the queue and is promised as soon as it can be done.
 export const STANDARD_LEAD = 60; // an hour
-export const RUSH_BUFFER = 10; // a rush is promised this long after the earliest it could possibly be done
+export const RUSH_BUFFER = 35; // a rush is promised this long after the earliest it could possibly be done (time for a person to take it, enter it, and finish it)
 
 // When print customers want it, by request: wait in the store, come back later, or tomorrow. The ranges are seconds
 // from arrival: the latest it's any use to them.
@@ -164,7 +178,7 @@ export const REACTIONS = {
 // Turning away a doable job worth at least this much is a lost sale.
 export const WORTH_MIN_CENTS = 400;
 
-export const SMUDGE_CHANCE = 0.12; // a print run comes out smudged
+export const SMUDGE_CHANCE = 0.12; // a print run comes out smudged (after the first few days: EASE_IN)
 
 // Manager heat (0..100, hidden) and what moves it. Checked at close: warning, write-up, and 3 write-ups is fired.
 // The manager cares about the work getting done and sales, not manners.

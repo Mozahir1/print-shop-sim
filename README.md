@@ -19,25 +19,30 @@ again, at the cost of a moment and a bit of their patience. Then Do (take it, ru
 Don't (turn them away), or Ignore. Under the textbox: the price with fees, when it could be ready, and how much of
 **your** time it takes.
 
-**You do the work by hand, on the actual things.** The game is a 2D scene (Phaser, pixel art at 640x360). The tabs
-along the bottom are the stations: Counter, Computer, Printer, Finishing, Shipping, Pickup Shelf; the view slides to
-each step's station by itself. You drag the real objects (the ream into the tray, the stack into your hands, the box
-onto the scale, the bag to the customer), hold a tool over something (the tape gun across the flaps, the cutter, the
-laminator; letting go pauses, it never fails), tap things (jammed sheets, each set to staple, packing paper), pick by
-looking (the box that fits, the bag with their name on the shelf), and type on the register's keypad. Forms (the order
-form on the monitor, the shipping label) are real typing. Tap a station's object to start what it's for, or use the
-in-world buttons. Nothing tests speed or precision; big jobs cost time, not difficulty. Drops are forgiving; a wrong
-one bounces back with a short reason.
+**You do the work by hand, on the actual things.** The game is a 2D scene (Phaser, pixel art drawn at 2x on a
+1280x720 screen that scales to fit). The tabs along the bottom are the stations: Counter, Computer, Printer, Finishing,
+Shipping, Pickup Shelf; the view slides to each step's station by itself. You pick up the real objects and put them
+where they go: tap the ream, then tap the tray (or drag it there). What you're holding follows the pointer and shows
+in the top bar; tap it there to put it back. You also hold a tool over something (the tape gun across the flaps, the
+cutter, the laminator; letting go pauses, it never fails), tap things (jammed sheets, each set to staple, packing
+paper), pick by looking (the box that fits, the bag with their name on the shelf), and type on the register's keypad.
+Forms (the order form on the monitor, the shipping label) are real typing. Tap a station's object to start what it's
+for, or use the in-world buttons. Nothing tests speed or precision; big jobs cost time, not difficulty.
+
+**You're never lost.** What to do next glows, with a bouncing arrow that says it ("Put it in the tray"); while you're
+holding something, where it goes glows and everything else fades. The top bar says what you're doing ("Helping Dana:
+Take an order, step 3 of 4") and what's next, and if that's at another station, its tab glows. Tap the wrong thing
+and a few words appear right there saying what it is and what to do instead.
 - **Print job:** fill in the order form on the computer from what they said (paper, color, sides, copies,
-  finishing), send it, and it prints while you do other things. Then drag the stack into your hands, staple (a tap per
-  set on small runs, a hold on big ones), cut, or laminate (hold), then drag it into a bag, put the name label on, and
-  shelve it.
+  finishing), send it, and it prints while you do other things. Then pick up the stack, staple (a tap per set on
+  small runs, a hold on big ones), cut, or laminate (hold), then put it in a bag, put the name label on, and put it on
+  the cart to the shelf.
 - **Pickup:** find their bag on the shelf, then ring them up at the counter: type the total for a card, or the change
   for cash.
-- **Shipping:** pick a box (it has to fit) and drag their item in, tap in packing paper, hold to tape, drag it onto the
-  scale, fill in the label (the weight you read and the service they asked for), drag the label on, ring them up,
-  drag it to the outbound bin.
-- **Drop-off:** tap to scan the label, drag it to the bin. **Self-serve:** send them over; now and then they come back
+- **Shipping:** pick a box (it has to fit) and put their item in, tap in packing paper, hold to tape, put it on the
+  scale, fill in the label (the weight you read and the service they asked for), stick the label on, ring them up,
+  put it in the outbound bin.
+- **Drop-off:** tap to scan the label, put it in the bin. **Self-serve:** send them over; now and then they come back
   for help (one tap fixes the copier).
 
 **Mistakes only come from what you put in**, and they come back later where you can see them: an order entered wrong
@@ -49,8 +54,9 @@ notice), skip the packing paper and just tape it shut (it comes back damaged), h
 **Sticky notes** replace the to-do list. Taking an order makes the MC write one, from what you entered on the computer
 (not what they asked for): "Resume x25, B&W, cardstock, staple, due 2:00 PM. Dana." Each one says the next step
 ("Send to printer", "Printing. You can leave it.", "Collect", "Staple", "Bag and shelve", "Ring up"). Done orders are
-crossed off and fade. A bell rings and the Counter tab pulses when someone comes in while you're elsewhere; your hand
-slot shows what you're holding.
+crossed off and fade. Tap a note and it unfolds: every detail of the order and a checklist of every step, with
+where each one's done (the clock waits while you read). A bell rings and the Counter tab pulses when someone comes in
+while you're elsewhere.
 
 **The decision is still the game.** Six to twelve customers a day, budgeted by how much work they are (a heavy day
 has fewer people), spread over the day, with quick drop-offs and pickups more likely while something's printing.
@@ -59,8 +65,14 @@ come in on their own schedule with big orders and won't wait long. Turning away 
 sale. The manager watches sales.
 
 **Time.** Everything is measured in game minutes, and the wall clock is honest. The clock slows while a step waits for
-you, stops while a customer explains, and flies when nobody's in the store. At 1× about a minute and a half passes
-every real second.
+you (or someone's in line waiting to be called up), stops while a customer explains, and flies when nobody's in the
+store. At 1× about a minute and a half passes every real second.
+
+**One customer at a time.** Nobody steps up to the counter while you're in the middle of something; they wait in a
+line behind the counter ("2 waiting"), and the Counter tab shows how many from any station. Once a job's printing on
+its own you're free, and the next person steps up. People coming back for an order join the same line. If someone in
+line gives up, you see them walk out and the message says how long they waited; it's on the report too. The first
+days ease you in: no bad luck on day 1 and less on days 2 and 3.
 
 The top bar has the clock, the manager's mood (calm, annoyed, unhappy), the speed, and after 5 PM, Go home. When
 something goes wrong you see it right then, over the station view.
@@ -102,9 +114,9 @@ The first time you turn someone away, walk away from a job, or go home with work
   leave. Mood comes from what happens to them, not from your tone: waiting too long, a late order, being turned
   away, or bad work (smudged copies, a taped box, an out of order sign) brings it down.
 - **Patience.** Anyone nobody's helping gets annoyed ("Hello?"), then angry ("Is anyone working here?"), then
-  leaves ("I'll go somewhere else."), 20 to 35 minutes after they started waiting, depending on what they came for (more slowly while
-  they can see you're busy). Waiting for an
-  order only counts once it's overdue.
+  leaves ("I'll go somewhere else."), 20 to 35 minutes after they started waiting, depending on what they came for (half
+  as fast while they can see you're busy; a business client minds more). Waiting for an order only counts once it's
+  overdue.
 - **Problems come to the counter.** Someone whose order isn't ready asks "Where's my order?" (rush it now while they
   wait, or apologize and refund). Someone at a dead copier comes and says so (fix it now, or say sorry). People back
   with a damaged box or smudged copies want it made right (file a claim, reprint them free, or apologize).
@@ -159,14 +171,17 @@ client/
                     dialogue.json, mc.json, customers.json, messages.json, events.json, endings.json, names.json
     bus.ts          sim to view events (customer_arrived, sheet_printed, jam, payment_done, failure, ...); nothing
                     in the sim listens, so the bot and batch runs never notice
-  src/view/         the Phaser view: run.ts (the controller: the day, the clock, doing things, keys),
-                    station.ts (a station scene: objects from the manifest layout, and the drag / hold / tap / pick
-                    parts of each step set up from the step data), scenes.ts (the six stations), ui.ts (top bar,
-                    tabs, hand slot, slides between stations), assets.ts (the art pipeline), juice.ts (squash,
-                    bounce, shake, sparkle), config.ts (base resolution, pixel art, speeds)
+  src/view/         the view: layout.ts (the screen regions, in one place), hud.ts (the DOM HUD over the canvas:
+                    top bar, notes, tabs, one modal at a time), audit.ts (layout checks on the real page),
+                    run.ts (the controller: the day, the clock, doing things, what you're holding, keys),
+                    station.ts (a station scene: objects from the manifest layout, the pick up / put down / hold /
+                    tap / pick parts of each step from the step data, and the glow and arrow on what's next),
+                    scenes.ts (the six stations), ui.ts (the clock, slides between stations), assets.ts and
+                    icons.ts (the art pipeline and placeholders), juice.ts (squash, bounce, shake, sparkle),
+                    config.ts (render resolution, fonts, speeds)
   src/assets/       manifest.json (every sprite: size, anchor, layer, animations, purpose; scene layouts),
                     sounds.json, art/ and sounds/ (drop files here)
-  src/ui/           view.ts (the text-heavy overlays: dialogue box, monitor and forms, notes, screens),
+  src/ui/           view.ts (the HTML for the modals: dialogue box, keypad, monitor and forms, unfolded notes, screens),
                     dev.ts (dev drawer)
   ART_CHECKLIST.md  every sprite and sound to make, generated from the manifest (npm run art)
   scripts/batch-sim.ts   plays whole games with bots, for balancing
@@ -211,6 +226,7 @@ cd client
 npm run batch -- --days 20 --style all
 npm run batch -- --days 20 --style smart --games 20
 npm run batch -- --days 20 --style all --post http://localhost:8080
+npm run batch -- --days 5 --style all --pace human --games 30   # at a first-time player's speed
 curl localhost:8080/api/stats/bots
 ```
 
@@ -252,6 +268,19 @@ Anything that changes the day marks it as dev-assisted, and it isn't posted to t
 
 About 11 customers are served a day. The shop is quiet about 60% of the open day (the clock speeds through it); the
 work is in doing each request by hand.
+
+**At a person's pace** (`--pace human`, sim/humanbot.ts): the same decisions, but every step takes the real seconds a
+first-time player needs (2 to 4 a click, forms typed out, a pause to find the station, now and then a wrong tap) while
+the clock runs the way the UI runs it, and it does what the game suggests next (whoever's in line, then sending
+things to the printer, then whatever's due soonest). That's what patience, promises, and day length are tuned
+against. Share of days with anyone walking out, 30 games:
+
+| style | day 1 | day 2 | day 3 | day 4 | day 5 |
+|---|---|---|---|---|---|
+| smart | 0% | 3% | 7% | 0% | 10% |
+| do_everything | 7% | 10% | 0% | 10% | 17% |
+
+The early walkouts left are a late order and some bad luck on the same day.
 
 - **smart** sends simple jobs to self-serve, rushes only when that won't make another order late, turns away what
   can't be done in time or isn't worth doing, works on whatever's due soonest, and does all the work properly.

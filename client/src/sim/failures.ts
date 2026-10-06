@@ -10,7 +10,7 @@ import { fill, log } from "./util";
 const NOTE: ReadonlySet<FailureKind> = new Set(["walked_out", "missing_order", "never_ready", "packages_left", "copier_broken", "lost_sale", "lost_business", "wrong_order"]);
 
 export function recordFailure(state: GameState, kind: FailureKind, vars: Record<string, string | number>, ids: { customerId?: number; jobId?: number } = {}): void {
-  const text = say(POOLS.failures, "failure", { kind, job: vars.job !== undefined ? "yes" : undefined }, 0, vars);
+  const text = say(POOLS.failures, "failure", { kind, job: vars.job !== undefined ? "yes" : undefined, where: vars.where as string | undefined }, 0, vars);
   state.failures.push({ time: state.time, kind, text, ...ids });
   log(state, text);
   emit("failure", { kind, text, customerId: ids.customerId });

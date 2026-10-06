@@ -2,10 +2,12 @@
 //   npm run batch -- --days 20 --style smart
 //   npm run batch -- --days 20 --style all --games 20
 //   npm run batch -- --days 20 --style all --post http://localhost:8080   (stores each day in Postgres)
+//   npm run batch -- --days 5 --style smart --pace human   (plays at a person's speed: see sim/humanbot.ts)
 import { isDayOver, tick } from "../src/sim/sim";
 import { BOT_STYLES, botAct, createBot, type BotStyle } from "../src/sim/bot";
 import { endDay, newGame, startDay } from "../src/sim/game";
 import { summarize } from "../src/sim/summary";
+import { createHuman, humanDay } from "../src/sim/humanbot";
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -17,6 +19,7 @@ const games = Number(arg("games", "10"));
 const seed = Number(arg("seed", "1"));
 const styleArg = arg("style", "all");
 const postUrl = arg("post", "");
+const human = arg("pace", "bot") === "human";
 const styles: BotStyle[] = styleArg === "all" ? BOT_STYLES : [styleArg as BotStyle];
 
 interface Row {
@@ -38,20 +41,30 @@ interface Row {
   warnings: number;
   writeUps: number;
   served: number;
+  byDay: { days: number; walkouts: number; late: number; served: number; lost: number }[]; // by day number
 }
 
 async function run(style: BotStyle): Promise<Row> {
-  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, late: 0, lostSales: 0, onTime: 0, revenue: 0, bizLost: 0, badSurveys: 0, overtime: 0, walkouts: 0, warnings: 0, writeUps: 0, served: 0 };
+  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, late: 0, lostSales: 0, onTime: 0, revenue: 0, bizLost: 0, badSurveys: 0, overtime: 0, walkouts: 0, warnings: 0, writeUps: 0, served: 0, byDay: [] };
   for (let g = 0; g < games; g++) {
     const game = newGame(seed + g * 1000);
     while (!game.fired && game.day <= days) {
       const sim = startDay(game);
-      const bot = createBot(1, style, sim.state.seed);
-      while (!isDayOver(sim.state)) {
-        botAct(bot, sim.state, 1);
-        tick(sim, 1);
+      if (human) humanDay(sim, createHuman(style, sim.state.seed));
+      else {
+        const bot = createBot(1, style, sim.state.seed);
+        while (!isDayOver(sim.state)) {
+          botAct(bot, sim.state, 1);
+          tick(sim, 1);
+        }
       }
       const s = sim.state;
+      const d = (row.byDay[game.day - 1] ??= { days: 0, walkouts: 0, late: 0, served: 0, lost: 0 });
+      d.days++;
+      d.walkouts += s.stats.left;
+      d.late += s.stats.lateOrders;
+      d.served += s.stats.served;
+      d.lost += s.stats.left > 0 ? 1 : 0;
       row.dayCount++;
       row.idle += s.stats.idleSeconds;
       row.open += s.closeAt;
@@ -84,11 +97,14 @@ async function run(style: BotStyle): Promise<Row> {
   return row;
 }
 
+const rows = new Map<BotStyle, Row>();
+
 async function main() {
-  console.log(`${games} games per style, up to ${days} days, seeds ${seed}, ${seed + 1000}, ...`);
+  console.log(`${games} games per style, up to ${days} days, seeds ${seed}, ${seed + 1000}, ...${human ? ", at a person's pace" : ""}`);
   console.log(["style".padEnd(13), "survived 20", "fired on day (median, range)", "idle %", "avg active", "max", "complaints/day", "late/day", "lost sales/day", "walkouts/day", "revenue $/day", "biz lost/day", "bad surveys/day", "on time %", "overtime s", "warnings", "write-ups", "served/day"].join("  "));
   for (const style of styles) {
     const r = await run(style);
+    rows.set(style, r);
     const fired = r.survived.filter((d) => d <= days).sort((a, b) => a - b);
     const firedText = fired.length ? `${fired[Math.floor(fired.length / 2)]} (${fired[0]} to ${fired.at(-1)})` : "never";
     console.log(
@@ -113,6 +129,14 @@ async function main() {
         (r.served / r.dayCount).toFixed(1).padStart(10),
       ].join("  "),
     );
+  }
+  if (human) {
+    // The spec's targets: days 1 to 3 everything on time and nobody leaving; by day 5, now and then one walks out.
+    console.log("\nby day (a person's pace): walkouts per day, share of days with any, late orders per day, served per day");
+    for (const style of styles) {
+      const r = rows.get(style)!;
+      console.log(`${style.padEnd(13)} ${r.byDay.map((d, i) => `day ${i + 1}: ${(d.walkouts / d.days).toFixed(2)} (${Math.round((d.lost / d.days) * 100)}%) late ${(d.late / d.days).toFixed(2)} served ${(d.served / d.days).toFixed(1)}`).join(" | ")}`);
+    }
   }
   if (postUrl) console.log(`posted every day to ${postUrl}`);
 }

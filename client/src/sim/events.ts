@@ -2,7 +2,7 @@
 // you leave it. Rolled from its own stream when the day starts.
 import { emit } from "./bus";
 import type { BadLuck, EventKind, GameState, Package } from "./types";
-import { DIRECTOR, EVENTS } from "./config";
+import { DIRECTOR, EASE_IN, EVENTS } from "./config";
 import type { Rng } from "./rng";
 import { placeWebOrder } from "./customers";
 import { activeCount } from "./todo";
@@ -14,8 +14,8 @@ import type { Sim } from "./sim";
 import { pickLine, POOLS } from "./lines";
 import { mcSay } from "./mc";
 
-export function rollEvent(rng: Rng, dayLength: number): BadLuck | null {
-  const has = rng() < EVENTS.chance;
+export function rollEvent(rng: Rng, dayLength: number, day = 99): BadLuck | null {
+  const has = rng() < (EASE_IN.eventChance[day - 1] ?? EVENTS.chance);
   const pickRoll = rng();
   const atRoll = rng();
   if (!has) return null;

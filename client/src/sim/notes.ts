@@ -1,10 +1,10 @@
 // Sticky notes: the MC writes one for every order you take. It says what you entered on the computer (not what they
 // actually asked for), and the next thing to do with it. Done orders get crossed off and fade.
-import type { GameState, Job, Media, TaskType } from "./types";
+import type { GameState, Job, JobStatus, Media, Station, TaskType } from "./types";
 import { NOTE_TEXT, STEP } from "./workflow";
-import { FINISHING_LABEL } from "./orders";
+import { FINISHING_LABEL, MEDIA_LABEL } from "./orders";
 import { formatClock } from "./time";
-import { customerById, fill } from "./util";
+import { customerById, fill, money } from "./util";
 
 export interface Note {
   jobId: number;
@@ -63,4 +63,62 @@ function nextStep(j: Job): TaskType {
     default:
       return j.prepaid ? "hand_over" : "ring_up";
   }
+}
+
+// ---------- a note, unfolded ----------
+
+// Everything about one order, for when you tap its note: the details (what you entered, or until then what they
+// asked for), and every step from taking it to handing it over, with the ones done ticked off.
+export interface NoteDetail {
+  jobId: number;
+  name: string;
+  item: string;
+  entered: boolean; // in the computer yet (if not, the details are only what they asked for)
+  rows: [string, string][];
+  steps: { text: string; station: Station; state: "done" | "now" | "todo" }[];
+  done: boolean;
+}
+
+const RANK: Record<JobStatus, number> = { unread: 0, new: 0, entered: 1, queued: 2, printing: 2, printed: 3, collected: 4, finished: 5, bagged: 6, picked_up: 7, canceled: 7 };
+
+export function noteDetail(state: GameState, jobId: number): NoteDetail | null {
+  const j = state.jobs.find((x) => x.id === jobId);
+  if (!j) return null;
+  const s = j.spec;
+  const name = customerById(state, j.customerId)?.name ?? "";
+  const due = `${j.dueDay > state.day ? "Tomorrow" : "Today"}, ${formatClock(j.dueAt)}`;
+  const rows: [string, string][] = [
+    ["Copies", `${s.copies}`],
+    ["Pages each", `${s.originals}`],
+    ["Color", s.color === "color" ? "Color" : "B&W"],
+    ["Sides", s.duplex ? "2-sided" : "1-sided"],
+    ["Paper", MEDIA_LABEL[s.media]],
+    ["Finishing", FINISHING_LABEL[s.finishing]],
+    ["Due", `${due}${j.rush ? " (rush)" : ""}`],
+    ["Price", `${money(j.priceCents)}${j.prepaid ? " (paid online)" : ""}`],
+  ];
+  const rank = RANK[j.status];
+  const fin = FINISHING_LABEL[s.finishing];
+  const plan: [TaskType | "printing", boolean][] = j.walkUp
+    ? [["make_copies", rank > 0], [j.prepaid ? "hand_over" : "ring_up", rank >= 7]]
+    : [
+        ["enter_order", rank > 0],
+        ["send_job", rank > 1],
+        ["printing", rank > 2],
+        ["collect", rank > 3],
+        ...(j.smudge === "found" ? ([["reprint", false]] as [TaskType, boolean][]) : []),
+        ...(s.finishing !== "none" ? ([["finish", rank > 4 || (rank === 4 && j.skipped)]] as [TaskType, boolean][]) : []),
+        ["bag", rank > 5],
+        [j.prepaid ? "hand_over" : "ring_up", rank >= 7],
+      ];
+  let now = j.status !== "canceled";
+  const steps = plan.map(([t, isDone]) => {
+    const st = isDone ? "done" : now ? "now" : "todo";
+    if (st === "now") now = false;
+    if (t === "printing") return { text: NOTE_TEXT.printing, station: "printer" as Station, state: st as "done" | "now" | "todo" };
+    const hint = fill(STEP[t].hint, { finishing: fin });
+    const when = t === "ring_up" || t === "hand_over" ? `${hint} when they come back` : hint;
+    return { text: j.walkUp && (t === "ring_up" || t === "hand_over") ? hint : when, station: STEP[t].station, state: st as "done" | "now" | "todo" };
+  });
+  return { jobId: j.id, name, item: `${s.item[0].toUpperCase()}${s.item.slice(1)}`, entered: j.walkUp || rank > 0, rows, steps, done: rank >= 7 };
 }

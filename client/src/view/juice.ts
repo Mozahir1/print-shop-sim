@@ -2,6 +2,7 @@
 import Phaser from "phaser";
 import { sprite } from "./assets";
 import { FONT } from "./config";
+import { STAGE_W } from "./layout";
 
 type Obj = Phaser.GameObjects.Sprite | Phaser.GameObjects.Container;
 
@@ -35,8 +36,8 @@ export function sparkle(scene: Phaser.Scene, x: number, y: number): void {
 }
 
 // A few words floating up from a spot ("That goes in the tray.").
-export function say(scene: Phaser.Scene, x: number, y: number, text: string, color = "#b3261e"): void {
-  const t = scene.add.text(x, y, text, { ...FONT, color, backgroundColor: "#ffffffdd", padding: { x: 3, y: 1 } }).setOrigin(0.5).setDepth(60);
-  t.x = Phaser.Math.Clamp(t.x, t.width / 2 + 2, scene.scale.width - t.width / 2 - 2);
-  scene.tweens.add({ targets: t, y: y - 16, alpha: 0, delay: 900, duration: 500, onComplete: () => t.destroy() });
+export function say(scene: Phaser.Scene, x: number, y: number, text: string, color = "#b3261e", ms = 900): void {
+  const t = scene.add.text(x, Math.max(10, y), text, { ...FONT, color, backgroundColor: "#ffffffee", padding: { x: 3, y: 1 }, align: "center", wordWrap: { width: 220 } }).setOrigin(0.5).setDepth(60);
+  t.x = Phaser.Math.Clamp(t.x, t.width / 2 + 2, STAGE_W - t.width / 2 - 2);
+  scene.tweens.add({ targets: t, y: t.y - 8, alpha: 0, delay: ms, duration: 500, onComplete: () => t.destroy() });
 }

@@ -1,7 +1,7 @@
 // Choices, customer mood, and patience. Your attitude isn't graded: customers feel what happens to them.
 import { emit } from "./bus";
 import type { Choice, ChoiceType, CounterAction, Customer, CustomerOutcome, GameState, Mood, PatienceStage, RequestKind } from "./types";
-import { BUSY_PATIENCE, GIVE_UP, MOOD, PATIENCE_RAMP, PATIENCE_STAGES } from "./config";
+import { BUSY_PATIENCE, BUSY_PATIENCE_BUSINESS, GIVE_UP, MOOD, PATIENCE_RAMP, PATIENCE_STAGES } from "./config";
 import { isOverdue, jobById, log } from "./util";
 import { recordFailure } from "./failures";
 import { lostBusiness, onLeave } from "./consequences";
@@ -49,7 +49,7 @@ export function runPatience(state: GameState, dt: number): void {
     if (helping === c.id || c.lingering) continue; // a lingerer isn't going anywhere
     const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
     if (c.state === "waiting" && job && job.status !== "bagged" && !isOverdue(state, job)) continue; // it isn't due yet
-    wear(state, c, busy && c.kind !== "business" ? dt * BUSY_PATIENCE : dt); // they can see you're busy (a business client doesn't care)
+    wear(state, c, busy ? dt * (c.kind === "business" ? BUSY_PATIENCE_BUSINESS : BUSY_PATIENCE) : dt); // they can see you're busy
   }
 }
 
@@ -72,11 +72,12 @@ export function wear(state: GameState, c: Customer, minutes: number): void {
 // Waited far too long: they leave angry, and whatever they were waiting on stays here.
 export function walkOut(state: GameState, c: Customer): void {
   c.mood = Math.min(c.mood, -1);
+  const inLine: Record<string, string | number> = c.state === "line" ? { where: "line", minutes: Math.max(1, Math.round(state.time - c.arrivedAt)) } : {};
   const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
   const open = job && job.status !== "picked_up" && job.status !== "canceled";
   leave(state, c, "left");
   if (c.kind === "business" && !job) return lostBusiness(state, c, fullServiceQuote(c.spec!, false).totalCents);
-  recordFailure(state, open ? "never_ready" : "walked_out", open ? { name: c.name, job: job.id } : { name: c.name }, { customerId: c.id, jobId: job?.id });
+  recordFailure(state, open ? "never_ready" : "walked_out", open ? { name: c.name, job: job.id } : { name: c.name, ...inLine }, { customerId: c.id, jobId: job?.id });
 }
 
 // A customer leaves the store for good. Their mood at that moment is how the visit went.

@@ -23,18 +23,21 @@ export interface StepData {
 }
 
 // One part of doing a step by hand, naming the scene objects it's done on (manifest keys, or "box" for the package
-// you're working on, "held" for what's in your hand, "hands" for the hand slot, "customer"). See view/hands.ts.
+// you're working on, "held" for what's in your hand, "customer"; "hands" means picking it up is the whole part).
+// See view/station.ts.
 export interface Hand {
   tap?: string; // tap n of these
   n?: number;
   hold?: string; // press and hold this tool...
   on?: string; // ...over this (left out: on the tool itself); the progress shows there
-  drag?: string; // drag this...
-  to?: string; // ...here
+  drag?: string; // pick this up (tap it, or start dragging it)...
+  to?: string; // ...and put it here (tap here, or let go over it)
   pick?: "box" | "bag" | "package"; // pick the right one
   form?: "order" | "label";
   pay?: true; // ring up: type the total (card) or the change (cash)
   finish?: true; // staple (a tap per set), or cut / laminate (hold)
+  say?: string; // what to do, for the arrow and the top bar ("Pick up the ream")
+  put?: string; // once you're holding it ("Put it in the tray")
 }
 
 export const STEP = data.steps as Record<TaskType, StepData>;

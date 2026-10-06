@@ -5,18 +5,20 @@ import { endDay, loadGame, newGame, saveGame, startDay, type Game } from "../sim
 import { report, summarize } from "../sim/summary";
 import { botAct, createBot, type Bot, type BotStyle } from "../sim/bot";
 import { devEvent, devSpawn, setArrivals, skipToClose } from "../sim/dev";
-import { activeCount, todoList } from "../sim/todo";
+import { activeCount, suggested, todoList } from "../sim/todo";
 import { currentStep, isChoice, isCurrentStep, STEP, type Hand } from "../sim/workflow";
 import { requestLines } from "../sim/dialogue";
 import { shipQuote } from "../sim/orders";
 import { customerById, jobById, packageById } from "../sim/util";
-import { CLOSING } from "../sim/config";
+import { CLOCK, CLOSING } from "../sim/config";
 import type { BoxSize, EventKind, GameState, ShipService, TaskRequest } from "../sim/types";
 import { getLeaderboard, postShift } from "../api";
 import * as html from "../ui/view";
 import type { Tab } from "../ui/view";
+import { toast } from "./hud";
 import type { SPAWN_KINDS } from "../ui/dev";
-import { AT_THE_COUNTER, DECIDING, HOLD_MS, LINE_MS, MAX_TAPS, QUIET, SPEEDS } from "./config";
+import { HOLD_MS, LINE_MS, MAX_TAPS, SPEEDS } from "./config";
+import { clockRate, isQuiet } from "../sim/clock";
 
 const SAVE_KEY = "printshop.save";
 const NAME_KEY = "printshop.name";
@@ -35,6 +37,13 @@ export interface Doing {
   typed: string; // keypad
 }
 
+// Something you've picked up: the scene object it is (a step's "drag" ref), what it looks like, and where it's from.
+export interface Carry {
+  ref: string;
+  texture: string;
+  tab: Tab;
+}
+
 export const ctl = {
   game: null as Game | null,
   sim: null as Sim | null,
@@ -47,7 +56,9 @@ export const ctl = {
   talk: { id: -1, n: 0, at: 0 }, // the customer talking, and how many lines they've said
   followed: "", // the step the view last moved to
   confirming: null as { key: string; until: number } | null,
-  tip: (_msg: string) => {}, // set by the UI scene
+  note: null as number | null, // the sticky note you've unfolded (its order); the clock waits while you read it
+  carry: null as Carry | null, // what you've picked up for the part you're on, until you put it where it goes
+  tip: (msg: string) => toast(msg),
 };
 const confirmedOnce = new Set<string>();
 
@@ -82,7 +93,6 @@ function showScreen(kind: typeof ctl.screen, body: string): void {
   ctl.screen = kind;
   ctl.paused = true;
   $("screenBody").innerHTML = body;
-  $("screen").hidden = false;
 }
 
 export function showStart(): void {
@@ -102,8 +112,7 @@ function playDay(): void {
   if (seedParam !== null) sim.state.devUsed = true;
   sim.state.handsOn = true; // you do every step by hand
   Object.assign(window, { sim, game: ctl.game, ctl }); // (for the console)
-  Object.assign(ctl, { sim, tab: "counter", doing: null, followed: "", talk: { id: -1, n: 0, at: 0 }, screen: null, paused: false });
-  $("screen").hidden = true;
+  Object.assign(ctl, { sim, tab: "counter", doing: null, followed: "", talk: { id: -1, n: 0, at: 0 }, screen: null, paused: false, note: null });
 }
 
 async function finishDay(): Promise<void> {
@@ -133,12 +142,9 @@ async function finishDay(): Promise<void> {
 // anywhere); how many minutes pass per real second depends on the speed and on what's going on.
 let acc = 0;
 export function frame(dtMs: number): void {
-  if (ctl.paused || !ctl.sim || ctl.screen) return;
+  if (ctl.paused || !ctl.sim || ctl.screen || ctl.note !== null) return;
   const s = state();
-  const step = currentStep(s);
-  const waiting = !ctl.bot && !s.employee.task && step !== null;
-  const pace = waiting ? (step!.type === "respond" ? AT_THE_COUNTER : DECIDING) : quiet(s) ? QUIET : 1;
-  acc += (Math.min(dtMs, 1000) / 1000) * ctl.speed * (s.time >= s.closeAt ? CLOSING.overtimeSpeed : 1) * pace;
+  acc += (Math.min(dtMs, 1000) / 1000) * (ctl.bot ? ctl.speed * (s.time >= s.closeAt ? CLOSING.overtimeSpeed : 1) * (isQuiet(s) ? CLOCK.quiet : 1) : clockRate(s, ctl.speed));
   for (let n = 0; acc >= 1 && n < 600 && !isDayOver(s); n++) {
     if (ctl.bot) botAct(ctl.bot, s, 1);
     tick(ctl.sim, 1);
@@ -151,9 +157,7 @@ export function frame(dtMs: number): void {
   }
 }
 
-export function quiet(s: GameState): boolean {
-  return !s.workflow && !s.employee.task && s.time < s.closeAt && activeCount(s) === 0;
-}
+export const quiet = isQuiet;
 
 // The dialogue comes out a line at a time; the view goes where the next step is; a step done by hand with nothing to
 // choose gets started.
@@ -173,6 +177,7 @@ function follow(): void {
     if (!ctl.bot && hands(step!.req) && !step!.alts.length && ctl.doing?.key !== key) ctl.doing = startDoing(step!.req);
   }
   if (ctl.doing && (s.employee.task || !s.workflow || !isCurrentStep(s, ctl.doing.req))) ctl.doing = null; // done, or moot
+  if (!ctl.doing) ctl.carry = null;
 }
 
 export function stepKey(req: TaskRequest): string {
@@ -195,8 +200,44 @@ export function part(d: Doing): Hand {
   const p = d.parts[d.i];
   if (!p.finish) return p;
   const spec = jobById(state(), d.req.jobId!)!.spec;
-  if (spec.finishing === "staple" && spec.copies <= MAX_TAPS) return { tap: "finishing/set", n: spec.copies };
-  return { hold: { staple: "finishing/stapler", cut: "finishing/cutter", laminate: "finishing/laminator", none: "" }[spec.finishing], on: "finishing/stack" };
+  if (spec.finishing === "staple" && spec.copies <= MAX_TAPS) return { tap: "finishing/set", n: spec.copies, say: "Staple each set" };
+  const tool = { staple: "stapler", cut: "cutter", laminate: "laminator", none: "" }[spec.finishing];
+  return { hold: `finishing/${tool}`, on: "finishing/stack", say: `Hold the ${tool} on the stack` };
+}
+
+// What to do right now for the part you're on ("Put it in the tray", "Pull out the jammed sheets (3 left)").
+export function sayNow(d: Doing): string {
+  const p = part(d);
+  if (p.form) return "Fill in the form";
+  if (p.pay) return "Type it on the register";
+  const left = (p.n ?? 1) - d.count;
+  const text = (p.drag && ctl.carry ? p.put : p.say) ?? hintOf(d.req);
+  return p.tap && (p.n ?? 1) > 1 ? `${text} (${left} left)` : text;
+}
+
+// What to do next, for the top bar: the step you're on (and how to do it by hand), and where.
+export function nextHint(): { text: string; tab: Tab } | null {
+  const s = state();
+  const d = ctl.doing;
+  if (d) return { text: sayNow(d), tab: html.tabOf(d.req.type) };
+  if (s.employee.task) return null;
+  const step = currentStep(s);
+  if (step) {
+    const who = customerById(s, step.req.customerId ?? -1);
+    if (step.type === "talk" || step.type === "respond") return { text: who ? `${step.type === "talk" ? "Talk to" : "Answer"} ${who.name}` : hintOf(step.req), tab: "counter" };
+    return { text: hintOf(step.req), tab: html.tabOf(step.type) };
+  }
+  const front = currentCustomer(s);
+  if (front?.state === "line") return { text: `${front.name} is waiting`, tab: "counter" };
+  if (s.workflow) return null;
+  // Free: the first thing on the to-do list (what Enter would start).
+  const top = suggested(todoList(s))[0];
+  return top ? { text: top.text, tab: html.tabOf(top.req.type) } : null;
+}
+
+export function hintOf(req: TaskRequest): string {
+  const fin = req.jobId !== undefined ? jobById(state(), req.jobId)?.spec.finishing : undefined;
+  return STEP[req.type].hint.replace("{finishing}", fin && fin !== "none" ? `${fin[0].toUpperCase()}${fin.slice(1)} it` : "Finish it");
 }
 
 function needsConfirm(key: string): boolean {
@@ -237,6 +278,7 @@ export function nextPart(): string | null {
   if (!d) return null;
   d.i++;
   d.count = d.held = 0;
+  ctl.carry = null;
   d.typed = "";
   if (d.i < d.parts.length) return null;
   ctl.doing = null;
@@ -318,6 +360,13 @@ export function keypad(key: string): void {
   } else if (d.typed.length < 7 && !(key === "." && d.typed.includes("."))) d.typed += key;
 }
 
+// Puts what you picked up back where it came from (tap what you're holding in the top bar, or Escape).
+export function putBack(): void {
+  if (!ctl.carry) return;
+  ctl.carry = null;
+  ctl.tip("Put it back.");
+}
+
 export function abandon(): void {
   if (!ctl.sim?.state.workflow || needsConfirm("abandon")) return;
   ctl.doing = null;
@@ -352,9 +401,14 @@ function onKey(e: KeyboardEvent): void {
   }
   if (e.key === "`" && devEnabled && ctl.sim) return void ($("dev").hidden = !$("dev").hidden);
   if (ctl.screen || !ctl.sim) return;
+  if (ctl.note !== null) {
+    if (e.key === "Escape" || e.key === "Enter") ctl.note = null; // (nothing else while you're reading a note)
+    return;
+  }
   const s = state();
   const k = e.key.toLowerCase();
   if (ctl.doing && part(ctl.doing).pay && /^[0-9.]$|^backspace$|^enter$/.test(k)) return keypad(k === "backspace" ? "back" : k === "enter" ? "ok" : k);
+  if (e.key === "Escape") return putBack();
   if (e.code === "Space") {
     e.preventDefault();
     ctl.paused = !ctl.paused;
@@ -365,7 +419,7 @@ function onKey(e: KeyboardEvent): void {
     const step = currentStep(s);
     if (step) return doTask(step.type === "respond" ? { ...step.req, choice: "take" } : step.req);
     if (front?.state === "line") return doTask({ type: "talk", customerId: front.id });
-    const top = todoList(s)[0];
+    const top = suggested(todoList(s))[0];
     if (top) doTask(top.req);
     else ctl.tip("Nothing to do right now.");
   } else if (k === "x") {
@@ -394,6 +448,9 @@ export function act(el: HTMLElement): void {
       return startGame(loadGame(read(SAVE_KEY))!);
     case "nextDay":
       return playDay();
+    case "pause":
+      if (!ctl.screen) ctl.paused = !ctl.paused;
+      return;
   }
   if (!ctl.sim) return;
   const s = state();
@@ -404,6 +461,25 @@ export function act(el: HTMLElement): void {
       const err = formDone(el.closest("form")!);
       return void (err && ctl.tip(err));
     }
+    case "tab":
+      ctl.note = null;
+      return goTab(d.tab as Tab);
+    case "note": {
+      const id = Number(d.job);
+      ctl.note = ctl.note === id ? null : id;
+      return;
+    }
+    case "closeNote":
+      ctl.note = null;
+      return;
+    case "putBack":
+      return putBack();
+    case "home":
+      return home();
+    case "abandon":
+      return abandon();
+    case "key":
+      return keypad(d.key!);
     case "nextLine":
       ctl.talk = { ...ctl.talk, n: ctl.talk.n + 1, at: performance.now() };
       return;

@@ -10,6 +10,13 @@
       "speaker": "system",
       "moment": "failure",
       "kind": "walked_out",
+      "where": "line",
+      "text": "{name} left the line after waiting {minutes} min."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "walked_out",
       "job": "yes",
       "text": "{name} gave up waiting and left without order #{job}."
     },

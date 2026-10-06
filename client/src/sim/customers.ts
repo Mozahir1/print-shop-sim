@@ -2,7 +2,8 @@
 // stream pays for it (the flow director's own stream during a day, a separate one for dev mode).
 import { emit } from "./bus";
 import type { Customer, FlagKind, GameState, Job, JobSpec, RequestKind, ShipService, Timing } from "./types";
-import { FLAGS, MOOD, PAYS_CASH, PICKUP_AFTER, PRINT_REQUESTS, SHIPPING, TIMING } from "./config";
+import { FLAGS, MOOD, PAYS_CASH, PICKUP_AFTER, PRINT_REQUESTS, RUSH_BUFFER, SHIPPING, TIMING } from "./config";
+import { estimateReadyAt } from "./quote";
 import { keyedRoll, randInt, pick, type Rng } from "./rng";
 import { giveUpFor, resetPatience } from "./mood";
 import { boxFor, fullServiceQuote, shipQuote, totalSheets } from "./orders";
@@ -195,7 +196,8 @@ export function placeWebOrder(state: GameState, rng: Rng, opts: SpawnOptions = {
   c.timing = "back";
   state.customers.push(c);
   const [lo, hi] = PICKUP_AFTER;
-  const dueAt = state.time + lo + Math.floor(rng() * (hi - lo + 1));
+  // (The website promises a time it can actually be done by: what's printing ahead of it, then making it.)
+  const dueAt = Math.max(state.time + lo + Math.floor(rng() * (hi - lo + 1)), estimateReadyAt(state, c.spec, false) + RUSH_BUFFER);
   c.needBy = dueAt;
   const job = createJob(state, c, "web", { rush: false, dueDay: state.day, dueAt });
   const text = pickLine(POOLS.messages, "web_order");

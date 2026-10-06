@@ -5,9 +5,9 @@
 import { emit, SHEETS_PER_EVENT } from "./bus";
 import type { CounterAction, Customer, EventKind, Workflow, WorkflowKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
-import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
+import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, RUSH_BUFFER, EASE_IN, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
 import { choiceType, leave, recordChoice, resetPatience, runPatience, wear } from "./mood";
-import { quoteFor, type CounterQuote } from "./quote";
+import { handlingMinutes, printMinutes, quoteFor, type CounterQuote } from "./quote";
 import { formatClock } from "./time";
 import { BOX_ORDER, boxFor, finishMinutes, selfServePriceCents, selfServeSeconds, shipQuote, totalSheets, walkUpMinutes, wrongFields } from "./orders";
 import { ALT_OF, STEP, WORKFLOWS, currentStep, isChoice, isCurrentStep, lockMessage, workflowFor } from "./workflow";
@@ -80,7 +80,7 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     truck: { arrivesAt, leavesAt: arrivesAt + SHIPPING.truckWaits, status: "coming", handedOff: false },
     messages: [],
     heldMessages: [],
-    event: rollEvent(rng.events, dayLength),
+    event: rollEvent(rng.events, dayLength, day),
     cardReader: "ok",
     wifi: { down: false, backAt: 0 },
     choices: [],
@@ -347,7 +347,7 @@ function runPrinter(state: GameState, dt: number): void {
   if (job.sheetsPrinted >= job.sheets - 1e-9) {
     job.sheetsPrinted = job.sheets;
     job.status = "printed";
-    if (keyedRoll(state.seed, "smudge", job.id, job.attempt) < SMUDGE_CHANCE) job.smudge = "found"; // you'll see it when you collect it
+    if (keyedRoll(state.seed, "smudge", job.id, job.attempt) < (EASE_IN.smudge[state.day - 1] ?? SMUDGE_CHANCE)) job.smudge = "found"; // you'll see it when you collect it
     p.currentJobId = null;
     p.status = p.queue.length ? "printing" : "idle";
     log(state, `Order #${job.id} finished printing.`);
@@ -1274,7 +1274,9 @@ function agreeOnTime(state: GameState, c: Customer, q: CounterQuote, rush: boole
     say(c, "accept_later");
   }
   const tomorrow = rush ? false : q.tomorrow;
-  const dueAt = tomorrow ? morningTime(state.seed, c.id) : c.timing === "back" ? Math.max(promise, c.needBy ?? promise) : promise;
+  // (Tomorrow morning, with time to make it first: nothing prints overnight.)
+  const morning = () => Math.max(morningTime(state.seed, c.id), Math.round(printMinutes(c.spec!) + handlingMinutes(c.spec!) + RUSH_BUFFER));
+  const dueAt = tomorrow ? morning() : c.timing === "back" ? Math.max(promise, c.needBy ?? promise) : promise;
   const walkUp = q.walkUp && !rush;
   const job = createJob(state, c, "counter", { rush, walkUp, dueDay: tomorrow ? state.day + 1 : state.day, dueAt });
   state.stats.ordersTaken++;

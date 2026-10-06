@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { canStart, createSim, tick, type Sim } from "./sim";
 import { rollSpec, returnCustomer, spawnCustomer, type PrintKind } from "./customers";
 import { requestLines } from "./dialogue";
-import { notes } from "./notes";
+import { noteDetail, notes } from "./notes";
 import { currentStep, isChoice } from "./workflow";
 import { createRng } from "./rng";
 import { formatClock } from "./time";
@@ -99,6 +99,29 @@ describe("the order form and the notes", () => {
     for (let i = 0; i < 5; i++) tick(sim, 1);
     expect(s.jobs[0].status).toBe("new");
     expect(notes(s)[0]).toMatchObject({ text: `Resume for ${c.name.split(" ")[0]}, due ${formatClock(s.jobs[0].dueAt)}. Not in the computer yet.`, hint: "Enter it on the computer" });
+  });
+
+  it("a note unfolds into every detail you entered, and every step, ticked off as you go", () => {
+    const sim = quiet();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain(), timing: "back", needIn: 300, name: "Dana Reyes" });
+    doTask(sim, { type: "talk", customerId: c.id });
+    doTask(sim, { type: "respond", customerId: c.id, choice: "take" });
+    const job = s.jobs[0];
+    let d = noteDetail(s, job.id)!;
+    expect(d.entered).toBe(false); // (until then, it's what they asked for)
+    expect(d.steps.map((x) => x.state)).toEqual(["now", "todo", "todo", "todo", "todo", "todo", "todo"]);
+    doTask(sim, { ...currentStep(s)!.req, entry: { ...job.spec, copies: 52 } }); // misheard
+    d = noteDetail(s, job.id)!;
+    expect(d.entered).toBe(true);
+    expect(d.rows).toContainEqual(["Copies", "52"]);
+    expect(d.rows).toContainEqual(["Finishing", "Staple"]);
+    expect(d.steps.map((x) => x.text)).toEqual(["Enter it on the computer", "Send to printer", "Printing. You can leave it.", "Collect", "Staple", "Bag and shelve", "Ring up when they come back"]);
+    makeReady(sim, job);
+    d = noteDetail(s, job.id)!;
+    expect(d.steps.filter((x) => x.state === "done")).toHaveLength(6);
+    expect(d.steps.find((x) => x.state === "now")?.text).toBe("Ring up when they come back");
+    expect(d.steps.find((x) => x.state === "now")?.station).toBe("counter");
   });
 
   it("the note is what you entered, not what they asked for, and its hint follows the work", () => {

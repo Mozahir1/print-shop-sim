@@ -37,6 +37,14 @@ export function isActive(state: GameState, c: Customer): boolean {
 
 // The next step for everything that needs you, most urgent first. Only steps you could start right now (ignoring
 // that you're busy) are listed.
+// What the game suggests doing next (the top bar's "Next:", and what a person does): whoever's waiting at the
+// counter first, then sending anything that's ready to the printer (a minute, and it prints while you do the rest),
+// then the list as it is (soonest due first).
+export function suggested(items: TodoItem[]): TodoItem[] {
+  const rank = (i: TodoItem) => (i.req.type === "talk" || i.req.type === "respond" ? 0 : i.req.type === "send_job" ? 1 : 2);
+  return items.slice().sort((a, b) => rank(a) - rank(b));
+}
+
 export function todoList(state: GameState): TodoItem[] {
   const items: TodoItem[] = [];
   const free = { ...state, employee: { ...state.employee, task: null }, workflow: null };
