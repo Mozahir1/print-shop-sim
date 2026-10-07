@@ -48,7 +48,7 @@ export function eventIsActive(state: GameState): boolean {
 export function runEvents(sim: Sim): void {
   const { state } = sim;
   const e = state.event;
-  if (state.wifi.down && state.time >= state.wifi.backAt) wifiBack(state, false);
+  if (state.wifi.down && !state.wifi.restarting && state.time >= state.wifi.backAt) wifiBack(state, false);
   if (!e || e.status !== "pending" || state.time < e.at || state.time >= state.closeAt) return;
   if (e.kind === "box_rips") return; // happens on the next box you pack (see onPacked)
   if (e.kind === "printer_jam" && state.printer.status !== "printing") return; // waits for a job to jam
@@ -85,7 +85,7 @@ function fire(sim: Sim, e: BadLuck): void {
       state.cardReader = "down";
       break;
     case "wifi_drop":
-      state.wifi = { down: true, backAt: state.time + EVENTS.wifiOutage };
+      state.wifi = { down: true, backAt: state.time + EVENTS.wifiOutage, restarting: false };
       placeWebOrder(state, sim.rng.events); // it's sitting on the server, and won't arrive until the Wi-Fi's back
       break;
     case "box_rips":
@@ -118,14 +118,14 @@ export function resolveEvent(state: GameState, kind: EventKind, how: "fixed" | "
 }
 
 export function wifiBack(state: GameState, restarted: boolean): void {
-  state.wifi = { down: false, backAt: 0 };
+  state.wifi = { down: false, backAt: 0, restarting: false };
   for (const m of state.heldMessages) state.messages.push({ ...m, at: state.time });
   state.heldMessages = [];
   if (state.event?.kind === "wifi_drop" && state.event.status === "active") {
     state.event.status = restarted ? "fixed" : "ignored";
     if (!restarted) recordChoice(state, "ignore", "event");
   }
-  log(state, restarted ? "Restarted the router. The Wi-Fi is back." : "The Wi-Fi came back on its own.");
+  log(state, restarted ? "The Wi-Fi is back." : "The Wi-Fi came back on its own.");
 }
 
 // At close: anything still broken is on you.

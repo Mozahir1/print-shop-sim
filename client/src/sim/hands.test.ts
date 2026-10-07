@@ -54,7 +54,7 @@ describe("each workflow, step by step, by hand", () => {
     step(sim, { choice: "take" });
     for (let i = 0; i < 20; i++) tick(sim, 1);
     expect(currentStep(s)?.type).toBe("scan_dropoff"); // still waiting for you
-    expect(s.packages).toEqual([]);
+    expect(s.packages.filter((p) => p.kind !== "held")).toEqual([]); // (just the pickup shelf)
   });
 
   it("a print job: talk, answer, the form, send (then it prints on its own), collect, staple, bag; then pickup: the shelf, ring up", () => {
@@ -80,7 +80,7 @@ describe("each workflow, step by step, by hand", () => {
     const c = spawnCustomer(s, sim.rng.dev, "ship", { weightLb: 3, service: "overnight" });
     const steps = from(sim, { type: "talk", customerId: c.id }, { respond: { choice: "take" }, pack: { box: "small" }, label: { shipLabel: { weightLb: 3, service: "overnight" } } });
     expect(steps).toEqual(["talk", "respond", "pack", "tape", "weigh", "label", "ring_up", "bin"]);
-    expect(s.packages[0]).toMatchObject({ status: "binned", paid: true, taped: false });
+    expect(s.packages.find((p) => p.kind !== "held")!).toMatchObject({ status: "binned", paid: true, taped: false });
     expect(c.outcome).toBe("served");
     expect(s.manager.flags).toEqual([]);
   });
@@ -93,7 +93,7 @@ describe("each workflow, step by step, by hand", () => {
     expect(currentStep(s2.state)!.alts.map((a) => a.type)).toEqual(["tape_shut"]);
     step(s2, { type: "tape_shut" } as TaskRequest);
     expect(currentStep(s2.state)!.type).toBe("weigh"); // straight to the scale
-    expect(s2.state.packages[0].taped).toBe(true);
+    expect(s2.state.packages.find((p) => p.kind !== "held")!.taped).toBe(true);
   });
 
   it("drop-off: scan, bin. Held package: find it on the shelf, hand it over", () => {
@@ -125,19 +125,59 @@ describe("each workflow, step by step, by hand", () => {
 });
 
 describe("the lock", () => {
-  it("wait steps release it (printing); every other step keeps it", () => {
+  it("wait steps release it (printing); every other step keeps it, for anything but a quick chore", () => {
     const sim = handsOn();
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.dev, "large_job", { spec: spec({ copies: 200 }), timing: "back", needIn: 400 });
+    const d = spawnCustomer(s, sim.rng.dev, "dropoff");
     step(sim, { type: "talk", customerId: c.id } as TaskRequest);
+    expect(canStart(s, { type: "load_paper" })).toMatch(/^You can't do that/); // with a customer: no
+    s.printer.status = "tray_empty";
+    expect(canStart(s, { type: "load_paper" })).toMatch(/^You can't do that/);
     step(sim, { choice: "take" });
-    expect(canStart(s, { type: "load_paper" })).toMatch(/^You can't do that/); // at the form
+    expect(canStart(s, { type: "talk", customerId: d.id })).toMatch(/^You can't do that/); // at the form: not another job...
+    expect(canStart(s, { type: "load_paper" })).toBeNull(); // ...but a quick chore, yes
+    s.printer.status = "idle";
     step(sim);
-    expect(canStart(s, { type: "load_paper" })).toMatch(/^You can't do that/); // about to send it
     step(sim);
     expect(s.jobs[0].status).toMatch(/queued|printing/);
-    const d = spawnCustomer(s, sim.rng.dev, "dropoff");
     expect(canStart(s, { type: "talk", customerId: d.id })).toBeNull(); // free while it prints
+  });
+
+  it("a quick chore puts the job down; you go back to it after, where you left off", () => {
+    const sim = handsOn();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "large_job", { spec: spec({ copies: 200 }), timing: "back", needIn: 400 });
+    from(sim, { type: "talk", customerId: c.id }, { respond: { choice: "take" } });
+    const job = s.jobs[0];
+    runUntil(sim, () => job.status === "printed");
+    step(sim, { type: "collect", jobId: job.id } as TaskRequest);
+    expect(currentStep(s)?.type).toBe("finish");
+    const wf = s.workflow;
+    s.printer.status = "jammed";
+    expect(startTask(s, { type: "clear_jam" })).toBeNull();
+    expect(s.setAside).toBe(wf);
+    runUntil(sim, () => s.employee.task === null);
+    expect(s.printer.status).not.toBe("jammed");
+    expect(s.setAside).toBeNull();
+    expect(s.workflow).toBe(wf); // back to it
+    expect(currentStep(s)?.type).toBe("finish");
+    expect(s.choices.some((x) => x.what === "work")).toBe(false); // that wasn't walking away from it
+  });
+
+  it("a chore can't be put down for another chore, or a customer for a chore", () => {
+    const sim = handsOn();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "ship", { weightLb: 3 });
+    step(sim, { type: "talk", customerId: c.id } as TaskRequest);
+    step(sim, { choice: "take" });
+    expect(currentStep(s)?.type).toBe("pack");
+    s.printer.status = "tray_empty";
+    expect(canStart(s, { type: "load_paper" })).toMatch(/^You can't do that/); // they're standing there
+    s.workflow = null;
+    expect(begin(s, { type: "load_paper" })).toBeNull();
+    s.printer.status = "jammed";
+    expect(canStart(s, { type: "clear_jam" })).toMatch(/^You can't do that/);
   });
 });
 

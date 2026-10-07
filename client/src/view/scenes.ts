@@ -370,7 +370,9 @@ export class ShelfScene extends Station {
     const fetched = new Set(s.customers.map((c) => c.fetched));
     const want = new Map<string, string>();
     for (const j of s.jobs) if (j.status === "bagged" && !fetched.has(j.id)) want.set(`bag:${j.id}`, customerById(s, j.customerId)?.name.split(" ")[0] ?? "");
-    for (const p of s.packages) if (p.kind === "held" && p.status === "held") want.set(`package:${p.id}`, customerById(s, p.customerId)?.name.split(" ")[0] ?? "");
+    // (Packages by first name and initial: there can be a few on the shelf, from days back.)
+    const short = (name: string) => name.replace(/^(\S+)\s+(\S).*$/, "$1 $2.");
+    for (const p of s.packages) if (p.kind === "held" && p.status === "held") want.set(`package:${p.id}`, short(p.to ?? customerById(s, p.customerId)?.name ?? ""));
     const sig = [...want].join("|");
     if (sig === this.sig2) return;
     this.sig2 = sig;

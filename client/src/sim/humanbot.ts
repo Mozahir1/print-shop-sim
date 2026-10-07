@@ -8,7 +8,7 @@ import { botAct, createBot, type Bot, type BotStyle } from "./bot";
 import { createRng, type Rng } from "./rng";
 import { begin, isDayOver, tick, type Sim } from "./sim";
 import { currentStep, STEP, type Hand } from "./workflow";
-import { suggested, todoList } from "./todo";
+import { choreNow, suggested, todoList } from "./todo";
 import { clockRate } from "./clock";
 import { jobById } from "./util";
 import { CLOCK } from "./config";
@@ -89,7 +89,8 @@ function hands(h: Human, state: GameState, req: TaskRequest): number {
 // hands-on part comes after: see createHuman). Null when there's nothing to do.
 export function effort(h: Human, state: GameState): number | null {
   const step = currentStep(state);
-  const next = step?.req ?? suggested(todoList(state))[0]?.req;
+  const chore = step && step.type !== "respond" && h.bot.style !== "ignore" ? choreNow(state) : undefined;
+  const next = chore?.req ?? step?.req ?? suggested(todoList(state))[0]?.req;
   if (!next) return state.time >= state.closeAt ? click(h) : null; // (going home)
   const type: TaskType = next.type;
   const data = STEP[type];

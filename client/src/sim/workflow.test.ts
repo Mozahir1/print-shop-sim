@@ -82,7 +82,7 @@ describe("workflows", () => {
     expect(s.choices.at(-1)).toMatchObject({ type: "ignore", what: "work" });
     // Picking it back up later starts where it left off.
     doTask(sim, { type: "pack", packageId: c.packageId! });
-    expect(s.packages[0].status).toBe("binned");
+    expect(s.packages.find((p) => p.kind !== "held")!.status).toBe("binned");
   });
 });
 

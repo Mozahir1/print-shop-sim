@@ -155,6 +155,7 @@ export interface Package {
   id: number;
   customerId: number;
   kind: "ship" | "dropoff" | "held";
+  to?: string; // held packages: the name on the label (who's coming for it)
   weightLb: number;
   service: ShipService | null;
   box: BoxSize | null; // the box it needs, if we pack it
@@ -172,8 +173,8 @@ export interface ShippingLabel {
 
 // The carrier's one pickup a day. It comes at arrivesAt, or once there's room for it (see director.ts).
 export interface Truck {
-  arrivesAt: number;
-  leavesAt: number; // set when it arrives
+  arrivesAt: number; // when it comes (once it's here: when it came)
+  leavesAt: number; // set when it arrives; the driver waits longer while you're busy with a customer
   status: "coming" | "waiting" | "gone";
   handedOff: boolean;
 }
@@ -468,11 +469,13 @@ export interface GameState {
   messages: Message[];
   heldMessages: Message[]; // web orders stuck behind a Wi-Fi outage
   event: BadLuck | null;
-  cardReader: "ok" | "down";
-  wifi: { down: boolean; backAt: number };
+  cardReader: "ok" | "down" | "restarting"; // restarting: you reset it, and it's coming back by itself
+  readerBackAt: number;
+  wifi: { down: boolean; backAt: number; restarting: boolean }; // restarting: the router's coming back by itself
   choices: Choice[];
   failures: Failure[];
   workflow: Workflow | null;
+  setAside: Workflow | null; // the job you put down for a quick chore (the truck, a jam, ...): you go back to it after
   wentHome: WentHome | null; // set when you go home: the day is over
   captions: { time: number; moment: string; text: string }[]; // the MC's monologue
   manager: ManagerState;

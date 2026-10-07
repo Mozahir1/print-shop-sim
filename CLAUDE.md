@@ -83,6 +83,15 @@ whether a first-time human can understand and do it. See `SIM_SPEC.md`.
   themselves clear of glows, the hold meter (depth 80) and popups, `audit()` reports covered labels. Screenshots in
   `playtest/v8.1/`. Human pace now: smart 0/3/0% walkout days on days 1 to 3; do_everything worse (small jobs are
   real work now).
+- Owner request (2026-10-06), multitasking and packages: one thing at a time, but waits never hold you (printing; the
+  card reader / router restart by themselves after you reset them, `cardReader: "restarting"`, `wifi.restarting`,
+  `EVENTS.restart`), and a job (take_order, collect_finish, inbox) can be put down for a quick chore (`CHORES`,
+  `canPutDown` in workflow.ts; `state.setAside`, `carryOn` in sim.ts), never for another job or with a customer
+  there. The driver waits while you can't hand off (`SHIPPING.truckWaitsMax`), nobody new walks in while it's here,
+  and the truck ranks first in `suggested()`. Pickup packages exist only from the day-1 shelf stock or the truck's
+  delivery (`shelve`/`deliverPackages`/`onTheShelf` in customers.ts, `Package.to`, own rng stream), and carry over
+  day to day (`shelf.test.ts`). Human pace, smart: truck handed off 150/150 days (was 117/150). Screenshots in
+  `playtest/v8.2/`.
 - Known for later phases: phone sizes are the same layout scaled down (about 11px text on an 844x390 phone, worse in
   portrait).
 - Art: placeholders only. The owner will draw custom pixel art later from `ART_CHECKLIST.md` (2x art grid, 500x266 per

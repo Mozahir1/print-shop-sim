@@ -8,7 +8,8 @@ import { STEP, workflowSteps, WORKFLOWS } from "../sim/workflow";
 import { customerById } from "../sim/util";
 import { noteDetail, notes, NOTE_FADE } from "../sim/notes";
 import type { GameState } from "../sim/types";
-import { attention, banner, esc, inLine, noteHtml, TABS, type Tab } from "../ui/view";
+import { attention, banner, esc, inLine, noteHtml, tabOf, TABS, type Tab } from "../ui/view";
+import { choreNow } from "../sim/todo";
 import { devPanel } from "../ui/dev";
 import { ART, H, REGION, W, type Region } from "./layout";
 import { SPEEDS } from "./config";
@@ -157,7 +158,10 @@ export function tooltip(text: string | null, x = 0, y = 0): void {
   el.hidden = !text;
   if (!text) return;
   el.textContent = text;
-  Object.assign(el.style, { left: `${x * u}px`, top: `${y * u}px` });
+  // (Centered over it, but never off the edge.)
+  const half = el.offsetWidth / 2 + 4;
+  const room = (el.offsetParent as HTMLElement | null)?.clientWidth ?? Infinity;
+  Object.assign(el.style, { left: `${Math.max(half, Math.min(x * u, room - half))}px`, top: `${y * u}px` });
 }
 
 // ---------- every frame ----------
@@ -200,6 +204,8 @@ export function update(time: number, bellUntil: number): void {
   // Tabs: where you are, and where you're needed. In the middle of something, only where its next step is (and the
   // counter, when the bell's just gone); otherwise everywhere something's waiting.
   const pulse = s.workflow && next ? new Set<Tab>([next.tab]) : attention(s);
+  const chore = s.workflow ? choreNow(s) : undefined; // (a quick chore you could put the job down for)
+  if (chore) pulse.add(tabOf(chore.req.type));
   if (time < bellUntil) pulse.add("counter");
   for (const t of TABS) {
     const el = $(`tab-${t.id}`);
@@ -246,15 +252,25 @@ function holdingBox(s: GameState): void {
   if (!c) delete ghost.dataset.key;
 }
 
+// What's going on by itself while your hands are free: " Order #3 is printing."
+function background(s: GameState): string {
+  const on: string[] = [];
+  if (s.printer.status === "printing" && s.printer.currentJobId !== null) on.push(`order #${s.printer.currentJobId} printing`);
+  if (s.cardReader === "restarting") on.push("the card reader restarting");
+  if (s.wifi.restarting) on.push("the router restarting");
+  return on.length ? ` <span class="muted">Meanwhile: ${esc(on.join(", "))}.</span>` : "";
+}
+
 // "Helping Dana: Take an order, step 3 of 4"
 function doingLine(s: GameState): string {
   const wf = s.workflow;
-  if (!wf) return s.employee.task ? "Busy." : "Hands free.";
+  if (!wf) return s.employee.task ? "Busy." : `Hands free.${background(s)}`;
   const steps = workflowSteps(s, wf);
   const at = Math.max(0, steps.findIndex((x) => !x.done));
   const who = wf.customerId !== undefined ? customerById(s, wf.customerId)?.name : undefined;
   const what = `${WORKFLOWS[wf.kind].label}, step ${Math.min(at + 1, steps.length)} of ${steps.length}`;
-  return who ? `Helping <b>${esc(who)}</b>: ${esc(what)}` : `<b>${esc(what)}</b>`;
+  const after = s.setAside ? ` <span class="muted">(then back to ${esc(WORKFLOWS[s.setAside.kind].label.toLowerCase())})</span>` : "";
+  return (who ? `Helping <b>${esc(who)}</b>: ${esc(what)}` : `<b>${esc(what)}</b>`) + after;
 }
 
 // The sticky notes: up to 4, as many as fit, then "+N more". And the last few things that happened.

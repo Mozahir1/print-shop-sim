@@ -1,7 +1,10 @@
 // Workflows: multi-step jobs (take an order, ship a package, collect and finish a print job, ...).
 // Each is data (src/data/workflows.json): ordered steps, and per step the station, what you're holding, your pose,
-// how long it takes, what you're thinking, how you do it by hand (the building block), and the hint on its note. While a workflow is on, nothing unrelated can start (jobs printing
-// on their own keep going). Steps run one after another; the workflow pauses wherever there's a choice to make.
+// how long it takes, what you're thinking, how you do it by hand (the building block), and the hint on its note.
+// While a workflow is on, nothing unrelated can start, with one exception: you can put a job down for a quick chore
+// (the truck, a jam, an empty tray, a reset) and go back to it after. Not while you're with a customer, and never
+// for a second job. Anything that runs by itself (a job printing, a reader restarting) never holds you up.
+// Steps run one after another; the workflow pauses wherever there's a choice to make.
 // Which steps are done comes from the state of things, so a workflow you abandon can be picked up again later.
 import type { Customer, GameState, Job, Package, Station, TaskRequest, TaskType, Workflow, WorkflowKind } from "./types";
 import data from "../data/workflows.json";
@@ -63,6 +66,19 @@ export const ALT_OF: Partial<Record<TaskType, TaskType>> = {
   skip_finish: "finish",
   manual_ring_up: "ring_up",
 };
+
+// Quick chores: one step, nothing to do with whoever you're helping.
+export const CHORES: ReadonlySet<TaskType> = new Set(["hand_off", "let_truck_go", "load_paper", "clear_jam", "fix_card_reader", "restart_router", "bin"]);
+// Jobs you can put down for one: just you and the work (a customer standing there is a different matter).
+const PUT_DOWN: ReadonlySet<WorkflowKind> = new Set(["take_order", "collect_finish", "inbox"]);
+
+// Whether you could put down what you're doing for a quick chore right now.
+export function canPutDown(state: GameState): boolean {
+  const wf = state.workflow;
+  if (!wf || state.setAside || state.employee.task || !PUT_DOWN.has(wf.kind)) return false;
+  const c = wf.customerId !== undefined ? customerById(state, wf.customerId) : undefined;
+  return c?.state !== "talking" && c?.state !== "line";
+}
 
 // Steps where you choose: the workflow waits for you there instead of moving on by itself.
 // (Entering an order waits for you to fill in the form.)

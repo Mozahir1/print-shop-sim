@@ -88,14 +88,15 @@ something goes wrong you see it right then, over the station view.
 | G | go home (after 5 PM) |
 | Space | pause |
 | 1 to 3 | 1×, 2×, 4× speed (a day is about 5 real minutes at 1×; after close the clock drags) |
+| N | dev mode: skip ahead to the next thing that needs you (the dev drawer, backtick, also skips to the next customer, a job done printing, the truck, today's bad luck, or closing time) |
 
 The first time you turn someone away, walk away from a job, or go home with work left, it asks you to confirm.
 
 ### A day
 
 - **Customers** want quick copies, a bigger print job (some wait, some come back later, some are fine with tomorrow),
-  a poster laminated, a box shipped (ground, 2-day, or overnight), a drop-off scanned, an order or a held package
-  picked up, or help at the self-serve copier. Some people with simple jobs go straight to the self-serve copier.
+  a poster laminated, a box shipped (ground, 2-day, or overnight), a drop-off scanned, an order or a package from the
+  pickup shelf picked up, or help at the self-serve copier. Some people with simple jobs go straight to the self-serve copier.
   Online orders land in Email and can't be turned away. Later days lean toward requests with more steps.
 - **Promises keep to open hours.** Nothing's due later than 30 minutes before close. What a customer asks for is
   capped there; a job that can't make it today is promised for tomorrow morning ("ready tomorrow morning, by
@@ -107,16 +108,26 @@ The first time you turn someone away, walk away from a job, or go home with work
   job, the price, the pickup time, and "Enter this order", which opens the form filled in), customer feedback (who,
   what happened, which order), the manager's notes (a warning or write-up says why), corporate memos, and the hollow
   rewards. **Devices:** the printer, the self-serve copier, the card reader, and the Wi-Fi: OK, or what's wrong and
-  where to fix it. **Shipping:** today's outbound packages and where each one is, and when the truck comes.
+  where to fix it (or that it's restarting, and when it's back). **Shipping:** today's outbound packages and where
+  each one is, when the truck comes, and what's on the pickup shelf.
+- **The truck and the pickup shelf.** Packages for pickup only ever come on the truck: it takes the outbound bin and
+  drops off the day's deliveries (1 to 3, as many as fit on a 6-package shelf). Your first day isn't the shop's, so
+  the shelf already has a few on it, and whatever nobody comes for stays there tomorrow. Someone picking up a package
+  is whoever one on the shelf is for. While the truck's here nobody new walks in, and the driver waits while you're
+  with a customer (up to 45 minutes all told): you only miss it by leaving it.
 - **The counter quote.** Under what they said: the full-service price with fees itemized (a $2 service fee on small
   orders, a rush fee if it's a rush), the self-serve price if it's an option (plain paper, no back-counter finishing,
   and they're staying), and when it could be ready from what's in the printer queue. A rush is offered when they
   need it sooner than standard turnaround.
 - **Workflows.** Jobs with several steps run as workflows: taking an order (talk, answer, the form, send it),
   shipping (talk, answer, box, tape, weigh, label, ring up, bin), collecting and finishing a print job (collect,
-  finish, bag), a pickup (the shelf, ring up), and so on. Each step waits for you to do it by hand. While you're in
-  one, nothing unrelated can start ("You can't do that, you're boxing a package."), except while something prints:
-  that's a wait, and you're free. Walking away from a workflow counts as ignoring it.
+  finish, bag), a pickup (the shelf, ring up), and so on. Each step waits for you to do it by hand. You do one thing
+  at a time: with a customer, or on a job, nothing unrelated can start ("You can't do that, you're boxing a
+  package."). Two exceptions. Waits never hold you: a job printing, or the card reader or router restarting after
+  you reset it, run by themselves while your hands are free (the top bar says what's going on meanwhile). And on a
+  job (taking down an order, collecting and finishing one, a web order) you can put it down for a quick chore (the
+  truck, a jam, an empty tray, a reset, binning a box), and you go back to it after, where you left off. Never for a
+  second job, and never while a customer's standing there. Walking away from a workflow counts as ignoring it.
 - **Do / Don't / Ignore.** At the counter: Do (take, rush, or self-serve), Don't (turn away), Ignore (they wait until
   you come back, or give up). In the work and with bad luck: Do it properly (reprint smudged copies, fix the copier,
   pack the box, hand the packages to the driver), Don't (hand over the smudged copies, tape an out of order sign on
@@ -170,7 +181,7 @@ client/
     consequences.ts manager heat, complaints, delayed flags, hollow rewards
     events.ts       the day's bad luck
     game.ts         a run of days: what carries over, the manager's verdict, endings, saves
-    workflow.ts     workflows: steps, the strict lock, currentStep(); step data in src/data/workflows.json
+    workflow.ts     workflows: steps, the lock (and quick chores), currentStep(); step data in src/data/workflows.json
     failures.ts     failures (logged by name, manager notes) and the manager's mood
     todo.ts         the bot's to-do list and what counts as "active"; tasks available at each station
     mc.ts, lines.ts the MC's monologue and customer lines, picked from tagged JSON
@@ -289,8 +300,9 @@ against. Share of days with anyone walking out, 30 games:
 
 | style | day 1 | day 2 | day 3 | day 4 | day 5 |
 |---|---|---|---|---|---|
-| smart | 0% | 3% | 7% | 0% | 10% |
-| do_everything | 7% | 10% | 0% | 10% | 17% |
+| smart | 3% | 0% | 0% | 0% | 17% |
+| careless | 3% | 3% | 3% | 13% | 17% |
+| do_everything | 10% | 10% | 17% | 17% | 27% |
 
 The early walkouts left are a late order and some bad luck on the same day.
 

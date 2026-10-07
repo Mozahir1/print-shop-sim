@@ -4,9 +4,9 @@ import { abandonWorkflow, begin, canGoHome, canStart, cashGiven, currentCustomer
 import { endDay, loadGame, newGame, saveGame, startDay, type Game } from "../sim/game";
 import { report, summarize } from "../sim/summary";
 import { botAct, createBot, type Bot, type BotStyle } from "../sim/bot";
-import { devEvent, devSpawn, setArrivals, skipToClose } from "../sim/dev";
-import { activeCount, suggested, todoList } from "../sim/todo";
-import { currentStep, isChoice, isCurrentStep, STEP, type Hand } from "../sim/workflow";
+import { devEvent, devSpawn, setArrivals, skipTo, skipToClose, type SkipTo } from "../sim/dev";
+import { activeCount, choreNow, suggested, todoList } from "../sim/todo";
+import { currentStep, isChoice, isCurrentStep, STEP, WORKFLOWS, type Hand } from "../sim/workflow";
 import { requestLines } from "../sim/dialogue";
 import { shipQuote } from "../sim/orders";
 import { customerById, jobById, packageById } from "../sim/util";
@@ -223,6 +223,9 @@ export function sayNow(d: Doing): string {
 export function nextHint(): { text: string; tab: Tab } | null {
   const s = state();
   const d = ctl.doing;
+  // The truck's here while you're on a job: hand off first (it won't wait all day), then back to it.
+  const chore = !ctl.carry && !s.employee.task ? choreNow(s) : undefined;
+  if (chore?.req.type === "hand_off" && s.workflow) return { text: `The truck is here. Hand off, then back to ${WORKFLOWS[s.workflow.kind].label.toLowerCase()}`, tab: "shipping" };
   if (d) return { text: sayNow(d), tab: html.tabOf(d.req.type) };
   if (s.employee.task) return null;
   const step = currentStep(s);
@@ -260,6 +263,9 @@ function needsConfirm(key: string): boolean {
 export function doTask(req: TaskRequest): void {
   const s = state();
   if (req.choice === "turn_away" && needsConfirm("turn_away")) return;
+  const was = s.workflow;
+  // (Putting a job down for a quick chore: you'll go back to it.)
+  const putDown = () => (s.setAside && s.setAside === was ? ` Then back to ${WORKFLOWS[was.kind].label.toLowerCase()}.` : "");
   if (hands(req) && !ctl.bot) {
     const err = begin(s, req);
     if (err) return ctl.tip(err);
@@ -267,12 +273,13 @@ export function doTask(req: TaskRequest): void {
     ctl.doing = startDoing(req);
     ctl.followed = stepKey(currentStep(s)!.req);
     ctl.tab = html.tabOf(req.type);
+    if (putDown()) ctl.tip(`${previewTask(s, req).label}.${putDown()}`);
     return;
   }
   const label = req.type === "respond" ? null : previewTask(s, req).label;
   const err = startTask(s, req);
   if (err) ctl.tip(err);
-  else if (label) ctl.tip(label);
+  else if (label) ctl.tip(`${label}${putDown() ? `.${putDown()}` : ""}`);
   if (req.type === "ask_again") ctl.talk = { id: req.customerId!, n: 0, at: performance.now() }; // from the top
 }
 
@@ -435,6 +442,7 @@ function onKey(e: KeyboardEvent): void {
     if (step?.type === "respond") doTask({ ...step.req, choice: "ignore" });
     else if (s.workflow) abandon();
   } else if (k === "g") home();
+  else if (k === "n" && devEnabled) devSkip("next");
   else if (Number(k) >= 1 && Number(k) <= SPEEDS.length) {
     ctl.speed = SPEEDS[Number(k) - 1];
     ctl.paused = false;
@@ -518,6 +526,8 @@ export function act(el: HTMLElement): void {
       ctl.doing = null;
       if (ctl.bot) s.devUsed = true;
       return;
+    case "skipTo":
+      return devSkip(d.to as SkipTo);
     case "skipDay":
       return skipToClose(ctl.sim, ctl.bot ? () => botAct(ctl.bot!, s, 1) : undefined);
     case "arrivals":
@@ -535,6 +545,14 @@ export function act(el: HTMLElement): void {
     case "copyState":
       void navigator.clipboard?.writeText(JSON.stringify({ game: ctl.game, state: s }, null, 2)).then(() => ctl.tip("Copied."));
   }
+}
+
+// Dev mode: skip ahead to what matters (see skipTo in sim/dev.ts). The bot, if one's on, plays the skipped time.
+function devSkip(to: SkipTo): void {
+  const s = state();
+  ctl.doing = null;
+  ctl.carry = null;
+  ctl.tip(skipTo(ctl.sim!, to, ctl.bot ? () => botAct(ctl.bot!, s, 1) : undefined));
 }
 
 export function listen(): void {

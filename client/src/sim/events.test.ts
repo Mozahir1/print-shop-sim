@@ -166,15 +166,22 @@ describe("card reader down", () => {
     expect(s.event!.status).toBe("worked_around");
     expect(s.choices.at(-1)).toMatchObject({ type: "dont", what: "event" });
     doTask(sim, { type: "fix_card_reader" });
-    expect(s.cardReader).toBe("ok");
+    runUntil(sim, () => s.cardReader === "ok");
   });
 
-  it("fixing it straight away is a Do", () => {
+  it("fixing it straight away is a Do: you reset it, and it restarts by itself while you get on with things", () => {
     const sim = quiet();
+    const s = sim.state;
     devEvent(sim, "card_reader_down");
     doTask(sim, { type: "fix_card_reader" });
-    expect(sim.state.event!.status).toBe("fixed");
-    expect(sim.state.choices.at(-1)).toMatchObject({ type: "do", what: "event" });
+    const at = s.time;
+    expect(s.cardReader).toBe("restarting");
+    expect(s.workflow).toBeNull(); // a wait, not work: your hands are free
+    expect(canStart(s, { type: "fix_card_reader" })).toMatch(/restarting/);
+    runUntil(sim, () => s.cardReader === "ok");
+    expect(s.time - at).toBe(EVENTS.restart.cardReader);
+    expect(s.event!.status).toBe("fixed");
+    expect(s.choices.at(-1)).toMatchObject({ type: "do", what: "event" });
   });
 
   it("left broken at close: heat", () => {
@@ -198,7 +205,7 @@ describe("box rips", () => {
     devEvent(sim, "box_rips");
     const c = shipper(sim);
     doTask(sim, { type: "pack", packageId: c.packageId! });
-    const pkg = sim.state.packages[0];
+    const pkg = sim.state.packages.find((p) => p.kind !== "held")!;
     expect(pkg.status).toBe("new");
     expect(sim.state.event!.status).toBe("active");
     doTask(sim, { type: "pack", packageId: pkg.id }); // taped, weighed, labeled, rung up, binned
@@ -213,7 +220,7 @@ describe("box rips", () => {
     doTask(sim, { type: "pack", packageId: c.packageId! });
     doTask(sim, { type: "tape_shut", packageId: c.packageId! });
     expect(sim.state.event!.status).toBe("worked_around");
-    expect(sim.state.packages[0].taped).toBe(true);
+    expect(sim.state.packages.find((p) => p.kind !== "held")!.taped).toBe(true);
   });
 });
 
@@ -226,8 +233,11 @@ describe("Wi-Fi drops", () => {
     expect(s.heldMessages).toHaveLength(1);
     expect(activeCount(s)).toBe(1); // the order is waiting on you, whether or not you can see it
     doTask(sim, { type: "restart_router" });
-    expect(s.messages.some((m) => m.kind === "web_order")).toBe(true);
+    expect(s.workflow).toBeNull(); // it comes back by itself: you're free meanwhile
+    expect(s.wifi.restarting).toBe(true);
+    runUntil(sim, () => s.messages.some((m) => m.kind === "web_order"));
     expect(s.event!.status).toBe("fixed");
+    expect(s.choices.at(-1)).toMatchObject({ type: "do", what: "event" });
   });
 
   it("ignored: it comes back on its own, and the order arrives late", () => {

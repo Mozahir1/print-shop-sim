@@ -108,6 +108,7 @@ export function emailApp(s: GameState, open: number | null, webForm: number | nu
 interface Device {
   name: string;
   ok: boolean;
+  wait?: boolean; // not working yet, but nothing for you to do: it's restarting by itself
   line: string; // OK, or what's wrong and where to fix it
   fix?: string; // a button to fix it from here
 }
@@ -118,18 +119,23 @@ export function devices(s: GameState): Device[] {
   return [
     { name: "Production printer", ok: p.status !== "jammed" && p.status !== "tray_empty", line: p.status === "jammed" ? "Paper jam. Go to the Printer and clear it." : p.status === "tray_empty" ? "Out of paper. Go to the Printer and load a ream." : `OK. ${printing}` },
     { name: "Self-serve copier", ok: s.copier.status === "ok", line: s.copier.status === "ok" ? "OK." : s.copier.sign ? "Broken, with an out of order sign on it. Fix it at the Counter." : "Broken. Go to the Counter and fix it." },
-    { name: "Card reader", ok: s.cardReader !== "down", line: s.cardReader === "down" ? "Down: cards won't go through. Hold the reset button on the reader box, below this screen." : "OK.", fix: s.cardReader === "down" ? "fix_card_reader" : undefined },
-    { name: "Wi-Fi", ok: !s.wifi.down, line: s.wifi.down ? "Down: web orders are stuck until it's back. Hold the router's power button, below this screen." : "OK.", fix: s.wifi.down ? "restart_router" : undefined },
+    s.cardReader === "restarting"
+      ? { name: "Card reader", ok: false, wait: true, line: `Restarting. Back by ${formatClock(s.readerBackAt)}, nothing to do meanwhile. (Cash, or ring up by hand, until then.)` }
+      : { name: "Card reader", ok: s.cardReader !== "down", line: s.cardReader === "down" ? "Down: cards won't go through. Hold the reset button on the reader box, below this screen." : "OK.", fix: s.cardReader === "down" ? "fix_card_reader" : undefined },
+    s.wifi.restarting
+      ? { name: "Wi-Fi", ok: false, wait: true, line: `Restarting. Back by ${formatClock(s.wifi.backAt)}, nothing to do meanwhile.` }
+      : { name: "Wi-Fi", ok: !s.wifi.down, line: s.wifi.down ? "Down: web orders are stuck until it's back. Hold the router's power button, below this screen." : "OK.", fix: s.wifi.down ? "restart_router" : undefined },
   ];
 }
 
+// What's down and needs you (not what's restarting by itself).
 export function problems(s: GameState): Device[] {
-  return devices(s).filter((d) => !d.ok);
+  return devices(s).filter((d) => !d.ok && !d.wait);
 }
 
 export function devicesApp(s: GameState): string {
   return `<h1>Devices</h1><div class="list">${devices(s)
-    .map((d) => `<div class="device${d.ok ? "" : " down"}"><b>${esc(d.name)}</b><span>${esc(d.line)}</span>${d.fix ? taskButton(s, { type: d.fix as "fix_card_reader" }, { label: "Fix it", primary: true }) : ""}</div>`)
+    .map((d) => `<div class="device${d.ok ? "" : d.wait ? " wait" : " down"}"><b>${esc(d.name)}</b><span>${esc(d.line)}</span>${d.fix ? taskButton(s, { type: d.fix as "fix_card_reader" }, { label: "Fix it", primary: true }) : ""}</div>`)
     .join("")}</div>`;
 }
 
@@ -148,11 +154,17 @@ const PKG: Partial<Record<Package["status"], string>> = {
 export function shippingApp(s: GameState, labelFor: number | null): string {
   if (labelFor !== null) return labelForm(s, labelFor);
   const t = s.truck;
-  const truck = t.status === "coming" ? `The truck comes at ${formatClock(t.arrivesAt)}.` : t.status === "waiting" ? `The truck is here until ${formatClock(t.leavesAt)}. Hand off the outbound bin at Shipping.` : "The truck has come and gone for today.";
+  const truck =
+    t.status === "coming"
+      ? `The truck comes at ${formatClock(t.arrivesAt)}: it takes the outbound bin and drops off packages for pickup.`
+      : t.status === "waiting"
+        ? `The truck is here until ${formatClock(t.leavesAt)} (the driver waits while you're with a customer). Hand off the outbound bin at Shipping.`
+        : "The truck has come and gone for today.";
   const out = s.packages.filter((p) => PKG[p.status]);
+  const shelf = s.packages.filter((p) => p.kind === "held" && p.status === "held").length;
   return `<h1>Shipping</h1><p class="truck${t.status === "waiting" ? " now" : ""}">${esc(truck)}</p><h2>Today's outbound</h2>${
     out.length
       ? `<div class="list">${out.map((p) => `<div class="pkg"><b>#${p.id} ${esc(customerById(s, p.customerId)?.name ?? "")}</b><span>${p.kind === "dropoff" ? "Drop-off" : `${p.weightLb} lb, ${p.service ? SERVICE_LABEL[p.service] : ""}`}</span><span class="status">${PKG[p.status]}</span></div>`).join("")}</div>`
       : `<p class="muted">Nothing going out yet.</p>`
-  }<p class="small muted">Labels are printed at Shipping, once the box is weighed.</p>`;
+  }<p class="small muted">${shelf ? `On the pickup shelf: ${shelf} package${shelf === 1 ? "" : "s"} waiting for whoever they're for. ` : ""}Labels are printed at Shipping, once the box is weighed.</p>`;
 }

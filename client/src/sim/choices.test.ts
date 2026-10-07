@@ -444,7 +444,7 @@ describe("Do / Don't / Ignore on the work", () => {
     const c = spawnCustomer(s, sim.rng.dev, "ship");
     talkTo(sim, c); // weighed, then it stops: box it, or just tape it shut?
     doTask(sim, { type: "tape_shut", packageId: c.packageId! }); // labeled and binned
-    expect(s.packages[0]).toMatchObject({ taped: true, status: "binned" });
+    expect(s.packages.find((p) => p.kind !== "held")!).toMatchObject({ taped: true, status: "binned" });
     expect(moodOf(c)).toBe("angry");
     expect(s.choices.find((x) => x.what === "pack")).toMatchObject({ type: "dont" });
   });
@@ -472,7 +472,7 @@ describe("Do / Don't / Ignore on the work", () => {
       runUntil(sim, () => s.truck.status === "waiting");
       if (how === "dont") doTask(sim, { type: "let_truck_go" });
       runUntil(sim, () => s.truck.status === "gone");
-      expect(s.packages[0].status).toBe("binned");
+      expect(s.packages.find((p) => p.kind !== "held")!.status).toBe("binned");
       expect(s.choices.at(-1)).toMatchObject({ type: how, what: "truck" });
       expect(s.failures.at(-1)).toMatchObject({ kind: "packages_left" });
     }

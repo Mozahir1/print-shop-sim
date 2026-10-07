@@ -1,7 +1,7 @@
 // Who walks in and what they want. Every roll here comes from the rng you pass in, so the caller decides which
 // stream pays for it (the flow director's own stream during a day, a separate one for dev mode).
 import { emit } from "./bus";
-import type { Customer, FlagKind, GameState, Job, JobSpec, RequestKind, ShipService, Timing } from "./types";
+import type { Customer, FlagKind, GameState, Job, JobSpec, Package, RequestKind, ShipService, Timing } from "./types";
 import { FLAGS, LATEST_ASK, MOOD, PAYS_CASH, PICKUP_AFTER, PRINT_REQUESTS, RUSH_BUFFER, SHIPPING, TIMING } from "./config";
 import { estimateReadyAt, lastDueAt, morningDueAt } from "./quote";
 import { keyedRoll, randInt, pick, type Rng } from "./rng";
@@ -9,7 +9,7 @@ import { giveUpFor, resetPatience } from "./mood";
 import { boxFor, fullServiceQuote, shipQuote, totalSheets } from "./orders";
 import names from "../data/names.json";
 import { pickLine, POOLS } from "./lines";
-import { fill, money } from "./util";
+import { customerById, fill, log, money } from "./util";
 import { describeSpec, postMessage } from "./messages";
 import { formatClock } from "./time";
 
@@ -58,10 +58,38 @@ export interface SpawnOptions {
   about?: FlagKind; // complaint: what they're back about
 }
 
-// Walks a new customer in. Package pickups bring a held package into existence (it came on this morning's
-// delivery). Order pickups need an existing order: use returnCustomer() for those.
+// ---------- the pickup shelf ----------
+
+// Packages people pick up here come on the truck (it drops them off when it comes for the outbound bin), and wait on
+// the shelf, day after day, until whoever they're for comes in. The shelf starts the game with a few on it: it's
+// your first day, not the shop's.
+export function shelve(state: GameState, rng: Rng, n: number): Package[] {
+  const room = Math.max(0, SHIPPING.shelfMax - state.packages.filter((p) => p.kind === "held" && (p.status === "held" || p.status === "found")).length);
+  const out: Package[] = [];
+  for (let i = 0; i < Math.min(n, room); i++) {
+    const p: Package = { id: state.nextId++, customerId: 0, kind: "held", to: rollName(rng), weightLb: randInt(rng, 1, 10), service: null, box: null, priceCents: 0, status: "held", taped: false, paid: true, label: null };
+    state.packages.push(p);
+    out.push(p);
+  }
+  return out;
+}
+
+// The truck's delivery, onto the shelf.
+export function deliverPackages(state: GameState, rng: Rng): void {
+  const got = shelve(state, rng, randInt(rng, ...SHIPPING.deliveries));
+  if (got.length) log(state, `The driver dropped off ${got.length} package${got.length === 1 ? "" : "s"} for pickup.`);
+}
+
+// What's on the shelf that nobody here has come for (yet).
+export function onTheShelf(state: GameState): Package[] {
+  return state.packages.filter((p) => p.kind === "held" && p.status === "held" && (customerById(state, p.customerId)?.state ?? "gone") === "gone");
+}
+
+// Walks a new customer in. Someone picking up a package is whoever one on the shelf is for (dev mode, with an empty
+// shelf: one gets put there). Order pickups need an existing order: use returnCustomer() for those.
 export function spawnCustomer(state: GameState, rng: Rng, kind: Exclude<RequestKind, "order_pickup">, opts: SpawnOptions = {}): Customer {
-  const c = newCustomer(state, opts.name ?? rollName(rng), kind);
+  const pkg = kind === "package_pickup" ? (onTheShelf(state)[0] ?? shelve(state, rng, 1)[0]) : undefined;
+  const c = newCustomer(state, opts.name ?? pkg?.to ?? rollName(rng), kind);
   c.state = "line";
   c.lineTicket = state.nextLineNo++;
   if (isPrintKind(kind)) {
@@ -88,9 +116,10 @@ export function spawnCustomer(state: GameState, rng: Rng, kind: Exclude<RequestK
     c.weightLb = opts.weightLb ?? randInt(rng, ...SHIPPING.weightLb);
     c.service = opts.service ?? weighted<ShipService>(rng(), SHIPPING.serviceWeights);
   }
-  if (kind === "package_pickup") {
-    c.packageId = state.nextId++;
-    state.packages.push({ id: c.packageId, customerId: c.id, kind: "held", weightLb: randInt(rng, 1, 10), service: null, box: null, priceCents: 0, status: "held", taped: false, paid: true, label: null });
+  if (pkg) {
+    c.packageId = pkg.id;
+    pkg.customerId = c.id;
+    pkg.to = c.name;
   }
   state.customers.push(c);
   emit("customer_arrived", { customerId: c.id });

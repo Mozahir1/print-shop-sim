@@ -36,6 +36,8 @@ export function taskButton(state: GameState, req: TaskRequest, opts: { label?: s
 export function banner(state: GameState): string | null {
   const e = state.event;
   if (e?.status !== "active") return null;
+  if (e.kind === "card_reader_down" && state.cardReader === "restarting") return `Card reader restarting, back by ${formatClock(state.readerBackAt)}.`;
+  if (e.kind === "wifi_drop" && state.wifi.restarting) return `Wi-Fi restarting, back by ${formatClock(state.wifi.backAt)}.`;
   return `${eventText(e.kind).title}.`;
 }
 

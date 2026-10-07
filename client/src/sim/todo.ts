@@ -4,7 +4,7 @@ import type { CounterAction, Customer, GameState, Station, TaskRequest, TaskType
 import { canStart, currentCustomer, STATION } from "./sim";
 import { jobById, packageById } from "./util";
 import { eventIsActive } from "./events";
-import { WORKFLOWS, currentStep } from "./workflow";
+import { CHORES, WORKFLOWS, currentStep } from "./workflow";
 
 export interface TodoItem {
   text: string;
@@ -37,11 +37,12 @@ export function isActive(state: GameState, c: Customer): boolean {
 
 // The next step for everything that needs you, most urgent first. Only steps you could start right now (ignoring
 // that you're busy) are listed.
-// What the game suggests doing next (the top bar's "Next:", and what a person does): whoever's waiting at the
-// counter first, then sending anything that's ready to the printer (a minute, and it prints while you do the rest),
-// then the list as it is (soonest due first).
+// What the game suggests doing next (the top bar's "Next:", and what a person does): an answer you owe someone, then
+// the truck while it's here (it won't wait all day), then whoever's waiting at the counter, then sending anything
+// that's ready to the printer (a minute, and it prints while you do the rest), then the list as it is (soonest due
+// first).
 export function suggested(items: TodoItem[]): TodoItem[] {
-  const rank = (i: TodoItem) => (i.req.type === "talk" || i.req.type === "respond" ? 0 : i.req.type === "send_job" ? 1 : 2);
+  const rank = (i: TodoItem) => (i.req.type === "respond" ? 0 : i.req.type === "hand_off" ? 1 : i.req.type === "talk" ? 2 : i.req.type === "send_job" ? 3 : 4);
   return items.slice().sort((a, b) => rank(a) - rank(b));
 }
 
@@ -141,6 +142,12 @@ export function todoList(state: GameState): TodoItem[] {
   const wf = state.workflow!;
   const now: TodoItem = { text: `Now: ${WORKFLOWS[wf.kind].label}`, station: step.data.station, req: step.req, alts: step.alts, customerId: wf.customerId };
   return [now, ...sorted.filter((i) => !same(i.req))];
+}
+
+// In the middle of a job: a quick chore you could put it down for right now (the truck's here, the tray's empty, ...).
+export function choreNow(state: GameState): TodoItem | undefined {
+  if (!state.workflow) return undefined;
+  return todoList(state).find((i) => CHORES.has(i.req.type) && !i.text.startsWith("Now:") && [i.req, ...i.alts].some((r) => canStart(state, r) === null));
 }
 
 // Cutting the corner (Don't): the faster, sloppier way to do something.

@@ -14,7 +14,7 @@ import type { CounterAction, GameState, OrderEntry, TaskRequest } from "./types"
 import { createRng, type Rng } from "./rng";
 import { abandonWorkflow, goHome, startTask, workLeft } from "./sim";
 import { currentStep } from "./workflow";
-import { DONT, suggested, todoList, type TodoItem } from "./todo";
+import { choreNow, DONT, suggested, todoList, type TodoItem } from "./todo";
 import { quoteFor, rushBumpsSomeone } from "./quote";
 import { isPrintKind } from "./customers";
 import { customerById, jobById, packageById } from "./util";
@@ -49,6 +49,12 @@ export function botAct(bot: Bot, state: GameState, dt: number): void {
   bot.cooldown = bot.reaction;
   // In a workflow: its next step is the only thing you can do (or walk away from).
   const step = currentStep(state);
+  // A quick chore comes up (the truck): put the job down for it, then go back to it. (Unless you ignore things.)
+  const chore = step && step.type !== "respond" && bot.style !== "ignore" ? choreNow(state) : undefined;
+  if (chore) {
+    const req = choose(bot, state, chore.req, chore.alts);
+    if (req && go(bot, state, req)) return;
+  }
   if (step) {
     const req = choose(bot, state, step.req, step.type === "respond" ? todoList(state)[0]?.alts ?? [] : step.alts);
     if (req && go(bot, state, req)) return;

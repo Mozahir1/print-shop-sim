@@ -100,6 +100,9 @@ export const EVENTS = {
   window: [0.15, 0.7] as [number, number], // share of the day: earliest time it can happen
   weights: { printer_jam: 3, copier_dies: 2, card_reader_down: 2, box_rips: 2, wifi_drop: 2 } as Record<EventKind, number>,
   wifiOutage: 45, // minutes until the Wi-Fi comes back on its own
+  // Once you've reset it, the card reader (or router) comes back by itself after this many minutes. You're free
+  // meanwhile: it's a wait, not work.
+  restart: { cardReader: 5, router: 4 },
   unhandledHeat: 8, // still broken at close
 };
 
@@ -255,7 +258,13 @@ export const PRINTER = {
 
 export const SHIPPING = {
   truckArrives: 0.78, // share of the day (about 4:15 PM)
-  truckWaits: 15, // minutes
+  truckWaits: 20, // minutes, once you're free to hand off (the driver waits while you're with a customer...)
+  truckWaitsMax: 45, // ...up to this long all told
+  // Packages for pickup only come on the truck (it drops them off when it comes for the outbound bin). Your first
+  // day isn't the shop's first day: there are already some on the shelf.
+  shelfStart: [3, 4] as [number, number],
+  deliveries: [1, 3] as [number, number],
+  shelfMax: 6, // the pickup shelf holds this many
   weightLb: [1, 30] as [number, number],
   serviceWeights: { ground: 6, two_day: 3, overnight: 1 } as Record<ShipService, number>,
   boxMaxLb: { small: 5, medium: 20 }, // anything heavier goes in a large box

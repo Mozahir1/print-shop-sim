@@ -5,17 +5,17 @@
 import { emit, SHEETS_PER_EVENT } from "./bus";
 import type { CounterAction, Customer, EventKind, Workflow, WorkflowKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
-import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, EASE_IN, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
+import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, EVENTS, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, EASE_IN, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
 import { choiceType, leave, recordChoice, resetPatience, runPatience, wear } from "./mood";
 import { lastDueAt, morningDueAt, quoteFor, type CounterQuote } from "./quote";
 import { postMessage } from "./messages";
 import { formatClock } from "./time";
 import { BOX_ORDER, boxFor, finishMinutes, selfServePriceCents, selfServeSeconds, shipQuote, totalSheets, wrongFields } from "./orders";
-import { ALT_OF, STEP, WORKFLOWS, currentStep, isChoice, isCurrentStep, lockMessage, workflowFor } from "./workflow";
+import { ALT_OF, CHORES, STEP, WORKFLOWS, canPutDown, currentStep, isChoice, isCurrentStep, lockMessage, workflowFor } from "./workflow";
 import { recordFailure } from "./failures";
 import { closeEvents, onPacked, resolveEvent, rollEvent, runEvents, wifiBack } from "./events";
 import { addHeat, lostBusiness, createManager, deliver, onIgnore, onLate, onSmudgedHandedOver, onTapedBoxShipped, onTurnAway, onUnfinished, onWrongLabel, runConsequences } from "./consequences";
-import { createJob, createShipment, isPrintKind, weighted } from "./customers";
+import { createJob, createShipment, isPrintKind, shelve, weighted } from "./customers";
 import { FINISHING_LABEL } from "./orders";
 import { customerById, isOverdue, jobById, log, money, packageById } from "./util";
 import { createDirector, refundArrival, runDirector } from "./director";
@@ -30,6 +30,7 @@ export interface SimRng {
   dev: Rng; // dev mode spawns, so they never shift the day's own rolls
   events: Rng; // the day's bad luck
   business: Rng; // when business clients come in
+  shelf: Rng; // who the packages on the pickup shelf are for
 }
 
 export interface Sim {
@@ -43,7 +44,7 @@ export interface DayOptions {
   nextId?: number;
   customers?: Customer[]; // people with orders still to pick up
   jobs?: Job[];
-  packages?: Package[]; // outgoing packages that didn't go out
+  packages?: Package[]; // outgoing packages that didn't go out, and the pickup shelf
   heat?: number;
   flags?: Flag[];
   morning?: MessageDraft[]; // messages that arrive first thing
@@ -56,6 +57,7 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     dev: createRng(seed ^ 0x27d4eb2f),
     events: createRng(seed ^ 0x61c88647),
     business: createRng(seed ^ 0x2545f491),
+    shelf: createRng(seed ^ 0x5bd1e995),
   };
   const dayLength = TUNING.dayLength;
   const day = opts.day ?? 1;
@@ -83,10 +85,12 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     heldMessages: [],
     event: rollEvent(rng.events, dayLength, day),
     cardReader: "ok",
-    wifi: { down: false, backAt: 0 },
+    readerBackAt: 0,
+    wifi: { down: false, backAt: 0, restarting: false },
     choices: [],
     failures: [],
     workflow: null,
+    setAside: null,
     wentHome: null,
     captions: [],
     manager: createManager(opts.heat ?? 0, opts.flags ?? []),
@@ -101,6 +105,7 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     handsOn: false,
     drawerOffCents: 0,
   };
+  if (day === 1) shelve(state, rng.shelf, randInt(rng.shelf, ...SHIPPING.shelfStart)); // (your first day, not the shop's)
   mcSay(state, "start_of_day");
   const note = pickLine(POOLS.messages, "corporate_note", {}, day - 1);
   postMessage(state, { kind: "note", from: "Corporate", subject: note.subject ?? "", body: note.text, at: 0 });
@@ -129,7 +134,8 @@ export function tick(sim: Sim, dt: number): void {
   runConsequences(state);
   runPrinter(state, dt);
   runSelfServe(state);
-  runTruck(state);
+  runTruck(state, dt);
+  runRestarts(state);
   if (wasOpen) sampleLoad(state, dt);
   if (!wasOpen) runOvertime(state);
 }
@@ -203,9 +209,13 @@ export function goHome(state: GameState, sentHome = false): string | null {
   const overtime = state.time - state.closeAt;
   const onTime = !sentHome && left.length === 0 && overtime <= CLOSING.onTimeGrace;
   state.employee.task = null;
-  state.workflow = null;
+  state.workflow = state.setAside = null;
   for (const c of state.customers) if (c.state === "self_serve") finishSelfServe(state, c);
   for (const c of state.customers) if (c.state === "line" || c.state === "talking" || c.state === "waiting") showOut(state, c);
+  // (Something you reset and left restarting counts as fixed.)
+  state.readerBackAt = Math.min(state.readerBackAt, state.time);
+  if (state.wifi.restarting) state.wifi.backAt = state.time;
+  runRestarts(state);
   closeEvents(state);
   for (const j of state.jobs) {
     const owner = customerById(state, j.customerId);
@@ -367,15 +377,31 @@ function runPrinter(state: GameState, dt: number): void {
 
 // ---------- the truck ----------
 
-// It arrives through the director (it waits for room); once here, it doesn't wait long.
-function runTruck(state: GameState): void {
+// It arrives through the director (it waits for room); once here, it doesn't wait long. But the driver's clock only
+// runs while you could hand off: while you're with a customer (or in the middle of something you can't put down),
+// they wait, up to SHIPPING.truckWaitsMax all told. Missing the truck is a choice, never bad timing.
+function runTruck(state: GameState, dt: number): void {
   const t = state.truck;
+  if (t.status === "waiting" && canStart(state, { type: "hand_off" }) !== null) t.leavesAt = Math.min(t.leavesAt + dt, t.arrivesAt + SHIPPING.truckWaitsMax);
   if (t.status === "waiting" && state.time >= t.leavesAt) {
     t.status = "gone";
     emit("truck_left", {});
     log(state, "The truck left.");
     if (state.packages.some((p) => p.status === "binned")) recordChoice(state, "ignore", "truck");
     truckGone(state);
+  }
+}
+
+// The card reader and router come back by themselves once you've reset them.
+function runRestarts(state: GameState): void {
+  if (state.cardReader === "restarting" && state.time >= state.readerBackAt) {
+    state.cardReader = "ok";
+    fixedEvent(state, "card_reader_down");
+    log(state, "The card reader works again.");
+  }
+  if (state.wifi.restarting && state.time >= state.wifi.backAt) {
+    recordChoice(state, "do", "event");
+    wifiBack(state, true);
   }
 }
 
@@ -418,10 +444,11 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
   if (state.over) return "The day is over.";
   const cur = state.employee.task;
   if (cur) return lockMessage(cur.type);
-  // Strict lock: in the middle of a workflow, only its current step (or that step's alternatives) can start.
+  // In the middle of a workflow, only its current step (or that step's alternatives) can start. Or a quick chore, if
+  // what you're doing can be put down for one.
   if (state.workflow) {
     const step = currentStep(state);
-    if (step && !isCurrentStep(state, req)) return lockMessage(step.type);
+    if (step && !isCurrentStep(state, req) && !(CHORES.has(req.type) && canPutDown(state))) return lockMessage(step.type);
   }
   switch (req.type) {
     case "talk": {
@@ -443,6 +470,7 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
     case "ring_up":
     case "manual_ring_up": {
       if (req.type === "ring_up" && state.cardReader === "down") return "The card reader is down. Ring them up by hand, or fix the reader.";
+      if (req.type === "ring_up" && state.cardReader === "restarting") return `The card reader is restarting (back by ${formatClock(state.readerBackAt)}). Ring them up by hand, or wait.`;
       if (req.type === "manual_ring_up" && state.cardReader === "ok") return "The card reader works.";
       const c = waitingCustomer(state, req);
       if (typeof c === "string") return c;
@@ -509,9 +537,9 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
     case "load_paper":
       return state.printer.status === "tray_empty" ? null : "The tray isn't empty.";
     case "fix_card_reader":
-      return state.cardReader === "down" ? null : "The card reader works.";
+      return state.cardReader === "down" ? null : state.cardReader === "restarting" ? "It's restarting. Give it a few minutes." : "The card reader works.";
     case "restart_router":
-      return state.wifi.down ? null : "The Wi-Fi is fine.";
+      return !state.wifi.down ? "The Wi-Fi is fine." : state.wifi.restarting ? "It's restarting. Give it a few minutes." : null;
     case "finish":
     case "skip_finish": {
       const job = jobFor(state, req);
@@ -588,9 +616,18 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
 export function startTask(state: GameState, req: TaskRequest): string | null {
   const err = canStart(state, req);
   if (err) return err;
-  if (!state.workflow) state.workflow = workflowFor(state, req);
+  enter(state, req);
   state.employee.task = buildTask(state, req);
   return null;
+}
+
+// Into the workflow a request belongs to: the one you're in, a new one, or a quick chore (the job you were on is
+// put down, and you go back to it after: see carryOn).
+function enter(state: GameState, req: TaskRequest): void {
+  if (state.workflow && currentStep(state) && !isCurrentStep(state, req)) {
+    state.setAside = state.workflow;
+    state.workflow = workflowFor(state, req);
+  } else if (!state.workflow) state.workflow = workflowFor(state, req);
 }
 
 // Hands on: steps into the workflow a request belongs to without doing anything yet, so you can do its next step
@@ -598,7 +635,7 @@ export function startTask(state: GameState, req: TaskRequest): string | null {
 export function begin(state: GameState, req: TaskRequest): string | null {
   const err = canStart(state, req);
   if (err) return err;
-  if (!state.workflow) state.workflow = workflowFor(state, req);
+  enter(state, req);
   return null;
 }
 
@@ -626,6 +663,7 @@ export function abandonWorkflow(state: GameState): string | null {
   }
   recordChoice(state, "ignore", "work", c?.id);
   log(state, `Walked away from ${WORKFLOWS[wf.kind].label.toLowerCase()}.`);
+  carryOn(state); // (back to the job you put down, if you put one down)
   return null;
 }
 
@@ -637,14 +675,20 @@ function advanceWorkflow(state: GameState, done: TaskType): void {
   wf.done.push(done);
   const stands = ALT_OF[done];
   if (stands) wf.done.push(stands);
-  const step = currentStep(state);
-  if (!step) {
-    state.workflow = null;
-    return;
-  }
-  const free = canStart(state, step.req) === null || step.alts.some((a) => canStart(state, a) === null) || (step.type === "respond" && customerById(state, step.req.customerId!)?.state === "talking");
-  if (!free) {
-    state.workflow = null;
+  carryOn(state);
+}
+
+// On with the workflow you're in, or done with it (and back to the job you put down for it, if there is one).
+function carryOn(state: GameState): void {
+  const step = state.workflow ? currentStep(state) : null;
+  const free = !!step && (canStart(state, step.req) === null || step.alts.some((a) => canStart(state, a) === null) || (step.type === "respond" && customerById(state, step.req.customerId!)?.state === "talking"));
+  if (!step || !free) {
+    state.workflow = state.setAside;
+    state.setAside = null;
+    if (state.workflow) {
+      log(state, `Back to ${WORKFLOWS[state.workflow.kind].label.toLowerCase()}.`);
+      carryOn(state);
+    }
     return;
   }
   if (!isChoice(step) && !state.handsOn) startTask(state, step.req); // by hand, every step waits for you
@@ -897,13 +941,14 @@ function runStep(state: GameState, t: Task): void {
       log(state, "Cleared the jam.");
       return;
     case "fix_card_reader":
-      state.cardReader = "ok";
-      fixedEvent(state, "card_reader_down");
-      log(state, "The card reader works again.");
+      // It restarts by itself: you're free while it does (runRestarts).
+      state.cardReader = "restarting";
+      state.readerBackAt = state.time + EVENTS.restart.cardReader;
+      log(state, `Reset the card reader. It's restarting (back by ${formatClock(state.readerBackAt)}).`);
       return;
     case "restart_router":
-      recordChoice(state, "do", "event");
-      wifiBack(state, true);
+      state.wifi = { down: true, backAt: state.time + EVENTS.restart.router, restarting: true };
+      log(state, `Restarted the router. The Wi-Fi's coming back (by ${formatClock(state.wifi.backAt)}).`);
       return;
     case "load_paper":
       state.printer.paperOutAt = Infinity;

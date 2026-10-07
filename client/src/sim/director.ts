@@ -4,7 +4,7 @@ import { emit } from "./bus";
 import type { Customer, GameState } from "./types";
 import { BUSINESS, DIRECTOR, MOOD, REACTIONS, SHIPPING, WORK_COST, type Arrival } from "./config";
 import { keyedRoll, randInt } from "./rng";
-import { isPrintKind, placeWebOrder, returnCustomer, spawnCustomer, weighted } from "./customers";
+import { deliverPackages, isPrintKind, onTheShelf, placeWebOrder, returnCustomer, spawnCustomer, weighted } from "./customers";
 import { activeCount, isActive } from "./todo";
 import { selfServeBlocker } from "./orders";
 import { leave } from "./mood";
@@ -80,12 +80,14 @@ export function runDirector(sim: Sim): void {
   if (t.status === "coming" && (early || (state.time >= t.arrivesAt && (active < DIRECTOR.ceiling || state.time > state.closeAt)))) {
     t.status = "waiting";
     emit("truck_arrived", {});
+    t.arrivesAt = state.time;
     t.leavesAt = state.time + SHIPPING.truckWaits;
+    deliverPackages(state, rng.shelf);
     log(state, "The carrier truck is here.");
     return;
   }
 
-  const truckDue = t.status === "coming" && state.time >= t.arrivesAt - DIRECTOR.truckHold; // make room for it
+  const truckDue = (t.status === "coming" && state.time >= t.arrivesAt - DIRECTOR.truckHold) || t.status === "waiting"; // make room for it, and nobody new while it's here
   if (!d.enabled || !open) return;
   // A business client comes in when they come in: busy or not (just never into a full store).
   if (d.businessAt.length && state.time >= d.businessAt[0] && active < DIRECTOR.ceiling) {
@@ -126,6 +128,7 @@ function pickArrival(sim: Sim): Arrival {
   for (const k of DIRECTOR.multiStep) weights[k] *= 1 + ramp;
   weights.complaint = 0; // only ever from something you did (manager.visitsDue)
   weights.order_pickup = 0; // they come back on their own (runDirector)
+  weights.package_pickup *= Math.min(onTheShelf(state).length, 3) / 2; // only for what's on the shelf
   if (state.printer.status === "printing") for (const k of DIRECTOR.quick) weights[k] *= DIRECTOR.interleave;
   const entries = Object.entries(weights) as [Arrival, number][];
   let r = rng.director() * entries.reduce((a, [, w]) => a + w, 0);

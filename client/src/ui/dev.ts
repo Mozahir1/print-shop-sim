@@ -8,6 +8,7 @@ import { activeCount } from "../sim/todo";
 import { formatClock } from "../sim/time";
 import { currentStep } from "../sim/workflow";
 import { esc } from "./view";
+import { SKIP_LABELS, type SkipTo } from "../sim/dev";
 
 export const EVENT_KINDS: EventKind[] = ["printer_jam", "copier_dies", "card_reader_down", "box_rips", "wifi_drop"];
 export const SPAWN_KINDS = ["quick_copies", "large_job", "poster", "ship", "dropoff", "package_pickup", "self_serve_help", "web_order"] as const;
@@ -37,6 +38,7 @@ export function devPanel(sim: Sim, game: Game, bot: BotStyle | null): string {
       ].join("\n"),
     )}</pre></section>
     <section><h2>Bot</h2><div class="btns">${BOT_STYLES.map((st) => `<button class="btn ${bot === st ? "primary" : ""}" data-act="bot" data-style="${st}">${st}</button>`).join("")}${btn("bot", "off", 'data-style=""')}</div></section>
+    <section><h2>Skip to</h2><div class="btns">${(Object.keys(SKIP_LABELS) as SkipTo[]).map((k) => btn("skipTo", SKIP_LABELS[k], `data-to="${k}"`)).join("")}</div><p class="muted small">The clock runs ahead until it gets there (people in line still lose patience on the way).</p></section>
     <section><h2>Time</h2><div class="btns">${btn("speed", "10×", 'data-speed="15"')}${btn("speed", "30×", 'data-speed="45"')}${btn("skipDay", "Skip to end of day")}${btn("arrivals", d.enabled ? "Hold arrivals" : "Resume arrivals")}</div></section>
     <section><h2>Bad luck</h2><div class="btns">${EVENT_KINDS.map((k) => btn("event", k.replace(/_/g, " "), `data-kind="${k}"`)).join("")}</div></section>
     <section><h2>Send in</h2><div class="btns">${SPAWN_KINDS.map((k) => btn("spawn", k.replace(/_/g, " "), `data-kind="${k}"`)).join("")}</div></section>

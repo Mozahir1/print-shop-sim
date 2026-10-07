@@ -90,8 +90,10 @@ export function endDay(game: Game, sim: Sim): DayResult {
   const m = s.manager;
   const morning: MessageDraft[] = [...m.morning, ...m.scheduled.map((d) => ({ ...d, at: 0 }))];
   const flags = [...m.flags];
+  // Packages that missed the truck (you let it go, or left it waiting): someone hears about it. (Ones that came in
+  // after it had been just go tomorrow.)
   const left = s.packages.filter((p) => p.status === "binned" || p.status === "labeled");
-  if (left.length) {
+  if (left.length && !s.truck.handedOff) {
     const owner = s.customers.find((c) => c.id === left[0].customerId);
     flags.push({ kind: "packages_left", dueDay: s.day + 1, dueAt: 0, name: owner?.name ?? "A customer" });
   }
@@ -143,6 +145,8 @@ export function endDay(game: Game, sim: Sim): DayResult {
   }
   const customers = s.customers.filter((c) => jobs.some((j) => j.customerId === c.id));
   const packages = s.packages.filter((p) => p.status === "labeled" || p.status === "scanned" || p.status === "binned");
+  // The pickup shelf stays as it is: whatever nobody came for is still there tomorrow.
+  for (const p of s.packages) if (p.kind === "held" && (p.status === "held" || p.status === "found")) packages.push({ ...p, status: "held", customerId: 0 });
   game.carried = { customers, jobs, packages };
   game.nextId = s.nextId;
   if (!game.fired) game.day++;

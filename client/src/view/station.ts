@@ -7,7 +7,7 @@
 // stage region at ART times that (see layout.ts).
 import Phaser from "phaser";
 import { availableTasks } from "../sim/todo";
-import { currentStep } from "../sim/workflow";
+import { CHORES, currentStep } from "../sim/workflow";
 import { canStart, previewTask } from "../sim/sim";
 import type { Station as SimStation, TaskRequest } from "../sim/types";
 import { LAYOUT, SPRITES, sound, sprite } from "./assets";
@@ -122,10 +122,11 @@ export abstract class Station extends Phaser.Scene {
   private signature(): string {
     const s = state();
     const d = ctl.doing;
-    if (d) return `d:${d.key}:${d.i}:${d.count}:${tabOf(d.req.type) === this.tab}:${ctl.carry?.ref ?? ""}`;
+    const free = this.free().map(stepKey).join(",");
+    if (d) return `d:${d.key}:${d.i}:${d.count}:${tabOf(d.req.type) === this.tab}:${ctl.carry?.ref ?? ""}:${free}`;
     const step = currentStep(s);
-    if (step) return `s:${stepKey(step.req)}:${!!s.employee.task}:${step.alts.length}`;
-    return `f:${this.free().map(stepKey).join(",")}`;
+    if (step) return `s:${stepKey(step.req)}:${!!s.employee.task}:${step.alts.length}:${free}`;
+    return `f:${free}`;
   }
 
   protected find(name: string): Obj | undefined {
@@ -151,25 +152,37 @@ export abstract class Station extends Phaser.Scene {
     this.clearTemp();
     const s = state();
     const d = ctl.doing;
+    // (A quick chore here you could put the job down for glows too: see free().)
     if (d) {
-      if (tabOf(d.req.type) === this.tab) this.setUpPart();
+      if (tabOf(d.req.type) === this.tab) {
+        this.setUpPart();
+        this.showFree(false, false);
+      } else this.showFree(true, true);
       return;
     }
     const step = currentStep(s);
     if (step && !s.employee.task) {
-      if (tabOf(step.type) !== this.tab || step.type === "respond" || step.type === "talk") return;
+      if (tabOf(step.type) !== this.tab || step.type === "respond" || step.type === "talk") return this.showFree(true, true);
       if (hands(step.req) && !step.alts.length) return; // (it's started for you: see follow() in run.ts)
-      if (!this.stepButtons) return;
-      const reqs = [step.req, ...step.alts];
-      const first = this.buttons(reqs.map((r, i) => ({ label: `${reqs.length > 1 ? (i ? "Don't: " : "Do: ") : ""}${previewTask(s, r).label}`, req: r })), reqs.length > 1);
-      if (first) this.guide(first, hintOf(step.req));
-      return;
+      if (this.stepButtons) {
+        const reqs = [step.req, ...step.alts];
+        const first = this.buttons(reqs.map((r, i) => ({ label: `${reqs.length > 1 ? (i ? "Don't: " : "Do: ") : ""}${previewTask(s, r).label}`, req: r })), reqs.length > 1);
+        if (first) this.guide(first, hintOf(step.req));
+      }
+      return this.showFree(false, false);
     }
     if (step) return;
-    // Free: whatever you could start here glows (tap it to start), and the first gets the arrow.
+    this.showFree(true, true);
+  }
+
+  // Whatever you could start here glows (tap it to start; as buttons too, when there's room), and the first gets the
+  // arrow. Free, that's anything here; in the middle of a job, a quick chore you could put it down for.
+  private showFree(buttons: boolean, arrow: boolean): void {
+    const s = state();
+    if (ctl.carry) return; // (your hands are full)
     const free = this.free();
-    if (this.freeButtons) this.buttons(free.map((r) => ({ label: previewTask(s, r).label, req: r })));
-    let first = true;
+    if (buttons && this.freeButtons) this.buttons(free.map((r) => ({ label: previewTask(s, r).label, req: r })));
+    let first = arrow;
     for (const o of this.objs.values()) {
       const starts = (o.getData("starts") ?? []) as string[];
       const req = free.find((r) => starts.includes(r.type));
@@ -180,11 +193,12 @@ export abstract class Station extends Phaser.Scene {
     }
   }
 
-  // What you could start here while you're free.
+  // What you could start here: anything while you're free; in the middle of a job, a quick chore (the truck, a jam,
+  // an empty tray, a reset) if what you're doing can be put down for one.
   protected free(): TaskRequest[] {
     const s = state();
-    if (s.workflow) return [];
-    return this.stations.flatMap((st) => availableTasks(s, st)).filter((r) => r.type !== "talk" && tabOf(r.type) === this.tab);
+    const here = this.stations.flatMap((st) => availableTasks(s, st)).filter((r) => r.type !== "talk" && tabOf(r.type) === this.tab);
+    return s.workflow ? here.filter((r) => CHORES.has(r.type) && canStart(s, r) === null) : here;
   }
 
   // In-world buttons in the action strip, one row. Labels never get cut off: if they don't all fit, the later ones
@@ -394,16 +408,19 @@ export abstract class Station extends Phaser.Scene {
           return;
         }
       }
+      const chore = !ctl.carry && this.free().find((r) => ((o.getData("starts") ?? []) as string[]).includes(r.type));
+      if (chore) return doTask(chore); // (put this down for a quick chore)
       return this.wrong(o.x, o.getBounds().top - 6, `${this.label(o)}. ${sayNow(d)}.`);
     }
     if (ctl.carry) return;
-    // Free: tapping an object starts what it's for.
+    // Tapping an object starts what it's for (in the middle of a job: if it's a quick chore you can put it down for).
     const starts = (o.getData("starts") ?? []) as string[];
     if (!starts.length) return;
-    if (state().workflow) return this.wrong(o.x, o.getBounds().top - 6, "Finish what you're doing first.");
-    const req = this.free().find((r) => starts.includes(r.type)) ?? this.stations.flatMap((st) => availableTasks(state(), st)).find((r) => starts.includes(r.type) && canStart(state(), r) === null);
-    if (req) doTask(req);
-    else this.wrong(o.x, o.getBounds().top - 6, `Nothing to do with the ${(SPRITES[o.name]?.label ?? "that").toLowerCase()} right now.`);
+    const s = state();
+    const req = this.free().find((r) => starts.includes(r.type)) ?? (s.workflow ? undefined : this.stations.flatMap((st) => availableTasks(s, st)).find((r) => starts.includes(r.type) && canStart(s, r) === null));
+    if (req) return doTask(req);
+    const why = s.workflow ? this.stations.flatMap((st) => availableTasks(s, st)).find((r) => starts.includes(r.type)) : undefined;
+    this.wrong(o.x, o.getBounds().top - 6, s.workflow ? (why && canStart(s, why)) || "Finish what you're doing first." : `Nothing to do with the ${(SPRITES[o.name]?.label ?? "that").toLowerCase()} right now.`);
   }
 
   private pickUp(o: Obj, isTheWholePart: boolean): void {

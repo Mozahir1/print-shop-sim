@@ -85,7 +85,7 @@ describe("each request, arrival to done, as workflows", () => {
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.director, "ship", { weightLb: 12 });
     talkTo(sim, c);
-    const pkg = s.packages[0];
+    const pkg = s.packages.find((p) => p.kind !== "held")!;
     expect(pkg.status).toBe("new"); // it waits for your choice
     expect(s.workflow?.kind).toBe("ship");
     expect(canStart(s, { type: "pack", packageId: pkg.id, box: "small" })).toBe("It doesn't fit in a small box.");
@@ -114,7 +114,7 @@ describe("each request, arrival to done, as workflows", () => {
     const c = spawnCustomer(sim.state, sim.rng.director, "package_pickup");
     talkTo(sim, c);
     expect(c.outcome).toBe("served");
-    expect(sim.state.packages[0].status).toBe("picked_up");
+    expect(sim.state.packages.find((p) => p.id === c.packageId)!.status).toBe("picked_up");
   });
 
   it("web order: open it in the inbox (paid online), make it, hand it over when they come in", () => {
