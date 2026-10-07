@@ -9,6 +9,7 @@
 import type { Customer, GameState, Job, Package, Station, TaskRequest, TaskType, Workflow, WorkflowKind } from "./types";
 import data from "../data/workflows.json";
 import { customerById, jobById, packageById } from "./util";
+import { machineFor } from "./orders";
 
 // How a step is done by hand in the UI. The sim only sees the result.
 export type Block = "form" | "hold" | "tap" | "drag" | "number" | "wait";
@@ -94,8 +95,14 @@ function ids(state: GameState, wf: Workflow): { c?: Customer; job?: Job; pkg?: P
 // The steps that apply to this workflow, in order.
 function plan(state: GameState, wf: Workflow): TaskType[] {
   const { c, job, pkg } = ids(state, wf);
+  const wide = job !== undefined && machineFor(job.spec) === "wide";
   return WORKFLOWS[wf.kind].steps.filter((t) => {
     switch (t) {
+      case "collect":
+        return !wide; // (a large print comes off the roll at finishing: trimmed, then rolled up)
+      case "trim":
+      case "roll":
+        return wide;
       case "tape":
         return !pkg?.taped; // taped shut instead of boxed: no separate taping
       case "reprint":
@@ -135,6 +142,10 @@ function stepDone(state: GameState, wf: Workflow, t: TaskType): boolean {
       return job !== undefined && !jobAt("new", "unread", "entered");
     case "collect":
       return jobAt("collected", "finished", "bagged", "picked_up");
+    case "trim":
+      return jobAt("collected", "finished", "bagged", "picked_up");
+    case "roll":
+      return jobAt("finished", "bagged", "picked_up");
     case "reprint":
       return job !== undefined && job.smudge !== "found";
     case "finish":
@@ -200,6 +211,8 @@ function requestFor(state: GameState, wf: Workflow, t: TaskType): TaskRequest {
     case "enter_order":
     case "send_job":
     case "collect":
+    case "trim":
+    case "roll":
     case "reprint":
     case "use_anyway":
     case "finish":
@@ -291,6 +304,8 @@ export function workflowFor(state: GameState, req: TaskRequest): Workflow {
     case "send_job":
       return wf("take_order", { jobId: req.jobId, customerId: jobById(state, req.jobId!)?.customerId });
     case "collect":
+    case "trim":
+    case "roll":
     case "reprint":
     case "use_anyway":
     case "finish":

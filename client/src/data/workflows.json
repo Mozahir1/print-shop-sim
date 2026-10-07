@@ -111,7 +111,7 @@
       "thought": "Send it.",
       "doing": "sending a job to the printer",
       "block": "wait",
-      "hint": "Send to printer"
+      "hint": "Send it to {machine}"
     },
     "open_message": {
       "station": "computer",
@@ -179,6 +179,50 @@
           "drag": "printer/stack",
           "to": "hands",
           "say": "Pick up the stack"
+        }
+      ]
+    },
+    "trim": {
+      "station": "finishing",
+      "held": "paper",
+      "pose": "work",
+      "duration": 4,
+      "thought": "Square it up.",
+      "doing": "trimming a large print",
+      "block": "hold",
+      "hint": "Trim it",
+      "hands": [
+        {
+          "tap": "finishing/wide_printer",
+          "n": 1,
+          "say": "Cut the print off the roll"
+        },
+        {
+          "hold": "finishing/cutter",
+          "on": "finishing/stack",
+          "say": "Hold the cutter on the print to trim it"
+        }
+      ]
+    },
+    "roll": {
+      "station": "finishing",
+      "held": "paper",
+      "pose": "work",
+      "duration": 3,
+      "thought": "Roll it. Don't crease it.",
+      "doing": "rolling up a large print",
+      "block": "hold",
+      "hint": "Roll it up",
+      "hands": [
+        {
+          "hold": "finishing/stack",
+          "say": "Hold the print to roll it up"
+        },
+        {
+          "drag": "finishing/tube",
+          "to": "finishing/stack",
+          "say": "Pick up a tube",
+          "put": "Slide it over the print"
         }
       ]
     },
@@ -661,6 +705,8 @@
       "label": "Collect and finish",
       "steps": [
         "collect",
+        "trim",
+        "roll",
         "reprint",
         "finish",
         "bag"

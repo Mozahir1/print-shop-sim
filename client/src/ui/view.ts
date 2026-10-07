@@ -1,7 +1,7 @@
 // Turns game state into HTML for the panels: the station you're looking at, the tabs, the notes. Pure functions:
 // main.ts decides when to call them and wires up the buttons. Buttons carry a task request as JSON in data-req; main.ts starts it.
 import type { CounterAction, Customer, GameState, OrderEntry, ShipService, Station, TaskRequest, TaskType } from "../sim/types";
-import { SERVICE_LABEL } from "../sim/orders";
+import { MACHINE_LABEL, SERVICE_LABEL, machineFor } from "../sim/orders";
 import { canStart, currentCustomer, previewTask, sceneOf, STATION, workLeft } from "../sim/sim";
 import { availableTasks, DONT, IGNORE } from "../sim/todo";
 import { currentStep, isChoice, STEP } from "../sim/workflow";
@@ -103,7 +103,8 @@ function quoteLine(state: GameState, c: Customer): string {
   if (!isPrintKind(c.kind) || !q.standard || sceneOf(state, c)) return "";
   const fee = q.standard.serviceFeeCents ? ` (incl. ${money(q.standard.serviceFeeCents)} fee)` : "";
   const ready = q.tomorrow ? `ready tomorrow morning, by ${formatClock(q.morningAt)}` : `ready by ${formatClock(q.standardReadyAt)}`;
-  const yours = `about ${formatDuration(q.yourMinutes)} of your time, printer ${formatDuration(q.printMinutes)}`;
+  const machine = MACHINE_LABEL[machineFor(c.spec!)].replace(/^the /, "");
+  const yours = `about ${formatDuration(q.yourMinutes)} of your time, ${machine} ${formatDuration(q.printMinutes)}`;
   return `<p class="small muted">Full service ${money(q.standard.totalCents)}${fee}, ${ready}: ${yours}.${q.rush ? ` Rush ready by ${formatClock(q.rushReadyAt)}.` : ""}</p>`;
 }
 
@@ -188,11 +189,18 @@ export function keypadHtml(due: number, cash: number | null, typed: string): str
 // ---------- the computer ----------
 
 const FORM: { field: keyof OrderEntry; label: string; options: [string, string][] }[] = [
-  { field: "media", label: "Paper", options: [["letter", "Letter"], ["legal", "Legal"], ["tabloid", "Tabloid 11x17"], ["cardstock", "Cardstock"]] },
+  { field: "media", label: "Paper", options: [["letter", "Letter"], ["legal", "Legal"], ["tabloid", "Tabloid 11x17"], ["cardstock", "Cardstock"], ["business_card", "Business cards"], ["large_format", "Large format 24x36"]] },
   { field: "color", label: "Color", options: [["bw", "B&W"], ["color", "Color"]] },
   { field: "duplex", label: "Sides", options: [["false", "1-sided"], ["true", "2-sided"]] },
   { field: "finishing", label: "Finishing", options: [["none", "None"], ["staple", "Staple"], ["cut", "Cut"], ["laminate", "Laminate"]] },
 ];
+
+// Paper (or what it's printed on: business cards, a large format print) is a list: six choices don't fit as chips.
+function paperField(picked: string): string {
+  const f = FORM.find((x) => x.field === "media")!;
+  const opts = f.options.map(([v, l]) => `<option value="${v}"${picked === v ? " selected" : ""}>${l}</option>`).join("");
+  return `<label class="field span2"><span>${f.label}</span><select name="media" required><option value=""${picked ? "" : " selected"} disabled>Pick one</option>${opts}</select></label>`;
+}
 
 // The order form: blank, filled in from what they said (it's quoted at the top while it's only in their words); or,
 // for a web order, filled in already from the website (check it, and enter it). Its HTML only depends on the order,
@@ -207,9 +215,10 @@ export function orderForm(state: GameState, jobId: number, web?: { messageId: nu
   const submit = web ? `<button type="button" class="btn primary" data-act="webSubmit" data-msg="${web.messageId}">Enter order</button>` : `<button type="button" class="btn primary" data-act="form">Enter order</button>`;
   return `<form class="orderform" data-job="${job.id}"><h2>${web ? "Web order" : "New order"} #${job.id}: ${esc(who?.name ?? "")}, ${esc(job.spec.item)}</h2>${quote}
     <div class="fields"><label class="field"><span>Copies</span><input type="number" name="copies" min="1" max="9999" inputmode="numeric" required value="${value("copies")}"></label>
-    ${["color", "duplex", "media", "finishing"]
+    ${paperField(value("media"))}
+    ${["color", "duplex", "finishing"]
       .map((k) => FORM.find((f) => f.field === k)!)
-      .map((f) => `<fieldset class="field${f.field === "media" || f.field === "finishing" ? " wide" : ""}"><span>${f.label}</span><div class="chips">${f.options.map(([v, l]) => `<label class="chip-opt"><input type="radio" name="${f.field}" value="${v}"${value(f.field) === v ? " checked" : ""}><span>${l}</span></label>`).join("")}</div></fieldset>`)
+      .map((f) => `<fieldset class="field${f.field === "finishing" ? " wide" : ""}"><span>${f.label}</span><div class="chips">${f.options.map(([v, l]) => `<label class="chip-opt"><input type="radio" name="${f.field}" value="${v}"${value(f.field) === v ? " checked" : ""}><span>${l}</span></label>`).join("")}</div></fieldset>`)
       .join("")}</div>
     ${submit}</form>`;
 }

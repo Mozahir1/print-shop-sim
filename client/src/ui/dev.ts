@@ -11,7 +11,7 @@ import { esc } from "./view";
 import { SKIP_LABELS, type SkipTo } from "../sim/dev";
 
 export const EVENT_KINDS: EventKind[] = ["printer_jam", "copier_dies", "card_reader_down", "box_rips", "wifi_drop"];
-export const SPAWN_KINDS = ["quick_copies", "large_job", "poster", "ship", "dropoff", "package_pickup", "self_serve_help", "web_order"] as const;
+export const SPAWN_KINDS = ["quick_copies", "large_job", "poster", "business_cards", "large_format", "ship", "dropoff", "package_pickup", "self_serve_help", "web_order"] as const;
 
 export function devPanel(sim: Sim, game: Game, bot: BotStyle | null): string {
   const s = sim.state;

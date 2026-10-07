@@ -13,8 +13,8 @@ import { customerById, fill, log, money } from "./util";
 import { describeSpec, postMessage } from "./messages";
 import { formatClock } from "./time";
 
-export type PrintKind = "quick_copies" | "large_job" | "poster" | "business";
-export const PRINT_KINDS: RequestKind[] = ["quick_copies", "large_job", "poster", "business"];
+export type PrintKind = "quick_copies" | "large_job" | "poster" | "business" | "business_cards" | "large_format";
+export const PRINT_KINDS: RequestKind[] = ["quick_copies", "large_job", "poster", "business", "business_cards", "large_format"];
 
 export function isPrintKind(kind: RequestKind): kind is PrintKind {
   return PRINT_KINDS.includes(kind);
@@ -36,7 +36,7 @@ export function rollSpec(rng: Rng, kind: PrintKind): JobSpec {
   return {
     item: d.item,
     originals: randInt(rng, ...d.originals),
-    copies: randInt(rng, ...d.copies),
+    copies: randInt(rng, ...d.copies) * (d.copiesStep ?? 1),
     color: rng() < d.colorChance ? "color" : "bw",
     media: weighted(rng(), d.media),
     duplex: rng() < d.duplexChance,

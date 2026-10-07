@@ -5,11 +5,11 @@ import { currentCustomer } from "../sim/sim";
 import { currentStep } from "../sim/workflow";
 import { customerById, jobById, packageById } from "../sim/util";
 import { on } from "../sim/bus";
-import { boxFor } from "../sim/orders";
-import type { BoxSize, Customer } from "../sim/types";
+import { boxFor, machineFor } from "../sim/orders";
+import type { BoxSize, Customer, TaskRequest } from "../sim/types";
 import { atCounter, inLine, dialogueHtml, keypadHtml, labelForm } from "../ui/view";
 import { appIcons, devicesApp, emailApp, ordersApp, shippingApp, stepBar } from "../ui/computer";
-import { SPOT, playAnim, sound, sprite } from "./assets";
+import { SPOT, SPRITES, playAnim, sound, sprite } from "./assets";
 import { FONT } from "./config";
 import { ctl, part, register, state } from "./run";
 import { bounce, say, shake, sparkle } from "./juice";
@@ -192,6 +192,7 @@ export class ComputerScene extends Station {
 export class PrinterScene extends Station {
   private light!: Phaser.GameObjects.Sprite;
   private status!: Phaser.GameObjects.Text;
+  private cardStatus!: Phaser.GameObjects.Text;
 
   constructor() {
     super("printer", ["printer"]);
@@ -200,9 +201,13 @@ export class PrinterScene extends Station {
   protected build(): void {
     this.light = sprite(this, "printer/light_idle", 340, 52);
     this.status = this.add.text(250, 196, "", { ...FONT, color: "#1f2328", backgroundColor: "#ffffffcc", padding: { x: 3, y: 1 } }).setOrigin(0.5, 0).setDepth(40);
+    this.cardStatus = this.add.text(435, 100, "", { ...FONT, color: "#1f2328", backgroundColor: "#ffffffcc", padding: { x: 3, y: 1 } }).setOrigin(0.5, 0).setDepth(40); // (on the machine: arrows go above it)
     listen(this, [
       on("sheet_printed", () => this.objs.get("printer/stack")?.getData("dragging") || sound(this, "printer_hum")),
-      on("job_printed", () => bounce(this.objs.get("printer/stack")!)),
+      on("job_printed", ({ jobId }) => {
+        const j = jobById(state(), jobId);
+        if (j && machineFor(j.spec) !== "wide") bounce(this.objs.get(machineFor(j.spec) === "cards" ? "printer/cards_out" : "printer/stack")!);
+      }),
       on("jam", () => {
         sound(this, "jam");
         shake(this.objs.get("printer/body")!);
@@ -215,11 +220,30 @@ export class PrinterScene extends Station {
     return name === "printer/jam_sheet" ? this.objs.get("printer/jam_panel") : this.objs.get(name);
   }
 
+  // Collecting business cards: the "stack" is the box in the card machine's tray.
+  protected special(name: string): Obj | undefined {
+    const j = ctl.doing?.req.jobId !== undefined ? jobById(state(), ctl.doing.req.jobId) : undefined;
+    return name === "printer/stack" && j && machineFor(j.spec) === "cards" ? this.objs.get("printer/cards_out") : undefined;
+  }
+
+  protected fits(o: Obj, req: TaskRequest): boolean {
+    const j = req.jobId !== undefined ? jobById(state(), req.jobId) : undefined;
+    if (!j || req.type !== "collect") return true;
+    return (o.name === "printer/cards_out") === (machineFor(j.spec) === "cards");
+  }
+
   protected refresh(): void {
     const s = state();
     const p = s.printer;
     const cur = p.currentJobId !== null ? jobById(s, p.currentJobId) : undefined;
-    const done = s.jobs.filter((j) => j.status === "printed");
+    // The card machine: what it's making, and its output tray.
+    const cards = s.machines.cards;
+    const making = cards.currentJobId !== null ? jobById(s, cards.currentJobId) : undefined;
+    const boxes = s.jobs.filter((j) => j.status === "printed" && machineFor(j.spec) === "cards");
+    const out = this.objs.get("printer/cards_out")!;
+    if (!out.getData("dragging")) out.setVisible(boxes.length > 0);
+    this.cardStatus.setText(making ? `Cards #${making.id}: ${Math.max(1, Math.ceil(cards.left))} min` : boxes.length ? `${boxes.length} ready` : "Card machine");
+    const done = s.jobs.filter((j) => j.status === "printed" && machineFor(j.spec) === "printer");
     const sheets = done.reduce((n, j) => n + j.sheets, 0) + (cur?.sheetsPrinted ?? 0);
     // The output tray: the stack grows sheet by sheet while it prints.
     const stack = this.objs.get("printer/stack")!;
@@ -235,8 +259,20 @@ export class PrinterScene extends Station {
 // ---------- the finishing table ----------
 
 export class FinishingScene extends Station {
+  private wideStatus!: Phaser.GameObjects.Text;
+
   constructor() {
     super("finishing", ["finishing"]);
+  }
+
+  protected build(): void {
+    this.wideStatus = this.add.text(120, 96, "", { ...FONT, color: "#1f2328", backgroundColor: "#ffffffcc", padding: { x: 3, y: 1 } }).setOrigin(0.5, 1).setDepth(40); // (on the machine: arrows go above it)
+    listen(this, [
+      on("job_printed", ({ jobId }) => {
+        const j = jobById(state(), jobId);
+        if (j && machineFor(j.spec) === "wide") bounce(this.objs.get("finishing/wide_printer")!);
+      }),
+    ]);
   }
 
   protected tapAround(name: string): Obj | undefined {
@@ -247,10 +283,23 @@ export class FinishingScene extends Station {
     const s = state();
     const d = ctl.doing;
     const wfJob = s.workflow?.jobId !== undefined ? jobById(s, s.workflow.jobId) : undefined;
-    const onTable = !!wfJob && (wfJob.status === "collected" || wfJob.status === "finished");
+    // A large print: on the table once it's cut off the roll (flat, then rolled up in its tube).
+    const wide = !!wfJob && machineFor(wfJob.spec) === "wide";
+    const cutOff = wide && d?.req.type === "trim" && d.i >= 1;
+    const onTable = !!wfJob && (wfJob.status === "collected" || wfJob.status === "finished" || cutOff);
     const bagging = d?.req.type === "bag";
     const stack = this.objs.get("finishing/stack")!;
-    if (!stack.getData("dragging")) stack.setVisible(onTable && (!bagging || d!.i === 0)).setScale(1, wfJob ? Math.min(1.6, 0.7 + wfJob.sheets / 200) : 1);
+    const look = !wide ? "finishing/stack" : wfJob!.status === "finished" ? "finishing/rolled" : "finishing/wide_sheet";
+    if (stack.texture.key !== look) stack.setTexture(look).removeInteractive().setInteractive({ useHandCursor: true }).setData("tip", SPRITES[look].label); // (a new shape to tap)
+    if (!stack.getData("dragging")) stack.setVisible(onTable && (!bagging || d!.i === 0)).setScale(1, wfJob && !wide ? Math.min(1.6, 0.7 + wfJob.sheets / 200) : 1);
+    const tube = this.objs.get("finishing/tube")!;
+    const toRoll = s.jobs.some((j) => j.status === "collected" && machineFor(j.spec) === "wide");
+    if (!tube.getData("dragging")) tube.setVisible(toRoll && !(d?.req.type === "roll" && d.i === 0)); // (out of the way while you roll it)
+    // The wide-format printer: what it's printing, and anything waiting on it to be cut off the roll.
+    const w = s.machines.wide;
+    const printing = w.currentJobId !== null ? jobById(s, w.currentJobId) : undefined;
+    const ready = s.jobs.filter((j) => j.status === "printed" && machineFor(j.spec) === "wide");
+    this.wideStatus.setText(printing ? `Printing #${printing.id}: ${Math.max(1, Math.ceil(w.left))} min left` : ready.length ? `#${ready.map((j) => j.id).join(", #")} ready to trim` : "Wide-format printer: idle");
     const label = this.objs.get("finishing/name_label")!;
     if (!label.getData("dragging")) label.setVisible(bagging && d!.i <= 1);
     const bag = this.objs.get("finishing/bag")!;

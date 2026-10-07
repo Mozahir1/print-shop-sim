@@ -21,6 +21,18 @@
     {
       "speaker": "customer",
       "moment": "request",
+      "request": "business_cards",
+      "text": "Can you make business cards? Here's the design."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
+      "request": "large_format",
+      "text": "I need this printed big. 24 by 36."
+    },
+    {
+      "speaker": "customer",
+      "moment": "request",
       "request": "ship",
       "text": "How much to ship this? It's just a box."
     },

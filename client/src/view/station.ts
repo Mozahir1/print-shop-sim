@@ -55,6 +55,9 @@ export abstract class Station extends Phaser.Scene {
   protected tapAround(name: string): Obj | undefined {
     return this.objs.get(name);
   } // where tap targets that aren't in the layout appear
+  protected fits(_o: Obj, _req: TaskRequest): boolean {
+    return true;
+  } // whether tapping this object is for that request (two machines' output trays both start "collect")
   protected showPart(): void {} // forms and the keypad
   protected freeButtons = true; // what you could start here, as buttons in the action strip
   protected stepButtons = true; // the step you're on, as buttons in the action strip (the computer has its own)
@@ -185,7 +188,7 @@ export abstract class Station extends Phaser.Scene {
     let first = arrow;
     for (const o of this.objs.values()) {
       const starts = (o.getData("starts") ?? []) as string[];
-      const req = free.find((r) => starts.includes(r.type));
+      const req = free.find((r) => starts.includes(r.type) && this.fits(o, r));
       if (!req || !o.visible) continue;
       this.pulse(o);
       if (first) this.guide(o, previewTask(s, req).label);
@@ -417,7 +420,7 @@ export abstract class Station extends Phaser.Scene {
     const starts = (o.getData("starts") ?? []) as string[];
     if (!starts.length) return;
     const s = state();
-    const req = this.free().find((r) => starts.includes(r.type)) ?? (s.workflow ? undefined : this.stations.flatMap((st) => availableTasks(s, st)).find((r) => starts.includes(r.type) && canStart(s, r) === null));
+    const req = this.free().find((r) => starts.includes(r.type) && this.fits(o, r)) ?? (s.workflow ? undefined : this.stations.flatMap((st) => availableTasks(s, st)).find((r) => starts.includes(r.type) && this.fits(o, r) && canStart(s, r) === null));
     if (req) return doTask(req);
     const why = s.workflow ? this.stations.flatMap((st) => availableTasks(s, st)).find((r) => starts.includes(r.type)) : undefined;
     this.wrong(o.x, o.getBounds().top - 6, s.workflow ? (why && canStart(s, why)) || "Finish what you're doing first." : `Nothing to do with the ${(SPRITES[o.name]?.label ?? "that").toLowerCase()} right now.`);

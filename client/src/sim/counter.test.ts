@@ -116,7 +116,7 @@ describe("the order form and the notes", () => {
     expect(d.entered).toBe(true);
     expect(d.rows).toContainEqual(["Copies", "52"]);
     expect(d.rows).toContainEqual(["Finishing", "Staple"]);
-    expect(d.steps.map((x) => x.text)).toEqual(["Enter it on the computer", "Send to printer", "Printing. You can leave it.", "Collect", "Staple", "Bag and shelve", "Ring up when they come back"]);
+    expect(d.steps.map((x) => x.text)).toEqual(["Enter it on the computer", "Send it to the printer", "Printing. You can leave it.", "Collect", "Staple", "Bag and shelve", "Ring up when they come back"]);
     makeReady(sim, job);
     d = noteDetail(s, job.id)!;
     expect(d.steps.filter((x) => x.state === "done")).toHaveLength(6);

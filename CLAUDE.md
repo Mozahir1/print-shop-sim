@@ -92,6 +92,13 @@ whether a first-time human can understand and do it. See `SIM_SPEC.md`.
   delivery (`shelve`/`deliverPackages`/`onTheShelf` in customers.ts, `Package.to`, own rng stream), and carry over
   day to day (`shelf.test.ts`). Human pace, smart: truck handed off 150/150 days (was 117/150). Screenshots in
   `playtest/v8.2/`.
+- Owner request (2026-10-07), more print jobs: business cards (`business_cards`, media `business_card`, the card
+  machine in the Printer room makes them by itself) and large format (`large_format`, media `large_format`, the
+  wide-format printer at Finishing: a long print, then `trim` and `roll` by hand, in the collect_finish workflow).
+  `machineFor(spec)` in orders.ts routes a job; `state.machines.cards/wide` + `runMachines` in sim.ts; quote timing
+  per machine (`machineMinutes`). Paper on the order form is now a dropdown (six choices). Bigger lost sales add
+  `HEAT.lostBigSale`. Tests in `products.test.ts`; screenshots in `playtest/products/`. Dev drawer: skip-to buttons
+  and N (next thing that needs you).
 - Known for later phases: phone sizes are the same layout scaled down (about 11px text on an 844x390 phone, worse in
   portrait).
 - Art: placeholders only. The owner will draw custom pixel art later from `ART_CHECKLIST.md` (2x art grid, 500x266 per

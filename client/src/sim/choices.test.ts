@@ -153,7 +153,7 @@ describe("Do / Don't / Ignore at the counter", () => {
     REACTIONS.goAlone = 1;
     const sim = createSim(4);
     const s = sim.state;
-    runUntil(sim, () => s.customers.some((c) => c.state === "self_serve"), 300);
+    runUntil(sim, () => s.customers.some((c) => c.state === "self_serve"), 480);
     const c = s.customers.find((x) => x.state === "self_serve")!;
     expect(s.choices.some((x) => x.customerId === c.id)).toBe(false);
   });

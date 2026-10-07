@@ -19,7 +19,7 @@ export function requestLines(state: GameState, c: Customer): string[] {
   if (scene && scene !== "missing_order") return lines; // they're here about something else
   const spec = c.spec;
   const vars = { copies: spec?.copies ?? 0, item: spec?.item ?? "", originals: spec?.originals ?? 0, needBy: c.needBy === null ? "" : formatClock(c.needBy), name: c.name };
-  const fields = scene ? ORDER.order_pickup : (ORDER[isPrintKind(c.kind) ? "print" : c.kind] ?? []);
+  const fields = scene ? ORDER.order_pickup : (ORDER[c.kind] ?? (isPrintKind(c.kind) ? ORDER.print : []));
   fields.forEach((f, i) => {
     const variants = LINES[f][keyOf(c, f)];
     lines.push(fill(variants[(c.id + i) % variants.length], vars));
@@ -32,6 +32,7 @@ function keyOf(c: Customer, f: Field): string {
   const spec = c.spec!;
   switch (f) {
     case "quantity":
+    case "prints":
       return spec.copies === 1 ? "one" : "any";
     case "pages":
       return spec.originals === 1 ? "one" : "many";

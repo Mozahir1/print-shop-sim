@@ -7,7 +7,9 @@ import type { DirectorState } from "./director";
 // ---------- orders ----------
 
 export type ColorMode = "bw" | "color";
-export type Media = "letter" | "legal" | "tabloid" | "cardstock";
+export type Media = "letter" | "legal" | "tabloid" | "cardstock" | "business_card" | "large_format";
+// Where a job is made: the production printer, the business card machine, or the wide-format printer.
+export type Machine = "printer" | "cards" | "wide";
 export type Finishing = "none" | "staple" | "cut" | "laminate";
 
 export interface JobSpec {
@@ -68,7 +70,9 @@ export type RequestKind =
   | "package_pickup"
   | "self_serve_help"
   | "complaint" // back because of something you did (a damaged box, smudged copies)
-  | "business"; // a business client with a big order: worth a lot, and they won't wait around
+  | "business" // a business client with a big order: worth a lot, and they won't wait around
+  | "business_cards" // made on the card machine (it prints and cuts them)
+  | "large_format"; // a 24x36 print on the wide-format printer: a long print, then trimmed and rolled by hand
 
 export type ShipService = "ground" | "two_day" | "overnight";
 export type BoxSize = "small" | "medium" | "large";
@@ -172,6 +176,15 @@ export interface ShippingLabel {
 }
 
 // The carrier's one pickup a day. It comes at arrivesAt, or once there's room for it (see director.ts).
+// The card machine and the wide-format printer: simpler than the production printer (no paper, no jams). Each makes
+// one job at a time, from its own queue.
+export interface MachineState {
+  queue: number[];
+  currentJobId: number | null;
+  left: number; // minutes left on the job it's making
+  total: number; // ...out of
+}
+
 export interface Truck {
   arrivesAt: number; // when it comes (once it's here: when it came)
   leavesAt: number; // set when it arrives; the driver waits longer while you're busy with a customer
@@ -358,6 +371,9 @@ export type TaskType =
   | "leave_unread"
   // printer
   | "collect"
+  // wide-format prints, at finishing: cut it off the roll and trim it, then roll it into a tube
+  | "trim"
+  | "roll"
   | "reprint"
   | "use_anyway"
   | "clear_jam"
@@ -475,6 +491,7 @@ export interface GameState {
   choices: Choice[];
   failures: Failure[];
   workflow: Workflow | null;
+  machines: Record<"cards" | "wide", MachineState>; // the card machine and the wide-format printer (the production printer is printer)
   setAside: Workflow | null; // the job you put down for a quick chore (the truck, a jam, ...): you go back to it after
   wentHome: WentHome | null; // set when you go home: the day is over
   captions: { time: number; moment: string; text: string }[]; // the MC's monologue

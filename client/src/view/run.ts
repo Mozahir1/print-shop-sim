@@ -8,7 +8,7 @@ import { devEvent, devSpawn, setArrivals, skipTo, skipToClose, type SkipTo } fro
 import { activeCount, choreNow, suggested, todoList } from "../sim/todo";
 import { currentStep, isChoice, isCurrentStep, STEP, WORKFLOWS, type Hand } from "../sim/workflow";
 import { requestLines } from "../sim/dialogue";
-import { shipQuote } from "../sim/orders";
+import { MACHINE_LABEL, machineFor, shipQuote } from "../sim/orders";
 import { customerById, jobById, packageById } from "../sim/util";
 import { CLOCK, CLOSING } from "../sim/config";
 import type { BoxSize, EventKind, GameState, ShipService, TaskRequest } from "../sim/types";
@@ -215,7 +215,9 @@ export function sayNow(d: Doing): string {
   if (p.form) return "Fill in the form";
   if (p.pay) return "Type it on the register";
   const left = (p.n ?? 1) - d.count;
-  const text = (p.drag && ctl.carry ? p.put : p.say) ?? hintOf(d.req);
+  const job = d.req.jobId !== undefined ? jobById(state(), d.req.jobId) : undefined;
+  const raw = (p.drag && ctl.carry ? p.put : p.say) ?? hintOf(d.req);
+  const text = job && machineFor(job.spec) === "wide" ? raw.replace("the stack", "the rolled-up print") : raw; // (a large print isn't a stack)
   return p.tap && (p.n ?? 1) > 1 ? `${text} (${left} left)` : text;
 }
 
@@ -244,7 +246,8 @@ export function nextHint(): { text: string; tab: Tab } | null {
 
 export function hintOf(req: TaskRequest): string {
   const fin = req.jobId !== undefined ? jobById(state(), req.jobId)?.spec.finishing : undefined;
-  return STEP[req.type].hint.replace("{finishing}", fin && fin !== "none" ? `${fin[0].toUpperCase()}${fin.slice(1)} it` : "Finish it");
+  const job = req.jobId !== undefined ? jobById(state(), req.jobId) : undefined;
+  return STEP[req.type].hint.replace("{finishing}", fin && fin !== "none" ? `${fin[0].toUpperCase()}${fin.slice(1)} it` : "Finish it").replace("{machine}", MACHINE_LABEL[job ? machineFor(job.spec) : "printer"]);
 }
 
 function needsConfirm(key: string): boolean {

@@ -62,7 +62,7 @@ export function onTurnAway(state: GameState, q: CounterQuote): void {
   if (!q.doable || !q.worth || state.time >= state.closeAt) return; // (after closing, no one expects you to)
   state.stats.lostSales++;
   state.stats.lostSalesCents += q.valueCents;
-  addHeat(state, HEAT.lostSale, "lost_sales");
+  addHeat(state, HEAT.lostSale + (q.valueCents >= HEAT.bigSaleCents ? HEAT.lostBigSale : 0), "lost_sales");
 }
 
 // A business client gone, and their order with them: the manager hears about that one.

@@ -67,6 +67,8 @@ Layers, back to front: background, props, interactive, held, ui.
 | [ ] | `printer/light_printing` | Status light | `src/assets/art/printer/light_printing.png` | 12x12 | 0.5, 0.5 | blink: 2 @ 3 fps | props | status | Status light: printing |
 | [ ] | `printer/light_jammed` | Status light | `src/assets/art/printer/light_jammed.png` | 12x12 | 0.5, 0.5 | 1 | props | status | Status light: jammed |
 | [ ] | `printer/light_tray_empty` | Status light | `src/assets/art/printer/light_tray_empty.png` | 12x12 | 0.5, 0.5 | 1 | props | status | Status light: tray_empty |
+| [ ] | `printer/cards` | Card machine | `src/assets/art/printer/cards.png` | 100x76 | 0, 0 | 1 | props | machine | Business card machine (prints and cuts the cards by itself) |
+| [ ] | `printer/cards_out` | Box of business cards | `src/assets/art/printer/cards_out.png` | 48x28 | 0.5, 1 | 1 | interactive | paper | Finished business cards in the machine's output tray |
 
 ## finishing
 
@@ -82,6 +84,10 @@ Layers, back to front: background, props, interactive, held, ui.
 | [ ] | `finishing/bag` | Pickup bag | `src/assets/art/finishing/bag.png` | 50x56 | 0.5, 0.5 | 1 | interactive | bag | Paper bag for a finished order |
 | [ ] | `finishing/name_label` | Name label | `src/assets/art/finishing/name_label.png` | 40x28 | 0.5, 0.5 | 1 | interactive | paper | Name label for the bag |
 | [ ] | `finishing/shelf_cart` | Cart to the pickup shelf | `src/assets/art/finishing/shelf_cart.png` | 80x60 | 0.5, 0.5 | 1 | interactive | furniture | Cart to the pickup shelf (drop the bag here) |
+| [ ] | `finishing/wide_printer` | Wide-format printer | `src/assets/art/finishing/wide_printer.png` | 200x64 | 0, 0 | 1 | interactive | machine | Wide-format printer: a 24x36 print comes off the roll here (tap to cut it off) |
+| [ ] | `finishing/wide_sheet` | Large print | `src/assets/art/finishing/wide_sheet.png` | 110x34 | 0.5, 1 | 1 | interactive | paper | A large print on the table, before it's rolled up |
+| [ ] | `finishing/rolled` | Rolled-up print | `src/assets/art/finishing/rolled.png` | 90x28 | 0.5, 1 | 1 | interactive | paper | A large print rolled up in its tube |
+| [ ] | `finishing/tube` | Mailing tube | `src/assets/art/finishing/tube.png` | 80x28 | 0.5, 0.5 | 1 | interactive | box | An empty tube for a rolled-up large print |
 
 ## shipping
 

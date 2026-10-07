@@ -96,7 +96,7 @@ The first time you turn someone away, walk away from a job, or go home with work
 
 - **Customers** want quick copies, a bigger print job (some wait, some come back later, some are fine with tomorrow),
   a poster laminated, a box shipped (ground, 2-day, or overnight), a drop-off scanned, an order or a package from the
-  pickup shelf picked up, or help at the self-serve copier. Some people with simple jobs go straight to the self-serve copier.
+  pickup shelf picked up, or help at the self-serve copier. Or business cards, or a large format print (24x36). Some people with simple jobs go straight to the self-serve copier.
   Online orders land in Email and can't be turned away. Later days lean toward requests with more steps.
 - **Promises keep to open hours.** Nothing's due later than 30 minutes before close. What a customer asks for is
   capped there; a job that can't make it today is promised for tomorrow morning ("ready tomorrow morning, by
@@ -110,6 +110,11 @@ The first time you turn someone away, walk away from a job, or go home with work
   rewards. **Devices:** the printer, the self-serve copier, the card reader, and the Wi-Fi: OK, or what's wrong and
   where to fix it (or that it's restarting, and when it's back). **Shipping:** today's outbound packages and where
   each one is, when the truck comes, and what's on the pickup shelf.
+- **Three machines.** Most jobs print on the production printer. Business cards go to the card machine, which
+  prints and cuts them by itself (collect the box, bag it). A large format print goes to the wide-format printer at
+  Finishing, which is slow (about 12 minutes a print, the longest wait in the shop), and the rest is by hand: cut it
+  off the roll, hold the cutter on it to trim it, roll it up and slide it into a tube, bag it. Each machine has its
+  own queue; the order form's Paper list picks where it goes, and the quote says which machine and how long.
 - **The truck and the pickup shelf.** Packages for pickup only ever come on the truck: it takes the outbound bin and
   drops off the day's deliveries (1 to 3, as many as fit on a 6-package shelf). Your first day isn't the shop's, so
   the shelf already has a few on it, and whatever nobody comes for stays there tomorrow. Someone picking up a package

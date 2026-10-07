@@ -4,6 +4,7 @@ import { startTask, tick, type Sim } from "./sim";
 import type { CounterAction, Customer, Job, OrderEntry, TaskRequest } from "./types";
 import { currentStep } from "./workflow";
 import { jobById } from "./util";
+import { machineFor } from "./orders";
 import { REACTIONS } from "./config";
 
 export function runUntil(sim: Sim, done: () => boolean, limit = 3600): void {
@@ -44,6 +45,8 @@ export function makeReady(sim: Sim, job: Job): void {
     if (job.status === "new") doTask(sim, { type: "enter_order", jobId: job.id });
     else if (job.status === "entered") doTask(sim, { type: "send_job", jobId: job.id });
     else if (job.status === "queued" || job.status === "printing") runUntil(sim, () => job.status === "printed");
+    else if (job.status === "printed" && machineFor(job.spec) === "wide") doTask(sim, { type: "trim", jobId: job.id });
+    else if (job.status === "collected" && machineFor(job.spec) === "wide") doTask(sim, { type: "roll", jobId: job.id });
     else if (job.status === "printed") doTask(sim, { type: "collect", jobId: job.id });
     else if (job.status === "collected" && job.smudge === "found") doTask(sim, { type: "reprint", jobId: job.id });
     else if (job.status === "collected" && job.spec.finishing !== "none") doTask(sim, { type: "finish", jobId: job.id });

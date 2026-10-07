@@ -17,6 +17,17 @@
     ],
     "package_pickup": [
       "name"
+    ],
+    "business_cards": [
+      "cards",
+      "color",
+      "duplex",
+      "timing"
+    ],
+    "large_format": [
+      "prints",
+      "color",
+      "timing"
     ]
   },
   "lines": {
@@ -29,6 +40,23 @@
       "one": [
         "Just one copy of this {item}.",
         "One copy of my {item}, please."
+      ]
+    },
+    "cards": {
+      "any": [
+        "I need {copies} of them.",
+        "{copies} cards, please.",
+        "Can I get {copies}?"
+      ]
+    },
+    "prints": {
+      "one": [
+        "Just the one.",
+        "Only one print."
+      ],
+      "any": [
+        "{copies} of them, please.",
+        "I need {copies} prints."
       ]
     },
     "pages": {

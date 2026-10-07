@@ -1,8 +1,8 @@
 // What you know when someone reaches the counter: what it costs (fees itemized), whether self-serve is an option,
 // when they need it, when it could be ready, and how much of your time each way of doing it takes.
-import type { Customer, GameState, Job, JobSpec, Timing } from "./types";
-import { CLOSING, DURATIONS, PRINTER, RESPOND_MINUTES, RUSH_BUFFER, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
-import { finishMinutes, fullServiceQuote, selfServeBlocker, selfServePriceCents, shipQuote, totalSheets, type FullServiceQuote, type ShipQuote } from "./orders";
+import type { Customer, GameState, Job, JobSpec, Machine, Timing } from "./types";
+import { CLOSING, DURATIONS, MACHINES, PRINTER, RESPOND_MINUTES, RUSH_BUFFER, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
+import { finishMinutes, fullServiceQuote, machineFor, selfServeBlocker, selfServePriceCents, shipQuote, totalSheets, type FullServiceQuote, type ShipQuote } from "./orders";
 import { isPrintKind, morningTime } from "./customers";
 import { jobById } from "./util";
 
@@ -29,22 +29,38 @@ export interface CounterQuote {
   valueCents: number; // what doing it would bring in
 }
 
+// Machine time, start to finish (it runs on its own): the production printer, the card machine, or the wide-format
+// printer (slow: a large print is the longest wait in the shop).
 export function printMinutes(spec: JobSpec): number {
-  return PRINTER.warmup + totalSheets(spec) / PRINTER.sheetsPerMinute;
+  return machineFor(spec) === "printer" ? PRINTER.warmup + totalSheets(spec) / PRINTER.sheetsPerMinute : machineMinutes(spec);
+}
+
+export function machineMinutes(spec: JobSpec): number {
+  return machineFor(spec) === "cards" ? MACHINES.cards.warmup + spec.copies / MACHINES.cards.perMinute : MACHINES.wide.warmup + spec.copies * MACHINES.wide.minutesEach;
+}
+
+// Minutes still owed to a job that's printing (on whichever machine).
+function remaining(state: GameState, j: Job): number {
+  const m = machineFor(j.spec);
+  if (m === "printer") return (j.sheets - j.sheetsPrinted) / PRINTER.sheetsPerMinute;
+  const mc = state.machines[m];
+  return mc.currentJobId === j.id ? mc.left : printMinutes(j.spec);
 }
 
 // Your time on a production order from entering it to bagging it (the printing itself runs on its own).
 export function handlingMinutes(spec: JobSpec): number {
-  return DURATIONS.enter_order + DURATIONS.send_job + DURATIONS.collect + finishMinutes(spec) + DURATIONS.bag;
+  const take = machineFor(spec) === "wide" ? DURATIONS.trim + DURATIONS.roll : DURATIONS.collect;
+  return DURATIONS.enter_order + DURATIONS.send_job + take + finishMinutes(spec) + DURATIONS.bag;
 }
 
 // Printer time still owed to what's in the printer queue: whatever's printing, plus what's waiting to print (only
 // other rushes, for a rush). It's a simple estimate: orders you haven't sent yet aren't in the queue, so if you've
 // taken on more than you've sent, it's optimistic.
-function printerBacklog(state: GameState, rush: boolean): number {
+function printerBacklog(state: GameState, rush: boolean, machine: Machine): number {
   let seconds = 0;
   for (const j of state.jobs) {
-    if (j.status === "printing") seconds += (j.sheets - j.sheetsPrinted) / PRINTER.sheetsPerMinute;
+    if (machineFor(j.spec) !== machine) continue; // (each machine has its own queue)
+    if (j.status === "printing") seconds += remaining(state, j);
     else if (j.status === "queued" && (!rush || j.rush)) seconds += printMinutes(j.spec);
   }
   return seconds;
@@ -62,15 +78,16 @@ export function morningDueAt(state: GameState, spec: JobSpec, key: number): numb
 }
 
 export function estimateReadyAt(state: GameState, spec: JobSpec, rush: boolean): number {
-  return Math.round(state.time + printerBacklog(state, rush) + printMinutes(spec) + handlingMinutes(spec));
+  return Math.round(state.time + printerBacklog(state, rush, machineFor(spec)) + printMinutes(spec) + handlingMinutes(spec));
 }
 
 // Would rushing this push an order that's already waiting to print past its due time? (Rushes print first.)
 export function rushBumpsSomeone(state: GameState, spec: JobSpec): boolean {
   const extra = printMinutes(spec);
+  const machine = machineFor(spec);
   let ahead = 0;
-  for (const j of state.jobs) if (j.status === "printing") ahead += (j.sheets - j.sheetsPrinted) / PRINTER.sheetsPerMinute;
-  for (const id of state.printer.queue) {
+  for (const j of state.jobs) if (j.status === "printing" && machineFor(j.spec) === machine) ahead += remaining(state, j);
+  for (const id of machine === "printer" ? state.printer.queue : state.machines[machine].queue) {
     const j = jobById(state, id);
     if (!j) continue;
     ahead += printMinutes(j.spec);

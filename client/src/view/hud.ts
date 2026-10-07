@@ -256,6 +256,8 @@ function holdingBox(s: GameState): void {
 function background(s: GameState): string {
   const on: string[] = [];
   if (s.printer.status === "printing" && s.printer.currentJobId !== null) on.push(`order #${s.printer.currentJobId} printing`);
+  if (s.machines.cards.currentJobId !== null) on.push(`order #${s.machines.cards.currentJobId}'s cards`);
+  if (s.machines.wide.currentJobId !== null) on.push(`order #${s.machines.wide.currentJobId} on the wide-format printer`);
   if (s.cardReader === "restarting") on.push("the card reader restarting");
   if (s.wifi.restarting) on.push("the router restarting");
   return on.length ? ` <span class="muted">Meanwhile: ${esc(on.join(", "))}.</span>` : "";

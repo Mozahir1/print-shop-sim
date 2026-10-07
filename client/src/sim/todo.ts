@@ -3,6 +3,7 @@
 import type { CounterAction, Customer, GameState, Station, TaskRequest, TaskType } from "./types";
 import { canStart, currentCustomer, STATION } from "./sim";
 import { jobById, packageById } from "./util";
+import { MACHINE_LABEL, machineFor } from "./orders";
 import { eventIsActive } from "./events";
 import { CHORES, WORKFLOWS, currentStep } from "./workflow";
 
@@ -108,7 +109,9 @@ export function todoList(state: GameState): TodoItem[] {
       add(`Order #${job.id} came out smudged`, "printer", { type: "reprint", jobId: job.id }, owner?.id, [{ type: "use_anyway", jobId: job.id }]);
       continue;
     }
-    if (job.status === "printed") add(`Collect ${who} order #${job.id} from the printer`, "printer", { type: "collect", jobId: job.id }, owner?.id);
+    if (job.status === "printed" && machineFor(job.spec) === "wide") add(`Trim ${who} order #${job.id} (large print)`, "finishing", { type: "trim", jobId: job.id }, owner?.id);
+    else if (job.status === "printed") add(`Collect ${who} order #${job.id} from ${MACHINE_LABEL[machineFor(job.spec)]}`, "printer", { type: "collect", jobId: job.id }, owner?.id);
+    if (job.status === "collected" && machineFor(job.spec) === "wide") add(`Roll up order #${job.id}`, "finishing", { type: "roll", jobId: job.id }, owner?.id);
     if (job.status === "collected" && job.spec.finishing !== "none") add(`Finish order #${job.id}`, "finishing", { type: "finish", jobId: job.id }, owner?.id, [{ type: "skip_finish", jobId: job.id }]);
     if (job.status === "collected" || job.status === "finished") add(`Bag order #${job.id}`, "finishing", { type: "bag", jobId: job.id }, owner?.id);
     if (job.status === "entered") add(`Send order #${job.id} to the printer`, "computer", { type: "send_job", jobId: job.id }, owner?.id);
@@ -164,7 +167,7 @@ export function availableTasks(state: GameState, station: Station): TaskRequest[
   for (const type of types(["clear_jam", "load_paper", "fix_copier", "out_of_order_sign", "fix_card_reader", "restart_router", "hand_off", "let_truck_go"])) reqs.push({ type });
   for (const c of state.customers) for (const type of types(["talk", "hand_over", "ring_up", "manual_ring_up", "help_self_serve", "scan_dropoff", "find_package"])) reqs.push({ type, customerId: c.id });
   for (const c of state.customers) if (c.jobId !== null && station === "shelf") reqs.push({ type: "fetch_bag", customerId: c.id, jobId: c.jobId });
-  for (const j of state.jobs) for (const type of types(["enter_order", "send_job", "collect", "reprint", "use_anyway", "finish", "skip_finish", "bag"])) reqs.push({ type, jobId: j.id });
+  for (const j of state.jobs) for (const type of types(["enter_order", "send_job", "collect", "trim", "roll", "reprint", "use_anyway", "finish", "skip_finish", "bag"])) reqs.push({ type, jobId: j.id });
   for (const p of state.packages) for (const type of types(["pack", "tape_shut", "tape", "weigh", "label", "bin"])) reqs.push({ type, packageId: p.id });
   for (const m of state.messages) for (const type of types(["open_message", "leave_unread"])) reqs.push({ type, messageId: m.id });
   return reqs.filter((r) => canStart(free, r) === null);

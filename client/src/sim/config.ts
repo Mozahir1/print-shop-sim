@@ -59,6 +59,8 @@ export const DIRECTOR = {
     complaint: 0,
     business: 0, // they come on their own schedule (BUSINESS)
     web_order: 2,
+    business_cards: 2,
+    large_format: 2,
   } as Record<Arrival, number>,
   // Later days lean toward requests with more steps: their weight grows by this much per day, up to the cap.
   multiStep: ["large_job", "poster", "ship"] as Arrival[],
@@ -79,6 +81,8 @@ export const WORK_COST: Record<Arrival, number> = {
   self_serve_help: 5,
   complaint: 0,
   business: 30,
+  business_cards: 8, // the machine does the work
+  large_format: 20, // trimming and rolling, by hand
   web_order: 12,
 };
 
@@ -142,6 +146,8 @@ export const GIVE_UP: Record<RequestKind, number> = {
   package_pickup: 25,
   self_serve_help: 25,
   complaint: 25,
+  business_cards: 30,
+  large_format: 30,
   business: 25, // they have somewhere to be: long enough for a person to finish the job in front of them (about 33 minutes while you work), not for much more
 };
 // While you're busy with someone else they can see it, and it doesn't wear on them as fast. A business client minds
@@ -164,7 +170,9 @@ export const RUSH_BUFFER = 35; // a rush is promised this long after the earlies
 
 // When print customers want it, by request: wait in the store, come back later, or tomorrow. The ranges are seconds
 // from arrival: the latest it's any use to them.
-export const TIMING: Record<"quick_copies" | "large_job" | "poster" | "business", { wait: number; back: number; tomorrow: number; waitIn: [number, number]; backIn: [number, number] }> = {
+export const TIMING: Record<"quick_copies" | "large_job" | "poster" | "business" | "business_cards" | "large_format", { wait: number; back: number; tomorrow: number; waitIn: [number, number]; backIn: [number, number] }> = {
+  business_cards: { wait: 0, back: 0.6, tomorrow: 0.4, waitIn: [0, 0], backIn: [90, 240] },
+  large_format: { wait: 0, back: 0.5, tomorrow: 0.5, waitIn: [0, 0], backIn: [150, 300] }, // nobody waits around for one
   quick_copies: { wait: 1, back: 0, tomorrow: 0, waitIn: [50, 90], backIn: [0, 0] }, // (they'll wait for full service, or do it themselves)
   large_job: { wait: 0.35, back: 0.45, tomorrow: 0.2, waitIn: [45, 90], backIn: [90, 240] },
   poster: { wait: 0.6, back: 0.4, tomorrow: 0, waitIn: [30, 60], backIn: [60, 180] },
@@ -195,7 +203,9 @@ export const HEAT = {
   walkout: 6, // someone gave up waiting
   late: 4, // an order ready after it was promised
   unfinished: 6, // an order due today still not done at close
-  lostSale: 2, // turned away a job you could have done, and that was worth doing
+  lostSale: 2, // turned away a job you could have done, and that was worth doing...
+  lostBigSale: 1, // ...plus this when it was a big one (business cards, a large print, a big run)
+  bigSaleCents: 4000,
   flag: 8, // something you did came back (damaged box, smudged copies, packages left behind)
   overnightCool: 0.6, // share of heat that's gone by the next morning
   cleanDayCool: 10, // extra, after a day with no complaints
@@ -249,6 +259,13 @@ export const SALES = {
   strongDayCool: 3,
 };
 
+// The card machine prints and cuts business cards by itself; the wide-format printer is slow (and the trimming and
+// rolling after are done by hand). Both run on their own once you send them a job.
+export const MACHINES = {
+  cards: { warmup: 3, perMinute: 50 }, // business cards a minute
+  wide: { warmup: 4, minutesEach: 12 }, // per 24x36 print
+};
+
 export const PRINTER = {
   warmup: 1, // minutes before the first sheet of each job
   sheetsPerMinute: 30,
@@ -284,13 +301,33 @@ export interface PrintRequestDef {
   item: string;
   originals: [number, number];
   copies: [number, number];
+  copiesStep?: number; // copies come in multiples of this (business cards: boxes of 250)
   colorChance: number;
   media: Partial<Record<Media, number>>; // weights
   duplexChance: number;
   finishing: Partial<Record<Finishing, number>>; // weights
 }
 
-export const PRINT_REQUESTS: Record<"quick_copies" | "large_job" | "poster" | "business", PrintRequestDef> = {
+export const PRINT_REQUESTS: Record<"quick_copies" | "large_job" | "poster" | "business" | "business_cards" | "large_format", PrintRequestDef> = {
+  business_cards: {
+    item: "business cards",
+    originals: [1, 1],
+    copies: [1, 4], // x copiesStep: 250 to 1,000
+    copiesStep: 250,
+    colorChance: 0.85,
+    media: { business_card: 1 },
+    duplexChance: 0.5,
+    finishing: { none: 1 },
+  },
+  large_format: {
+    item: "large print",
+    originals: [1, 1],
+    copies: [1, 3],
+    colorChance: 0.9,
+    media: { large_format: 1 },
+    duplexChance: 0,
+    finishing: { none: 1 },
+  },
   business: {
     item: "brochure",
     originals: [4, 12],
@@ -357,6 +394,8 @@ export const PRICE_PER_SIDE: Record<ColorMode, Record<"letter" | "legal" | "tabl
   color: { letter: 59, legal: 69, tabloid: 118 },
 };
 export const CARDSTOCK_UPCHARGE = 20; // per sheet
+export const BUSINESS_CARDS = { per250: { bw: 1500, color: 2500 }, doubleSidedPer250: 800, boxOf: 250 };
+export const LARGE_FORMAT_EACH: Record<ColorMode, number> = { bw: 2500, color: 4500 }; // a 24x36 print
 export const FINISHING_PRICE = {
   staple: 0,
   cutPer250Sheets: 150,

@@ -7,10 +7,10 @@ import type { CounterAction, Customer, EventKind, Workflow, WorkflowKind, Flag, 
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
 import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, EVENTS, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, EASE_IN, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
 import { choiceType, leave, recordChoice, resetPatience, runPatience, wear } from "./mood";
-import { lastDueAt, morningDueAt, quoteFor, type CounterQuote } from "./quote";
+import { lastDueAt, machineMinutes, morningDueAt, quoteFor, type CounterQuote } from "./quote";
 import { postMessage } from "./messages";
 import { formatClock } from "./time";
-import { BOX_ORDER, boxFor, finishMinutes, selfServePriceCents, selfServeSeconds, shipQuote, totalSheets, wrongFields } from "./orders";
+import { BOX_ORDER, MACHINE_LABEL, boxFor, finishMinutes, machineFor, selfServePriceCents, selfServeSeconds, shipQuote, totalSheets, wrongFields } from "./orders";
 import { ALT_OF, CHORES, STEP, WORKFLOWS, canPutDown, currentStep, isChoice, isCurrentStep, lockMessage, workflowFor } from "./workflow";
 import { recordFailure } from "./failures";
 import { closeEvents, onPacked, resolveEvent, rollEvent, runEvents, wifiBack } from "./events";
@@ -90,6 +90,7 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     choices: [],
     failures: [],
     workflow: null,
+    machines: { cards: { queue: [], currentJobId: null, left: 0, total: 0 }, wide: { queue: [], currentJobId: null, left: 0, total: 0 } },
     setAside: null,
     wentHome: null,
     captions: [],
@@ -133,6 +134,7 @@ export function tick(sim: Sim, dt: number): void {
   runAnswerTimeouts(state);
   runConsequences(state);
   runPrinter(state, dt);
+  runMachines(state, dt);
   runSelfServe(state);
   runTruck(state, dt);
   runRestarts(state);
@@ -375,6 +377,46 @@ function runPrinter(state: GameState, dt: number): void {
   }
 }
 
+// The card machine and the wide-format printer: one job at a time from their own queues, no paper to run out of,
+// nothing to jam. (How long a job takes: machineMinutes in quote.ts.)
+function runMachines(state: GameState, dt: number): void {
+  for (const m of ["cards", "wide"] as const) {
+    const mc = state.machines[m];
+    if (mc.currentJobId === null) {
+      const next = mc.queue.shift();
+      if (next === undefined) continue;
+      const job = jobById(state, next)!;
+      mc.currentJobId = next;
+      mc.left = mc.total = machineMinutes(job.spec);
+      job.status = "printing";
+      job.attempt++;
+      emit("job_printing", { jobId: next });
+    }
+    const job = jobById(state, mc.currentJobId)!;
+    mc.left -= dt;
+    job.sheetsPrinted = job.sheets * Math.min(1, 1 - mc.left / mc.total); // (for the progress shown)
+    if (mc.left > 1e-9) continue;
+    job.sheetsPrinted = job.sheets;
+    job.status = "printed";
+    mc.currentJobId = null;
+    log(state, m === "cards" ? `Order #${job.id}'s business cards are done.` : `Order #${job.id} finished printing on the wide-format printer.`);
+    emit("job_printed", { jobId: job.id });
+  }
+}
+
+// The queue a job goes in: whichever machine makes it.
+function queueOf(state: GameState, job: Job): number[] {
+  const m = machineFor(job.spec);
+  return m === "printer" ? state.printer.queue : state.machines[m].queue;
+}
+
+function unqueue(state: GameState, job: Job): boolean {
+  const q = queueOf(state, job);
+  const i = q.indexOf(job.id);
+  if (i >= 0) q.splice(i, 1);
+  return i >= 0;
+}
+
 // ---------- the truck ----------
 
 // It arrives through the director (it waits for room); once here, it doesn't wait long. But the driver's clock only
@@ -524,7 +566,16 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
     case "collect": {
       const job = jobFor(state, req);
       if (typeof job === "string") return job;
-      return job.status === "printed" ? null : `Order #${job.id} isn't waiting at the printer.`;
+      if (machineFor(job.spec) === "wide") return `Order #${job.id} is a large print: trim it at Finishing.`;
+      return job.status === "printed" ? null : `Order #${job.id} isn't waiting at ${MACHINE_LABEL[machineFor(job.spec)]}.`;
+    }
+    case "trim":
+    case "roll": {
+      const job = jobFor(state, req);
+      if (typeof job === "string") return job;
+      if (machineFor(job.spec) !== "wide") return `Order #${job.id} isn't a large print.`;
+      if (req.type === "trim") return job.status === "printed" ? null : job.status === "queued" || job.status === "printing" ? `Order #${job.id} is still printing.` : `Order #${job.id} is already trimmed.`;
+      return job.status === "collected" ? null : job.status === "printed" ? `Trim order #${job.id} first.` : `Order #${job.id} isn't on the table to roll up.`;
     }
     case "reprint":
     case "use_anyway": {
@@ -552,6 +603,7 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       const job = jobFor(state, req);
       if (typeof job === "string") return job;
       if (job.status === "collected" && job.smudge === "found") return SMUDGED;
+      if (machineFor(job.spec) === "wide" && job.status !== "finished") return job.status === "collected" ? `Roll order #${job.id} up first.` : `Order #${job.id} isn't on the finishing table.`;
       if (job.status === "collected" && job.spec.finishing !== "none") return `Order #${job.id} needs to be ${FINISHING_LABEL[job.spec.finishing].toLowerCase()}d first.`;
       return job.status === "collected" || job.status === "finished" ? null : `Order #${job.id} isn't on the finishing table.`;
     }
@@ -744,8 +796,14 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
       return "Restart the router";
     case "enter_order":
       return `Enter ${job}`;
-    case "send_job":
-      return `Send ${job} to the printer`;
+    case "send_job": {
+      const j = jobById(state, req.jobId!);
+      return `Send ${job} to ${j ? MACHINE_LABEL[machineFor(j.spec)] : "the printer"}`;
+    }
+    case "trim":
+      return `Trim ${job}`;
+    case "roll":
+      return `Roll up ${job}`;
     case "open_message":
       return `Open "${state.messages.find((m) => m.id === req.messageId)?.subject ?? "message"}"`;
     case "leave_unread":
@@ -920,6 +978,13 @@ function runStep(state: GameState, t: Task): void {
       recordChoice(state, "ignore", "inbox", m.jobId !== null ? jobById(state, m.jobId)?.customerId : undefined);
       return;
     }
+    case "trim":
+      job!.status = "collected";
+      log(state, `Trimmed order #${job!.id}.`);
+      return;
+    case "roll":
+      job!.status = "finished";
+      return;
     case "collect":
       job!.status = "collected";
       if (job!.smudge === "found") log(state, `Some of order #${job!.id} came out smudged.`);
@@ -1102,7 +1167,7 @@ function fixedEvent(state: GameState, kind: EventKind): void {
 
 // Rushes print first (in the order they were sent); everything else waits its turn.
 function queueJob(state: GameState, job: Job): void {
-  const q = state.printer.queue;
+  const q = queueOf(state, job);
   if (!job.rush) return void q.push(job.id);
   const firstStandard = q.findIndex((id) => !jobById(state, id)?.rush);
   if (firstStandard < 0) q.push(job.id);
@@ -1221,11 +1286,7 @@ export function answer(state: GameState, c: Customer, action: CounterAction, aut
 function rushTheirOrder(state: GameState, c: Customer): void {
   const job = jobById(state, c.jobId!)!;
   job.rush = true; // no rush fee: it's on us
-  const q = state.printer.queue;
-  if (q.includes(job.id)) {
-    state.printer.queue = q.filter((id) => id !== job.id);
-    queueJob(state, job);
-  }
+  if (unqueue(state, job)) queueJob(state, job);
   c.state = "waiting";
   resetPatience(state, c);
   log(state, `Rushing ${c.name}'s order #${job.id} while they wait.`);
@@ -1241,7 +1302,7 @@ function apologizeAndRefund(state: GameState, c: Customer): void {
   if (isOverdue(state, job)) onLate(state, job);
   job.status = "canceled";
   job.closedAt = state.time;
-  state.printer.queue = state.printer.queue.filter((id) => id !== job.id);
+  unqueue(state, job);
   c.mood += MOOD.turnedAway;
   say(c, "turned_away");
   log(state, `Apologized to ${c.name} and refunded order #${job.id}.`);

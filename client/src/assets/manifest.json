@@ -1259,6 +1259,96 @@
    "icon": "check",
    "color": "#2e7d4f",
    "purpose": "Check mark when a step is done"
+  },
+  "printer/cards": {
+   "label": "Card machine",
+   "size": [
+    100,
+    76
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "props",
+   "category": "machine",
+   "icon": "cards",
+   "purpose": "Business card machine (prints and cuts the cards by itself)"
+  },
+  "printer/cards_out": {
+   "label": "Box of business cards",
+   "size": [
+    48,
+    28
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "category": "paper",
+   "icon": "cards",
+   "purpose": "Finished business cards in the machine's output tray"
+  },
+  "finishing/wide_printer": {
+   "label": "Wide-format printer",
+   "size": [
+    200,
+    64
+   ],
+   "anchor": [
+    0,
+    0
+   ],
+   "layer": "interactive",
+   "category": "machine",
+   "icon": "printer",
+   "purpose": "Wide-format printer: a 24x36 print comes off the roll here (tap to cut it off)"
+  },
+  "finishing/wide_sheet": {
+   "label": "Large print",
+   "size": [
+    110,
+    34
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "category": "paper",
+   "icon": "poster",
+   "purpose": "A large print on the table, before it's rolled up"
+  },
+  "finishing/rolled": {
+   "label": "Rolled-up print",
+   "size": [
+    90,
+    28
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "interactive",
+   "category": "paper",
+   "icon": "tube",
+   "purpose": "A large print rolled up in its tube"
+  },
+  "finishing/tube": {
+   "label": "Mailing tube",
+   "size": [
+    80,
+    28
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "interactive",
+   "category": "box",
+   "icon": "tube",
+   "purpose": "An empty tube for a rolled-up large print"
   }
  },
  "scenes": {
@@ -1378,6 +1468,19 @@
     "starts": [
      "collect"
     ]
+   },
+   {
+    "key": "printer/cards",
+    "x": 385,
+    "y": 96
+   },
+   {
+    "key": "printer/cards_out",
+    "x": 435,
+    "y": 196,
+    "starts": [
+     "collect"
+    ]
    }
   ],
   "finishing": [
@@ -1385,6 +1488,14 @@
     "key": "finishing/bg",
     "x": 0,
     "y": 0
+   },
+   {
+    "key": "finishing/wide_printer",
+    "x": 20,
+    "y": 36,
+    "starts": [
+     "trim"
+    ]
    },
    {
     "key": "finishing/table",
@@ -1432,6 +1543,14 @@
     "key": "finishing/shelf_cart",
     "x": 300,
     "y": 200
+   },
+   {
+    "key": "finishing/tube",
+    "x": 420,
+    "y": 210,
+    "starts": [
+     "roll"
+    ]
    }
   ],
   "shipping": [

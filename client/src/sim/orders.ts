@@ -1,6 +1,8 @@
 // Everything you can work out from an order's specs alone: sheets, prices and fees, self-serve, shipping.
-import type { BoxSize, Finishing, JobSpec, Media, OrderEntry, ShipService } from "./types";
+import type { BoxSize, Finishing, JobSpec, Machine, Media, OrderEntry, ShipService } from "./types";
 import {
+  BUSINESS_CARDS,
+  LARGE_FORMAT_EACH,
   CARDSTOCK_UPCHARGE,
   FINISHING_PRICE,
   FULL_SERVICE,
@@ -31,7 +33,20 @@ function sideSize(media: Media): "letter" | "legal" | "tabloid" {
   return media === "legal" || media === "tabloid" ? media : "letter";
 }
 
+// Where it's made: business cards on the card machine, large format on the wide-format printer, the rest on the
+// production printer.
+export function machineFor(spec: JobSpec): Machine {
+  return spec.media === "business_card" ? "cards" : spec.media === "large_format" ? "wide" : "printer";
+}
+
+export const MACHINE_LABEL: Record<Machine, string> = { printer: "the printer", cards: "the card machine", wide: "the wide-format printer" };
+
 export function priceCents(spec: JobSpec): number {
+  if (spec.media === "business_card") {
+    const boxes = Math.ceil(spec.copies / BUSINESS_CARDS.boxOf);
+    return boxes * (BUSINESS_CARDS.per250[spec.color] + (spec.duplex ? BUSINESS_CARDS.doubleSidedPer250 : 0));
+  }
+  if (spec.media === "large_format") return LARGE_FORMAT_EACH[spec.color] * spec.copies;
   const sheets = totalSheets(spec);
   let cents = PRICE_PER_SIDE[spec.color][sideSize(spec.media)] * impressions(spec);
   if (spec.media === "cardstock") cents += CARDSTOCK_UPCHARGE * sheets;
@@ -88,6 +103,8 @@ export function finishMinutes(spec: JobSpec): number {
 // Why this job can't be done at the self-serve copier, or null if it can: plain paper and nothing that needs the
 // back counter (a stapler is out there). Whether they're staying in the store is up to the customer.
 export function selfServeBlocker(spec: JobSpec): string | null {
+  if (spec.media === "business_card") return "Business cards are made on the card machine, behind the counter.";
+  if (spec.media === "large_format") return "That's a job for the wide-format printer, behind the counter.";
   if (spec.media === "cardstock") return "Self-serve only has plain paper.";
   if (spec.finishing === "cut" || spec.finishing === "laminate") return `It needs to be ${FINISHING_LABEL[spec.finishing].toLowerCase()}${spec.finishing === "cut" ? "" : "d"}, which is done behind the counter.`;
   return null;
@@ -133,7 +150,12 @@ export const MEDIA_LABEL: Record<Media, string> = {
   legal: 'Legal 8.5×14"',
   tabloid: 'Tabloid 11×17"',
   cardstock: 'Cardstock 8.5×11"',
+  business_card: "Business cards",
+  large_format: 'Large format 24×36"',
 };
+
+// Short, for notes and lists.
+export const PAPER: Record<Media, string> = { letter: "letter", legal: "legal", tabloid: "11x17", cardstock: "cardstock", business_card: "business cards", large_format: "24x36" };
 
 export const FINISHING_LABEL: Record<Finishing, string> = {
   none: "No finishing",
@@ -148,6 +170,8 @@ export function plural(n: number, one: string, many = one + "s"): string {
 
 // "25 copies of a 3-page resume"
 export function describeQuantity(spec: JobSpec): string {
+  if (spec.media === "business_card") return plural(spec.copies, "business card");
+  if (spec.media === "large_format") return plural(spec.copies, "large print");
   return `${plural(spec.copies, "copy", "copies")} of a ${spec.originals}-page ${spec.item}`;
 }
 

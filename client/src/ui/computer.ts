@@ -3,7 +3,7 @@
 // to fix it), and Shipping (the label form, what's going out, and the truck). Icons down the left, with badges for
 // what needs you. Pure HTML from the state; ComputerScene puts it on the monitor.
 import type { GameState, JobStatus, Package } from "../sim/types";
-import { SERVICE_LABEL } from "../sim/orders";
+import { MACHINE_LABEL, SERVICE_LABEL, machineFor } from "../sim/orders";
 import { customerById, jobById } from "../sim/util";
 import { describeSpec, needsAction } from "../sim/messages";
 import { formatClock } from "../sim/time";
@@ -68,7 +68,7 @@ export function ordersApp(s: GameState, formFor: number | null): string {
     const who = customerById(s, j.customerId)?.name ?? "";
     const due = j.dueDay > s.day ? `tomorrow ${formatClock(j.dueAt)}` : formatClock(j.dueAt);
     const action =
-      j.status === "new" ? taskButton(s, { type: "enter_order", jobId: j.id }, { label: "Enter it", primary: true }) : j.status === "entered" ? taskButton(s, { type: "send_job", jobId: j.id }, { label: "Send to printer", primary: true }) : "";
+      j.status === "new" ? taskButton(s, { type: "enter_order", jobId: j.id }, { label: "Enter it", primary: true }) : j.status === "entered" ? taskButton(s, { type: "send_job", jobId: j.id }, { label: `Send to ${MACHINE_LABEL[machineFor(j.spec)].replace(/^the /, "")}`, primary: true }) : "";
     return `<div class="order st-${j.status}"><button class="what" data-act="note" data-job="${j.id}"><b>#${j.id} ${esc(who)}</b><span>${esc(describeSpec(j.spec))}. Due ${due}${j.rush ? ", rush" : ""}.</span></button><span class="status">${STATUS[j.status]}</span>${action}</div>`;
   };
   const shown = open.slice(0, 5);
@@ -118,6 +118,11 @@ export function devices(s: GameState): Device[] {
   const printing = p.currentJobId !== null ? `Printing order #${p.currentJobId}${p.queue.length ? `, ${p.queue.length} waiting` : ""}.` : "Idle.";
   return [
     { name: "Production printer", ok: p.status !== "jammed" && p.status !== "tray_empty", line: p.status === "jammed" ? "Paper jam. Go to the Printer and clear it." : p.status === "tray_empty" ? "Out of paper. Go to the Printer and load a ream." : `OK. ${printing}` },
+    ...(["cards", "wide"] as const).map((m) => {
+      const mc = s.machines[m];
+      const name = m === "cards" ? "Card machine" : "Wide-format printer";
+      return { name, ok: true, line: mc.currentJobId !== null ? `OK. Making order #${mc.currentJobId}, ${Math.max(1, Math.ceil(mc.left))} min left${mc.queue.length ? `, ${mc.queue.length} waiting` : ""}.` : "OK. Idle." };
+    }),
     { name: "Self-serve copier", ok: s.copier.status === "ok", line: s.copier.status === "ok" ? "OK." : s.copier.sign ? "Broken, with an out of order sign on it. Fix it at the Counter." : "Broken. Go to the Counter and fix it." },
     s.cardReader === "restarting"
       ? { name: "Card reader", ok: false, wait: true, line: `Restarting. Back by ${formatClock(s.readerBackAt)}, nothing to do meanwhile. (Cash, or ring up by hand, until then.)` }

@@ -2,7 +2,7 @@
 // actually asked for), and the next thing to do with it. Done orders get crossed off and fade.
 import type { GameState, Job, JobStatus, Media, Station, TaskType } from "./types";
 import { NOTE_TEXT, STEP } from "./workflow";
-import { FINISHING_LABEL, MEDIA_LABEL } from "./orders";
+import { FINISHING_LABEL, MACHINE_LABEL, MEDIA_LABEL, PAPER, machineFor } from "./orders";
 import { formatClock } from "./time";
 import { customerById, fill, money } from "./util";
 
@@ -16,7 +16,6 @@ export interface Note {
 
 export const NOTE_FADE = 45; // game minutes a crossed-off note stays up
 
-const PAPER: Record<Media, string> = { letter: "letter", legal: "legal", tabloid: "11x17", cardstock: "cardstock" };
 
 export function notes(state: GameState): Note[] {
   const out: Note[] = [];
@@ -37,7 +36,8 @@ export function noteText(state: GameState, j: Job): string {
   const due = j.dueDay > state.day ? `tomorrow ${formatClock(j.dueAt)}` : formatClock(j.dueAt);
   // Until it's in the computer, the details are only in what they said.
   if (j.status === "new") return fill(NOTE_TEXT.new, { item, name, due });
-  const parts = [`${item} x${s.copies}`, s.color === "color" ? "color" : "B&W", PAPER[s.media]];
+  const parts = [`${item} x${s.copies}`, s.color === "color" ? "color" : "B&W"];
+  if (s.media !== "business_card") parts.push(PAPER[s.media]);
   if (s.duplex) parts.push("2-sided");
   if (s.finishing !== "none") parts.push(s.finishing);
   return `${parts.join(", ")}, due ${due}. ${name}.`;
@@ -45,7 +45,7 @@ export function noteText(state: GameState, j: Job): string {
 
 function hintFor(state: GameState, j: Job): string {
   if (j.status === "queued" || j.status === "printing") return NOTE_TEXT.printing;
-  return fill(STEP[nextStep(j)].hint, { finishing: FINISHING_LABEL[j.spec.finishing] });
+  return fill(STEP[nextStep(j)].hint, { finishing: FINISHING_LABEL[j.spec.finishing], machine: MACHINE_LABEL[machineFor(j.spec)] });
 }
 
 function nextStep(j: Job): TaskType {
@@ -55,8 +55,9 @@ function nextStep(j: Job): TaskType {
     case "entered":
       return "send_job";
     case "printed":
-      return "collect";
+      return machineFor(j.spec) === "wide" ? "trim" : "collect";
     case "collected":
+      if (machineFor(j.spec) === "wide") return "roll";
       return j.smudge === "found" ? "reprint" : j.spec.finishing !== "none" ? "finish" : "bag";
     case "finished":
       return "bag";
@@ -99,11 +100,12 @@ export function noteDetail(state: GameState, jobId: number): NoteDetail | null {
   ];
   const rank = RANK[j.status];
   const fin = FINISHING_LABEL[s.finishing];
+  const wide = machineFor(s) === "wide"; // (a large print is trimmed and rolled up instead of collected)
   const plan: [TaskType | "printing", boolean][] = [
     ["enter_order", rank > 0],
     ["send_job", rank > 1],
     ["printing", rank > 2],
-    ["collect", rank > 3],
+    ...(wide ? ([["trim", rank > 3], ["roll", rank > 4]] as [TaskType, boolean][]) : ([["collect", rank > 3]] as [TaskType, boolean][])),
     ...(j.smudge === "found" ? ([["reprint", false]] as [TaskType, boolean][]) : []),
     ...(s.finishing !== "none" ? ([["finish", rank > 4 || (rank === 4 && j.skipped)]] as [TaskType, boolean][]) : []),
     ["bag", rank > 5],
@@ -113,8 +115,8 @@ export function noteDetail(state: GameState, jobId: number): NoteDetail | null {
   const steps = plan.map(([t, isDone]) => {
     const st = isDone ? "done" : now ? "now" : "todo";
     if (st === "now") now = false;
-    if (t === "printing") return { text: NOTE_TEXT.printing, station: "printer" as Station, state: st as "done" | "now" | "todo" };
-    const hint = fill(STEP[t].hint, { finishing: fin });
+    if (t === "printing") return { text: NOTE_TEXT.printing, station: (wide ? "finishing" : "printer") as Station, state: st as "done" | "now" | "todo" };
+    const hint = fill(STEP[t].hint, { finishing: fin, machine: MACHINE_LABEL[machineFor(s)] });
     const when = t === "ring_up" || t === "hand_over" ? `${hint} when they come back` : hint;
     return { text: when, station: STEP[t].station, state: st as "done" | "now" | "todo" };
   });

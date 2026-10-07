@@ -1,7 +1,7 @@
 // Every message-like thing (web orders, customer feedback, manager notes, corporate memos, rewards) goes through here,
 // and none of them can be posted without a real body: the Email app on the computer shows all of them.
 import type { GameState, JobSpec, Message, MessageKind } from "./types";
-import { FINISHING_LABEL } from "./orders";
+import { FINISHING_LABEL, PAPER } from "./orders";
 
 export interface NewMessage {
   kind: MessageKind;
@@ -26,10 +26,13 @@ export function needsAction(m: Message): boolean {
   return m.kind === "web_order" && !m.read;
 }
 
-const PAPER: Record<JobSpec["media"], string> = { letter: "letter", legal: "legal", tabloid: "11x17", cardstock: "cardstock" };
+
 
 // "Handout, 18 copies of 4 pages, B&W, letter, 1-sided, cut"
 export function describeSpec(s: JobSpec): string {
+  const color = s.color === "color" ? "color" : "B&W";
+  if (s.media === "business_card") return `Business cards, ${s.copies}, ${color}, ${s.duplex ? "2-sided" : "1-sided"}`;
+  if (s.media === "large_format") return `Large print 24x36, ${s.copies} ${s.copies === 1 ? "print" : "prints"}, ${color}`;
   const item = `${s.item[0].toUpperCase()}${s.item.slice(1)}`;
   const pages = s.originals > 1 ? ` of ${s.originals} pages` : "";
   return `${item}, ${s.copies} ${s.copies === 1 ? "copy" : "copies"}${pages}, ${s.color === "color" ? "color" : "B&W"}, ${PAPER[s.media]}, ${s.duplex ? "2-sided" : "1-sided"}, ${FINISHING_LABEL[s.finishing].toLowerCase()}`;
