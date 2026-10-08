@@ -5,10 +5,11 @@ import { currentCustomer } from "../sim/sim";
 import { currentStep } from "../sim/workflow";
 import { customerById, jobById, packageById } from "../sim/util";
 import { on } from "../sim/bus";
+import { keyedRoll } from "../sim/rng";
 import { boxFor, machineFor } from "../sim/orders";
 import type { BoxSize, Customer, TaskRequest } from "../sim/types";
 import { atCounter, inLine, dialogueHtml, keypadHtml, labelForm } from "../ui/view";
-import { appIcons, devicesApp, emailApp, ordersApp, shippingApp, stepBar } from "../ui/computer";
+import { appIcons, devicesApp, emailApp, ordersApp, scheduleApp, shippingApp, stepBar } from "../ui/computer";
 import { SPOT, SPRITES, playAnim, sound, sprite } from "./assets";
 import { FONT } from "./config";
 import { ctl, part, register, state } from "./run";
@@ -36,6 +37,10 @@ export class CounterScene extends Station {
   private saidAt: number | null = null; // the last thing they said that's been shown
   private leaving = false;
   private dialog!: (html: string, as?: string) => void; // what they say and your answers, or the register's keypad
+  // Your coworker's register, on the left: who they're helping, how many more are waiting for them, or where they went.
+  private crewCust!: Phaser.GameObjects.Container;
+  private crewShownId = -1;
+  private crewNote!: Phaser.GameObjects.Text;
 
   constructor() {
     super("counter", ["counter", "self_serve"]);
@@ -57,6 +62,9 @@ export class CounterScene extends Station {
     const copier = this.objs.get("counter/copier")!;
     this.sign = sprite(this, "counter/sign", copier.x, copier.y - 20).setDepth(25).setVisible(false);
     this.dialog = modalBox("counter", "dialog");
+    const [kx, ky] = SPOT.crewCustomer;
+    this.crewCust = this.add.container(kx, ky, [sprite(this, "customer/body_b", 0, 0), sprite(this, "customer/face_fine", 0, -92)]).setScale(0.85).setDepth(14).setVisible(false).setData("crew", true);
+    this.crewNote = this.add.text(SPOT.crewCounter[0] + 20, 66, "", { ...SMALL, color: "#ffffff", backgroundColor: "#2e6b50dd", padding: { x: 3, y: 1 }, align: "center", wordWrap: { width: 96 } }).setOrigin(0.5, 1).setDepth(16);
     listen(this, [
       on("customer_left", (e) => (e.customerId === this.shownId ? this.walkOut(e.mood === "angry") : e.mood === "angry" && this.leaveLine())),
       on("mood_changed", (e) => e.customerId === this.shownId && e.stage !== "fine" && shake(this.cust)),
@@ -120,8 +128,35 @@ export class CounterScene extends Station {
     });
   }
 
+  // Your coworker's side of the counter.
+  private refreshCrew(): void {
+    const s = state();
+    const cw = s.coworker;
+    const here = !!cw && cw.at === "counter";
+    this.crew?.setVisible(here);
+    if (cw) (this.crew?.getAt(1) as Phaser.GameObjects.Text | undefined)?.setText(cw.name);
+    const theirs = s.customers.filter((c) => c.crew && (c.state === "line" || c.state === "talking" || c.state === "waiting"));
+    const task = cw?.task?.station === "counter" ? theirs.find((c) => c.id === cw.task!.customerId) : undefined;
+    const shown = task ?? theirs.filter((c) => c.state === "line").sort((a, b) => a.lineTicket - b.lineTicket)[0] ?? theirs.find((c) => c.state === "waiting");
+    if (shown && shown.id !== this.crewShownId) {
+      this.crewShownId = shown.id;
+      (this.crewCust.getAt(0) as Phaser.GameObjects.Sprite).setTexture(`customer/body_${"abc"[shown.id % 3]}`);
+      this.crewCust.setPosition(SPOT.doorway[0], SPOT.crewCustomer[1]).setVisible(true).setAlpha(1);
+      this.tweens.add({ targets: this.crewCust, x: SPOT.crewCustomer[0], duration: 900, ease: "Sine.easeOut" });
+    } else if (!shown && this.crewShownId !== -1) {
+      this.crewShownId = -1;
+      this.tweens.add({ targets: this.crewCust, alpha: 0, duration: 400, onComplete: () => this.crewCust.setVisible(false) });
+    }
+    if (shown) (this.crewCust.getAt(1) as Phaser.GameObjects.Sprite).setTexture(`customer/face_${shown.stage === "gone" ? "angry" : shown.stage}`);
+    const more = theirs.length - (shown ? 1 : 0);
+    const away = cw && !here ? (cw.at === "break" ? `${cw.name} is on break` : cw.at === "missing" ? `${cw.name} is missing` : cw.at === "gone" ? `${cw.name} went home` : `${cw.name} is ${{ shelf: "at the pickup shelf", finishing: "at the finishing table", shipping: "at shipping", printer: "at the printer", computer: "at the computer", self_serve: "at self-serve", counter: "here" }[cw.at]}`) : "";
+    const note = [away, more > 0 && cw ? `${more} more waiting for ${cw.name}` : ""].filter(Boolean).join("\n");
+    this.crewNote.setText(note).setVisible(!!note);
+  }
+
   protected refresh(): void {
     const s = state();
+    this.refreshCrew();
     const who = atCounter(s);
     if (!this.leaving && who && who.id !== this.shownId) this.walkIn(who);
     if (!this.leaving && !who && this.shownId !== -1) {
@@ -181,7 +216,7 @@ export class ComputerScene extends Station {
     const form = order !== null ? `order:${order}` : label !== null ? `label:${label}` : "";
     if (form && form !== this.formWas) ctl.app = order !== null ? "orders" : "shipping";
     this.formWas = form;
-    const body = { orders: () => ordersApp(s, order), email: () => emailApp(s, ctl.mail, ctl.webForm), devices: () => devicesApp(s), shipping: () => shippingApp(s, label) }[ctl.app]();
+    const body = { orders: () => ordersApp(s, order), email: () => emailApp(s, ctl.mail, ctl.webForm), devices: () => devicesApp(s), shipping: () => shippingApp(s, label), schedule: () => scheduleApp(s) }[ctl.app]();
     modalPart(this.screen.el, ".apps", appIcons(s, ctl.app));
     modalPart(this.screen.el, ".app-body", stepBar(s) + body);
   }
@@ -422,6 +457,12 @@ export class ShelfScene extends Station {
     // (Packages by first name and initial: there can be a few on the shelf, from days back.)
     const short = (name: string) => name.replace(/^(\S+)\s+(\S).*$/, "$1 $2.");
     for (const p of s.packages) if (p.kind === "held" && p.status === "held") want.set(`package:${p.id}`, short(p.to ?? customerById(s, p.customerId)?.name ?? ""));
+    // (Re-sorted by a coworker: the bags aren't where you left them. Take a second look.)
+    if (s.shelfOrder) {
+      const sorted = [...want].sort(([a], [b]) => (a.startsWith("bag:") && b.startsWith("bag:") ? keyedRoll(s.shelfOrder, a) - keyedRoll(s.shelfOrder, b) : 0));
+      want.clear();
+      for (const [k, v] of sorted) want.set(k, v);
+    }
     const sig = [...want].join("|");
     if (sig === this.sig2) return;
     this.sig2 = sig;

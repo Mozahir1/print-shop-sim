@@ -184,6 +184,7 @@ describe("closing time", () => {
     const sim = startDay(game);
     sim.state.director.enabled = false;
     sim.state.event = null;
+    sim.state.coworker = null; // (nobody asking you things)
     sim.state.manager.heat = 20;
     toClose(sim);
     sim.state.revenueCents = SALES.targetCents; // (a slow day adds heat of its own)

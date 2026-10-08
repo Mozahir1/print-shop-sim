@@ -8,11 +8,12 @@
 import Phaser from "phaser";
 import { availableTasks } from "../sim/todo";
 import { CHORES, currentStep } from "../sim/workflow";
+import { inUse } from "../sim/coworker";
 import { canStart, previewTask } from "../sim/sim";
 import type { Station as SimStation, TaskRequest } from "../sim/types";
-import { LAYOUT, SPRITES, sound, sprite } from "./assets";
+import { LAYOUT, SPOT, SPRITES, playAnim, sound, sprite } from "./assets";
 import { FONT, HOLD_MS, RES, SNAP } from "./config";
-import { ACTIONS, ART, BUTTON_H, REGION, STAGE_W } from "./layout";
+import { ACTIONS, ART, BUTTON_H, CREW_ZONE, REGION, STAGE_W } from "./layout";
 import { ctl, doTask, hands, hintOf, holding, nextPart, part, picked, sayNow, state, stepKey, tapped } from "./run";
 import { modalRect, tooltip } from "./hud";
 import { bounce, say, snapBack, sparkle, squash } from "./juice";
@@ -26,6 +27,21 @@ export interface Candidate {
 
 const DRAG = 6; // art pixels the pointer moves before a press counts as a drag
 
+const CREW_BUBBLE_W = 170; // art pixels (the counter's coworker side, and some of the wall over the copier)
+const CREW_BUBBLE_MINUTES = 4; // game minutes a line stays up
+
+// Where your coworker stands at each station (manifest spots).
+const CREW_SPOT: Partial<Record<Tab, string>> = { counter: "crewCounter", printer: "crewPrinter", finishing: "crewFinishing", shipping: "crewShipping", shelf: "crewShelf" };
+
+// Your coworker: their figure, with their name over them. In front of the furniture, behind anything you can click
+// (they never get in your way).
+export function crewFigure(scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Container {
+  const body = sprite(scene, "crew/body", 0, 0);
+  const name = scene.add.text(0, -110, "", { ...FONT, color: "#ffffff", backgroundColor: "#2e6b50", padding: { x: 4, y: 1 } }).setOrigin(0.5, 1);
+  playAnim(body, "idle");
+  return scene.add.container(x, y, [body, name]).setDepth(15).setVisible(false).setData("crew", true);
+}
+
 export abstract class Station extends Phaser.Scene {
   objs = new Map<string, Phaser.GameObjects.Sprite>();
   private temp: Phaser.GameObjects.GameObject[] = []; // what the current part or buttons put up
@@ -36,6 +52,9 @@ export abstract class Station extends Phaser.Scene {
   private holdingNow = false;
   private bar!: Phaser.GameObjects.Graphics; // the hold meter: always on top, never covered (see guide())
   meter: Phaser.Geom.Rectangle | null = null; // where it is, while a hold part's up
+  private inUseText!: Phaser.GameObjects.Text;
+  protected crew: Phaser.GameObjects.Container | null = null; // your coworker, while they're working here
+  private speech!: Phaser.GameObjects.Text; // what they're saying (over everything: it's never in your way, it fades)
   private tipFor: Obj | null = null; // what the tooltip is naming
   private press: { x: number; y: number; picked: boolean } | null = null; // the press in progress
 
@@ -72,6 +91,12 @@ export abstract class Station extends Phaser.Scene {
       s.setData("starts", o.starts ?? []);
     }
     this.bar = this.add.graphics().setDepth(80);
+    // Your coworker, when they're working here (the counter places them itself: see CounterScene).
+    const spot = CREW_SPOT[this.tab];
+    if (spot) this.crew = crewFigure(this, SPOT[spot][0], SPOT[spot][1]);
+    this.speech = this.add.text(0, 0, "", { ...FONT, color: "#1f2328", backgroundColor: "#ffffff", padding: { x: 4, y: 2 }, wordWrap: { width: CREW_BUBBLE_W } }).setOrigin(0.5, 1).setDepth(62).setVisible(false).setData("crew", true);
+    // A shared station your coworker's working at says so, and for how long (your steps here wait).
+    this.inUseText = this.add.text(STAGE_W / 2, 4, "", { ...FONT, color: "#ffffff", backgroundColor: "#8a5200", padding: { x: 6, y: 3 } }).setOrigin(0.5, 0).setDepth(78).setVisible(false);
     this.build();
     // Order matters: an object's press comes first (picking something up), then the scene's (putting it down).
     this.input.on("gameobjectdown", (_p: Phaser.Input.Pointer, o: Obj) => this.down(o));
@@ -101,6 +126,15 @@ export abstract class Station extends Phaser.Scene {
       tooltip(null); // (it went away under the pointer)
     }
     this.refresh();
+    if (this.crew && this.tab !== "counter") {
+      const cw = state().coworker;
+      this.crew.setVisible(!!cw && cw.at === this.tab);
+      if (cw) (this.crew.getAt(1) as Phaser.GameObjects.Text).setText(cw.name);
+    }
+    if (this.crew) this.crewBubble();
+    const busy = this.stations.map((st) => inUse(state(), st)).find((m) => m)?.replace(/\.$/, "") ?? "";
+    this.inUseText.setVisible(!!busy);
+    if (busy && this.inUseText.text !== busy) this.inUseText.setText(busy);
     const sig = this.signature();
     if (sig !== this.sig) {
       this.sig = sig;
@@ -119,6 +153,21 @@ export abstract class Station extends Phaser.Scene {
       this.bar.fillStyle(0x1f2328, 0.85).fillRect(m.x, m.y, m.width, m.height);
       this.bar.fillStyle(0x2e7d4f, 1).fillRect(m.x + 1, m.y + 1, (m.width - 2) * frac, m.height - 2);
     }
+  }
+
+  // Your coworker's speech bubble: what they said, for a few game minutes. Kept on the stage (and at the counter, on
+  // their side: clear of the conversation box).
+  private crewBubble(): void {
+    const s = state();
+    const said = s.coworker?.said;
+    const bubble = this.speech;
+    const show = !!said && this.crew!.visible && s.time - said.at <= CREW_BUBBLE_MINUTES;
+    bubble.setVisible(show);
+    if (!show) return;
+    if (bubble.text !== said!.text) bubble.setText(said!.text);
+    const right = this.tab === "counter" ? CREW_ZONE.x + CREW_ZONE.w - 2 : STAGE_W - 2;
+    const half = bubble.width / 2;
+    bubble.setPosition(Math.max(2 + half, Math.min(this.crew!.x, right - half)), Math.max(bubble.height + 2, this.crew!.y - 126));
   }
 
   // What the interaction was built for; when it changes, it's built again.

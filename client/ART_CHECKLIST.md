@@ -27,6 +27,7 @@ Layers, back to front: background, props, interactive, held, ui.
 | [ ] | `counter/copier` | Self-serve copier | `src/assets/art/counter/copier.png` | 80x100 | 0.5, 0.5 | 1 | interactive | machine | Self-serve copier at the side of the floor |
 | [ ] | `counter/copier_broken` | Self-serve copier (broken) | `src/assets/art/counter/copier_broken.png` | 80x100 | 0.5, 0.5 | 1 | interactive | machine | Self-serve copier, broken (blinking error) |
 | [ ] | `counter/sign` | Out of order sign | `src/assets/art/counter/sign.png` | 40x30 | 0.5, 0.5 | 1 | props | tool | Out of order sign taped on the copier |
+| [ ] | `counter/crew_register` | Coworker's register | `src/assets/art/counter/crew_register.png` | 56x40 | 0.5, 0.5 | 1 | props | machine | The second register, your coworker's |
 
 ## customer
 
@@ -148,6 +149,12 @@ Layers, back to front: background, props, interactive, held, ui.
 |---|---|---|---|---|---|---|---|---|---|
 | [ ] | `fx/sparkle` | Sparkle | `src/assets/art/fx/sparkle.png` | 16x16 | 0.5, 0.5 | pop: 4 @ 12 fps | ui | status | Sparkle when a step is done |
 | [ ] | `fx/check` | Done | `src/assets/art/fx/check.png` | 18x18 | 0.5, 0.5 | 1 | ui | status | Check mark when a step is done |
+
+## crew
+
+| Done | Key | Name | File | Size | Anchor | Frames | Layer | Category | What it is |
+|---|---|---|---|---|---|---|---|---|---|
+| [ ] | `crew/body` | Coworker | `src/assets/art/crew/body.png` | 60x104 | 0.5, 1 | idle: 2 @ 2 fps; walk: 4 @ 8 fps | props | person | Your coworker (seen from behind the counter, or at a station). Idle: a slow breathing loop |
 
 ## Sounds
 

@@ -594,6 +594,26 @@
           "say": "Find the bag with their name"
         }
       ]
+    },
+    "help_coworker": {
+      "station": "counter",
+      "held": null,
+      "pose": "talk",
+      "duration": 2,
+      "thought": "Fine.",
+      "doing": "helping your coworker",
+      "block": "tap",
+      "hint": "Help them"
+    },
+    "fix_mistake": {
+      "station": "computer",
+      "held": null,
+      "pose": "type",
+      "duration": 3,
+      "thought": "Of course.",
+      "doing": "fixing your coworker's mistake",
+      "block": "tap",
+      "hint": "Fix it"
     }
   },
   "notes": {
@@ -764,6 +784,18 @@
       "label": "Show them out",
       "steps": [
         "usher_out"
+      ]
+    },
+    "help_coworker": {
+      "label": "Helping a coworker",
+      "steps": [
+        "help_coworker"
+      ]
+    },
+    "fix_mistake": {
+      "label": "Fixing a coworker's mistake",
+      "steps": [
+        "fix_mistake"
       ]
     }
   }

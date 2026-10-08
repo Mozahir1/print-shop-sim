@@ -1,7 +1,7 @@
 // Choices, customer mood, and patience. Your attitude isn't graded: customers feel what happens to them.
 import { emit } from "./bus";
 import type { Choice, ChoiceType, CounterAction, Customer, CustomerOutcome, GameState, Mood, PatienceStage, RequestKind } from "./types";
-import { BUSY_PATIENCE, BUSY_PATIENCE_BUSINESS, GIVE_UP, MOOD, PATIENCE_RAMP, PATIENCE_STAGES } from "./config";
+import { BUSY_PATIENCE, BUSY_PATIENCE_BUSINESS, GIVE_UP, MOOD, PATIENCE_RAMP, PATIENCE_STAGES, TRAITS } from "./config";
 import { isOverdue, jobById, log } from "./util";
 import { recordFailure } from "./failures";
 import { lostBusiness, onLeave } from "./consequences";
@@ -25,7 +25,7 @@ export function stageFor(c: Customer): PatienceStage {
 export function resetPatience(state: GameState, c: Customer): void {
   c.waited = 0;
   c.stage = "fine";
-  c.giveUp = giveUpFor(c.kind, state.day);
+  c.giveUp = giveUpFor(c.kind, state.day) * (c.trait ? TRAITS.patience[c.trait] : 1); // (a frantic one stays frantic)
 }
 
 export function choiceType(action: CounterAction): ChoiceType {
@@ -46,7 +46,7 @@ export function runPatience(state: GameState, dt: number): void {
   const busy = state.workflow !== null || state.employee.task !== null;
   for (const c of state.customers) {
     if (c.state !== "line" && c.state !== "talking" && c.state !== "waiting") continue;
-    if (helping === c.id || c.lingering) continue; // a lingerer isn't going anywhere
+    if (helping === c.id || c.lingering || c.crew) continue; // a lingerer isn't going anywhere (and your coworker's helping theirs)
     const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
     if (c.state === "waiting" && job && job.status !== "bagged" && !isOverdue(state, job)) continue; // it isn't due yet
     wear(state, c, busy ? dt * (c.kind === "business" ? BUSY_PATIENCE_BUSINESS : BUSY_PATIENCE) : dt); // they can see you're busy

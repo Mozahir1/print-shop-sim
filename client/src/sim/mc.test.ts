@@ -103,7 +103,7 @@ describe("endings", () => {
   }
 
   it("turning everyone away: the lost sales ending", () => {
-    const e = firedEnding("turn_away", 1001);
+    const e = firedEnding("turn_away", 4001);
     expect(e.cause).toBe("lost_sales");
     expect(e.text).toBe(pickLine(POOLS.endings, "ending", { cause: "lost_sales" }).text);
     expect(e.message).toBe("We're going to have to let you go. Reason: We turned away work we could have done. That's lost sales. Please return your badge and apron.");

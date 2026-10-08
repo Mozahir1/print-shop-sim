@@ -101,7 +101,7 @@ export interface Choice {
   time: number;
   type: ChoiceType;
   action?: CounterAction; // at the counter: which kind of Do (or Don't)
-  what: "counter" | "smudge" | "copier" | "pack" | "finish" | "inbox" | "truck" | "event" | "work"; // work: walked away from a workflow
+  what: "counter" | "smudge" | "copier" | "pack" | "finish" | "inbox" | "truck" | "event" | "work" | "coworker"; // work: walked away from a workflow; coworker: what they asked you
   customerId?: number;
   auto?: boolean; // you didn't answer in time: counts as ignoring them
 }
@@ -118,6 +118,8 @@ export interface Customer {
   name: string;
   kind: RequestKind;
   state: CustomerState;
+  crew?: boolean; // the coworker on shift is helping them (start to finish), not you
+  trait?: Trait | null; // a light personality tag (frantic, confused, cheapskate, chatty), or none
   spec: JobSpec | null; // print requests: what they want
   timing: Timing; // print requests: when they want it
   needBy: number | null; // the latest it's any use to them today (null: tomorrow is fine)
@@ -185,6 +187,111 @@ export interface MachineState {
   total: number; // ...out of
 }
 
+// ---------- coworkers ----------
+
+export type Trait = "frantic" | "confused" | "cheapskate" | "chatty";
+
+// What happens when you answer a coworker's request (Do, Don't, or Ignore). All data (coworkers.json).
+export interface RequestOutcome {
+  minutes?: number; // your time (Do: helping takes a few minutes)
+  relationship?: number;
+  revenueCents?: number; // an upsell
+  mood?: number; // on the customer it was about
+  flub?: boolean; // they do it themselves, wrong: a fix shows up for you later
+  louder?: boolean; // they keep going, louder
+  reply?: string; // what they say back (a line moment)
+}
+
+export interface RequestDef {
+  id: string;
+  do: string; // the Do button's label
+  dont: string;
+  outcomes: Record<"do" | "dont" | "ignore", RequestOutcome>;
+}
+
+export interface CrewLine {
+  moment: string;
+  text: string;
+  about?: string;
+}
+
+// A coworker asks you something. You can answer from anywhere (or not: it goes away on its own as an Ignore).
+export interface CrewRequest {
+  id: number;
+  from: string; // coworker id
+  kind: string; // a RequestDef id
+  text: string;
+  do: string;
+  dont: string;
+  at: number;
+  until: number;
+  customerId?: number;
+}
+
+// Something your coworker got wrong that's now yours to fix (or leave).
+export interface CrewMistake {
+  id: number;
+  by: string; // their name
+  text: string;
+  jobId?: number;
+  fixed: boolean;
+}
+
+// A coworker, from src/data/coworkers.json.
+export interface CoworkerDef {
+  id: string;
+  name: string;
+  about: string;
+  lore: string; // who they are (Brody: the owner's son, which is why he never gets in trouble)
+  capacity: number; // extra customers the day brings in for them, as a share of yours (0.5: half as many again)
+  speed: Record<Station, number>; // time multipliers on each step's usual time, by station (1.5: half again as long)
+  breaks: { count: number; minutes: number };
+  // How often things happen: per hour (chat, requests, chatUp), per day (missing, reorganize), per chance (upsell,
+  // doubleCheck, fixJam), and minutes they stand around between tasks (dawdle).
+  rates: { chat: number; requests: number; dawdle: number; missing: number; upsell: number; doubleCheck: number; reorganize: number; fixJam: number; chatUp: number };
+  hooks: string[];
+  opening: string; // what they say when the day starts
+  rating: string; // the report's word on them (corporate tone)
+  requests: RequestDef[];
+  lines: CrewLine[];
+  story?: string[]; // a story told a part at a time, across days
+}
+
+// What the coworker's doing: a run of the usual steps for one customer or job, at one station.
+export interface CoworkerTask {
+  kind: "serve" | "pickup" | "ship" | "dropoff" | "package" | "enter" | "collect" | "finish" | "fix_jam";
+  what: string; // "Collecting order #12"
+  station: Station;
+  customerId?: number;
+  jobId?: number;
+  until: number;
+  total: number; // minutes, all told
+}
+
+export interface CoworkerState {
+  id: string;
+  name: string;
+  at: Station | "break" | "missing" | "gone"; // gone: their shift's over
+  task: CoworkerTask | null;
+  breaks: number[]; // when their breaks start (still to come)
+  breakUntil: number;
+  said: { text: string; at: number } | null; // the last thing they said (a speech bubble)
+  nextChatAt: number;
+  nextRequestAt: number;
+  idleUntil: number; // standing around between tasks
+  missingAt: number | null; // when they wander off (and until)
+  missingUntil: number;
+  reorganizeAt: number | null;
+  louderUntil: number; // ignored mid-story: they keep going, louder
+  nextChatUpAt: number; // chatting up the customers in your line
+  storyToday: number; // story parts told today
+  relationship: number; // hidden; from the game, written back at the end of the day
+  story: number; // how far into their story (from the game)
+  checked: number[]; // orders they've double-checked
+  spoke: Record<string, number>; // lines said today, by moment (they go through them in turn: no repeats till they run out)
+  stats: { served: number; ordersTaken: number; jobsDone: number; revenueCents: number; minutesWorked: number };
+}
+
 export interface Truck {
   arrivesAt: number; // when it comes (once it's here: when it came)
   leavesAt: number; // set when it arrives; the driver waits longer while you're busy with a customer
@@ -219,6 +326,7 @@ export type EventKind = "printer_jam" | "copier_dies" | "card_reader_down" | "bo
 // fixed / worked_around: handled. ignored: left alone until it ran its course (or the day ended).
 export interface BadLuck {
   kind: EventKind;
+  by?: string; // a coworker did it (their mishap is the day's bad luck)
   at: number; // earliest time it can happen
   status: "pending" | "active" | "fixed" | "worked_around" | "ignored";
   firedAt: number | null;
@@ -296,7 +404,8 @@ export type FailureKind =
   | "wrong_order"
   | "wrong_bag"
   | "drawer_off"
-  | "wrong_label";
+  | "wrong_label"
+  | "crew_mistake";
 
 export interface Failure {
   time: number;
@@ -339,7 +448,9 @@ export type WorkflowKind =
   | "hand_off"
   | "inbox"
   | "bin"
-  | "usher_out";
+  | "usher_out"
+  | "help_coworker"
+  | "fix_mistake";
 
 // A multi-step job you're in the middle of. While it's on, nothing unrelated can start (see workflow.ts).
 export interface Workflow {
@@ -348,6 +459,7 @@ export interface Workflow {
   jobId?: number;
   packageId?: number;
   messageId?: number;
+  mistakeId?: number;
   done: TaskType[]; // steps finished in this workflow (most steps also show as done from the state of things)
   fixFirst?: boolean; // self-serve help: you chose to fix the copier first
   startedAt: number;
@@ -402,7 +514,10 @@ export type TaskType =
   | "scan_dropoff"
   | "find_package"
   | "hand_off"
-  | "let_truck_go";
+  | "let_truck_go"
+  // coworkers
+  | "help_coworker" // Do, on what they asked you
+  | "fix_mistake"; // something they got wrong
 
 export type Station = "counter" | "computer" | "printer" | "finishing" | "self_serve" | "shipping" | "shelf";
 
@@ -412,6 +527,7 @@ export interface TaskRequest {
   jobId?: number;
   packageId?: number;
   messageId?: number;
+  mistakeId?: number; // fix_mistake: which one
   choice?: CounterAction; // respond
   entry?: OrderEntry; // enter_order: the form as you filled it in (left out: exactly what they asked for)
   shipLabel?: ShippingLabel; // label: the label form as you filled it in (left out: right)
@@ -491,6 +607,12 @@ export interface GameState {
   choices: Choice[];
   failures: Failure[];
   workflow: Workflow | null;
+  coworker: CoworkerState | null; // who's on shift with you today (see coworker.ts)
+  request: CrewRequest | null; // what they're asking you, if anything
+  mistakes: CrewMistake[]; // theirs, for you to fix
+  shelfOrder: number; // nonzero: someone re-sorted the pickup shelf (the bags aren't where you'd expect)
+  thoughts: { time: number; trigger: string; text: string }[]; // the MC's thought bubbles
+  schedule: string[]; // who's on today and the next two days (ids)
   machines: Record<"cards" | "wide", MachineState>; // the card machine and the wide-format printer (the production printer is printer)
   setAside: Workflow | null; // the job you put down for a quick chore (the truck, a jam, ...): you go back to it after
   wentHome: WentHome | null; // set when you go home: the day is over

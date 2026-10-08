@@ -2,7 +2,7 @@
 // and the truck, rarely more than two or three things at once. Every roll comes from its own stream.
 import { emit } from "./bus";
 import type { Customer, GameState } from "./types";
-import { BUSINESS, DIRECTOR, MOOD, REACTIONS, SHIPPING, WORK_COST, type Arrival } from "./config";
+import { BUSINESS, CREW, DIRECTOR, MOOD, REACTIONS, SHIPPING, WORK_COST, type Arrival } from "./config";
 import { keyedRoll, randInt } from "./rng";
 import { deliverPackages, isPrintKind, onTheShelf, placeWebOrder, returnCustomer, spawnCustomer, weighted } from "./customers";
 import { activeCount, isActive } from "./todo";
@@ -10,6 +10,7 @@ import { selfServeBlocker } from "./orders";
 import { leave } from "./mood";
 import { startSelfServe } from "./sim";
 import { jobById, log } from "./util";
+import { crewTakesNew } from "./coworker";
 import type { Sim } from "./sim";
 
 export interface DirectorState {
@@ -19,13 +20,19 @@ export interface DirectorState {
   budget: number; // minutes of work today brings in...
   spent: number; // ...and how much of it has come in so far
   businessAt: number[]; // when today's business clients show up (on their own schedule, whatever you're doing)
+  perDay: [number, number]; // new customers today (DIRECTOR.perDay, more with a coworker)
+  crewShare: number; // the share of new customers that are your coworker's
 }
 
-export function createDirector(rng: () => number, business: () => number, dayLength: number): DirectorState {
+// With a coworker on, the day brings in more (their capacity: 0.5 is half as many again), and that extra share goes
+// to them, so your own load is what it always is.
+export function createDirector(rng: () => number, business: () => number, dayLength: number, crewCapacity = 0): DirectorState {
   const count = Number(weighted(business(), BUSINESS.perDay as Record<string, number>));
   const [lo, hi] = BUSINESS.window;
   const businessAt = Array.from({ length: count }, () => Math.round(dayLength * (lo + business() * (hi - lo)))).sort((a, b) => a - b);
-  return { enabled: true, nextAt: randInt(rng, ...DIRECTOR.firstArrival), arrivals: 0, budget: randInt(rng, ...DIRECTOR.workBudget), spent: 0, businessAt };
+  const more = 1 + crewCapacity;
+  const perDay: [number, number] = [Math.round(DIRECTOR.perDay[0] * more), Math.round(DIRECTOR.perDay[1] * more)];
+  return { enabled: true, nextAt: randInt(rng, ...DIRECTOR.firstArrival), arrivals: 0, budget: Math.round(randInt(rng, ...DIRECTOR.workBudget) * more), spent: 0, businessAt, perDay, crewShare: crewCapacity / more };
 }
 
 // The average work a walk-in brings, from the mix.
@@ -42,14 +49,14 @@ export function refundArrival(state: GameState, c: Customer): void {
 
 // Whether today's customers are all in: the most there can be, or the work budget's spent and there are enough.
 function dayIsFull(d: DirectorState): boolean {
-  const [min, max] = DIRECTOR.perDay;
+  const [min, max] = d.perDay;
   return d.arrivals + d.businessAt.length >= max || (d.spent >= d.budget && d.arrivals + d.businessAt.length >= min);
 }
 
 // Spreads the rest of the day's customers evenly over what's left of it (give or take).
 function nextGap(state: GameState, rng: () => number): number {
   const d = state.director;
-  const [min, max] = DIRECTOR.perDay;
+  const [min, max] = d.perDay;
   const left = Math.min(max, Math.max(min, d.arrivals + Math.ceil(Math.max(0, d.budget - d.spent) / MEAN_COST))) - d.arrivals - d.businessAt.length;
   const span = state.closeAt - DIRECTOR.truckHold - state.time;
   const [lo, hi] = DIRECTOR.jitter;
@@ -100,20 +107,24 @@ export function runDirector(sim: Sim): void {
   }
   // People coming back for an order come at the time they said, whatever today's count. Someone back for an order
   // that isn't done yet doesn't add to the load (the order already counts), so they come in even when you're busy.
-  const back = readyToReturn(state).find((c) => state.time >= jobById(state, c.jobId!)!.pickupAt && (active < DIRECTOR.ceiling || isActive(state, c)));
+  const back = readyToReturn(state).find((c) => state.time >= jobById(state, c.jobId!)!.pickupAt && (active < DIRECTOR.ceiling || isActive(state, c) || c.crew));
   if (back) {
     returnCustomer(state, back);
     log(state, `${back.name} came back for their order.`);
     return;
   }
-  if (state.time < d.nextAt || active >= DIRECTOR.ceiling || truckDue) return;
-  const visit = state.manager.visitsDue.shift(); // people coming back to complain go first (they aren't new customers)
+  if (state.time < d.nextAt || truckDue) return;
+  // Your coworker's next customer, or yours? (A keyed roll per arrival. Theirs come when they have room; yours when you
+  // do. Theirs never turn into yours: your load is what it'd be on your own.)
+  const toCrew = d.crewShare > 0 && keyedRoll(state.seed, "crew", d.arrivals) < d.crewShare;
+  if (toCrew ? !crewTakesNew(state) : active >= DIRECTOR.ceiling) return;
+  const visit = toCrew ? undefined : state.manager.visitsDue.shift(); // people coming back to complain go first (they aren't new customers)
   if (visit) {
     const c = spawnCustomer(state, rng.director, "complaint", { name: visit.name, about: visit.about });
     log(state, `${c.name} came back, unhappy.`);
   } else if (!dayIsFull(d)) {
-    const what = pickArrival(sim);
-    if (arrive(sim, what)) {
+    const what = pickArrival(sim, toCrew);
+    if (arrive(sim, what, toCrew)) {
       d.arrivals++;
       d.spent += WORK_COST[what];
     }
@@ -121,7 +132,7 @@ export function runDirector(sim: Sim): void {
   d.nextAt = state.time + nextGap(state, rng.director);
 }
 
-function pickArrival(sim: Sim): Arrival {
+function pickArrival(sim: Sim, crew: boolean): Arrival {
   const { state, rng } = sim;
   const ramp = Math.min(DIRECTOR.multiStepMax, DIRECTOR.multiStepPerDay * (state.day - 1));
   const weights = { ...DIRECTOR.mix };
@@ -130,6 +141,7 @@ function pickArrival(sim: Sim): Arrival {
   weights.order_pickup = 0; // they come back on their own (runDirector)
   weights.package_pickup *= Math.min(onTheShelf(state).length, 3) / 2; // only for what's on the shelf
   if (state.printer.status === "printing") for (const k of DIRECTOR.quick) weights[k] *= DIRECTOR.interleave;
+  if (crew) for (const k of Object.keys(weights) as Arrival[]) if (!CREW.kinds.includes(k)) weights[k] = 0; // (what they take)
   const entries = Object.entries(weights) as [Arrival, number][];
   let r = rng.director() * entries.reduce((a, [, w]) => a + w, 0);
   for (const [k, w] of entries) {
@@ -140,8 +152,14 @@ function pickArrival(sim: Sim): Arrival {
 }
 
 // Brings them in. Returns whether they count toward the day's customers.
-function arrive(sim: Sim, what: Arrival): boolean {
+function arrive(sim: Sim, what: Arrival, crew: boolean): boolean {
   const { state, rng } = sim;
+  if (crew) {
+    const c = spawnCustomer(state, rng.director, what as Exclude<Arrival, "order_pickup" | "web_order">);
+    c.crew = true;
+    log(state, `${c.name} came in (${state.coworker!.name} is helping them).`);
+    return true;
+  }
   if (what === "web_order") {
     const job = placeWebOrder(state, rng.director);
     log(state, `Web order #${job.id} came in.`);

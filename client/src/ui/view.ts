@@ -2,6 +2,7 @@
 // main.ts decides when to call them and wires up the buttons. Buttons carry a task request as JSON in data-req; main.ts starts it.
 import type { CounterAction, Customer, GameState, OrderEntry, ShipService, Station, TaskRequest, TaskType } from "../sim/types";
 import { MACHINE_LABEL, SERVICE_LABEL, machineFor } from "../sim/orders";
+import { coworkerDef } from "../sim/schedule";
 import { canStart, currentCustomer, previewTask, sceneOf, STATION, workLeft } from "../sim/sim";
 import { availableTasks, DONT, IGNORE } from "../sim/todo";
 import { currentStep, isChoice, STEP } from "../sim/workflow";
@@ -145,7 +146,7 @@ export function atCounter(state: GameState): Customer | undefined {
 // Everyone in line who isn't at the counter.
 export function inLine(state: GameState): Customer[] {
   const at = atCounter(state);
-  return state.customers.filter((c) => c.state === "line" && c.id !== at?.id);
+  return state.customers.filter((c) => c.state === "line" && !c.crew && c.id !== at?.id); // (your coworker's line is theirs)
 }
 
 // The dialogue box: what they say, one line at a time (shown says how many lines are out so far), and your answers.
@@ -159,7 +160,7 @@ export function dialogueHtml(state: GameState, shown: number, confirming: string
     if (front.said && !lines.includes(front.said) && shown >= lines.length) out.push(front.said); // how they took your answer
     const more = shown < lines.length;
     const cols = out.length > 4 ? " cols" : ""; // (a long request reads in two columns, so the answers fit under it)
-    html += `<div class="textbox${cols}" data-act="nextLine"><div class="who">${esc(front.name)}</div>${out.map((l, i) => `<p class="${i === out.length - 1 ? "" : "muted"}">${esc(l)}</p>`).join("")}${more ? `<span class="more">▸ tap</span>` : ""}</div>`;
+    html += `<div class="textbox${cols}" data-act="nextLine"><div class="who">${esc(front.name)}${front.trait ? `<span class="trait">${front.trait}</span>` : ""}${front.stage === "annoyed" || front.stage === "angry" ? ` <span class="mood ${front.stage}">(${front.stage === "annoyed" ? "getting annoyed" : "angry"})</span>` : ""}</div>${out.map((l, i) => `<p class="${i === out.length - 1 ? "" : "muted"}">${esc(l)}</p>`).join("")}${more ? `<span class="more">▸ tap</span>` : ""}</div>`;
     if (!more && step?.type === "respond" && !state.employee.task) {
       html += quoteLine(state, front) + answers(state, front, confirming);
       html += `<p class="small muted">Waiting for your answer (${formatDuration(Math.max(0, (front.answerBy ?? state.time) - state.time))}).</p>`;
@@ -297,10 +298,37 @@ export function startScreen(saved: Game | null, name: string): string {
     <div class="btns">${cont}<button class="btn ${cont ? "" : "primary"}" data-act="newGame">New game</button></div>`;
 }
 
+// The day starts: who you're working with, and what they say first.
+export function dayStartScreen(state: GameState): string {
+  const cw = state.coworker!;
+  const def = coworkerDef(cw.id);
+  return `<h1>Day ${state.day}</h1>
+    <p>Today you're working with <b>${esc(cw.name)}</b>.</p>
+    <blockquote class="said"><p>${esc(def.opening)}</p></blockquote>
+    <p class="muted small">${esc(cw.name)} takes some of the customers. You share the printer and the finishing table: while one of you is at it, the other waits.</p>
+    <div class="btns"><button class="btn primary" data-act="startShift">Start the day</button></div>`;
+}
+
+// Who you worked with, in the report's words.
+function crewSection(r: DayReport): string {
+  const c = r.crew;
+  if (!c) return "";
+  const support = c.asked ? `${c.helped} of ${c.asked} requests supported` : "No requests logged";
+  const fixes = c.mistakesFixed + c.mistakesLeft ? `; ${c.mistakesFixed} of ${c.mistakesFixed + c.mistakesLeft} process deviations resolved` : "";
+  return `<h2>Team collaboration</h2>
+    <dl class="report crew">
+      <dt>Shift partner</dt><dd>${esc(c.name)}: ${c.served} served, ${money(c.revenueCents)}</dd>
+      <dt>Peer support</dt><dd>${esc(support + fixes)}</dd>
+      <dt>Partner rating</dt><dd>${esc(c.rating)}</dd>
+    </dl>`;
+}
+
 export function reportScreen(r: DayReport, posted: string): string {
-  const failures = r.failures.length ? `<h2 style="margin-top:12px">What went wrong</h2><ul class="failures">${r.failures.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : `<p class="ok">Nothing went wrong today.</p>`;
+  const failures = r.failures.length ? `<h2>What went wrong</h2><ul class="failures">${r.failures.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : `<p class="ok">Nothing went wrong today.</p>`;
+  // (Two columns: the numbers, and what happened and who with. It fits without scrolling.)
   return `<h1>End of day ${r.day}: performance summary</h1>
     <p>${esc(r.wentHome)}</p>
+    <div class="report-cols"><div>
     <dl class="report">
       <dt>Customers served</dt><dd>${r.served}</dd>
       <dt>Customer delight rate</dt><dd>${r.happyPct}%</dd>
@@ -312,12 +340,14 @@ export function reportScreen(r: DayReport, posted: string): string {
       <dt>Revenue opportunities declined</dt><dd>${money(r.lostSalesCents)}</dd>
       <dt>Revenue</dt><dd>${money(r.revenueCents)}</dd>
       <dt>Team Spirit Index</dt><dd>${r.teamSpirit}</dd>
-    </dl>
+    </dl></div><div>
     ${failures}
+    ${crewSection(r)}
     <div class="tone">${esc(r.tone)}</div>
     <p class="muted small" id="posted">${esc(posted)}</p>
     <div id="board"></div>
-    <div class="btns"><button class="btn primary" data-act="nextDay">Start next day</button></div>`;
+    <div class="btns"><button class="btn primary" data-act="nextDay">Start next day</button></div>
+    </div></div>`;
 }
 
 export function leaderboard(rows: LeaderboardRow[]): string {

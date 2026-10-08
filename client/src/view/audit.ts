@@ -35,6 +35,16 @@ const intersects = (a: { x: number; y: number; width: number; height: number }, 
 const over = (a: DOMRect, b: DOMRect, s: number) => a.left < b.right - s && b.left < a.right - s && a.top < b.bottom - s && b.top < a.bottom - s;
 const within = (a: DOMRect, b: DOMRect, s: number) => a.left >= b.left - s && a.top >= b.top - s && a.right <= b.right + s && a.bottom <= b.bottom + s;
 
+// The counter's open box (the conversation, or the register's keypad), in art pixels on the stage.
+function counterBox(): { x: number; y: number; width: number; height: number } | null {
+  const el = [...document.querySelectorAll<HTMLElement>("#modal .modal-box.dialog, #modal .modal-box.keypad")].find((e) => visible(e));
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  const st = document.getElementById("stage")!.getBoundingClientRect();
+  const u = scale();
+  return { x: (r.left - st.left) / u / ART, y: (r.top - st.top) / u / ART, width: r.width / u / ART, height: r.height / u / ART };
+}
+
 export function audit(game?: Phaser.Game): Problem[] {
   const u = scale();
   const out: Problem[] = [];
@@ -92,6 +102,10 @@ export function audit(game?: Phaser.Game): Problem[] {
           if (!pointsAtIt && intersects(words, r)) add("covered", label, `covers something to click (${Math.round(r.x)},${Math.round(r.y)})`);
         }
       }
+      // Your coworker, and who they're helping, are never under the counter's conversation (or keypad). (Screens and
+      // an unfolded note cover everything on purpose.)
+      const box = counterBox();
+      if (o.getData("crew") && o.visible && box && intersects(box, o.getBounds())) add("covered", `${scene.sys.settings.key}: coworker`, "under the conversation box");
       if (o.type === "Text") {
         const t = o as unknown as Phaser.GameObjects.Text;
         const px = parseFloat(String(t.style.fontSize)) * t.scaleY * ART;

@@ -16,7 +16,7 @@ describe("at a person's pace", () => {
   it("days 1 to 3 go fine for a sensible first-timer; by day 5 someone now and then walks out", () => {
     const early = { days: 0, withWalkout: 0, late: 0 };
     let laterWalkouts = 0;
-    for (let g = 0; g < 15; g++) {
+    for (let g = 0; g < 30; g++) {
       const game = newGame(1 + g * 1000);
       for (let day = 1; day <= 5 && !game.fired; day++) {
         const sim = startDay(game);
@@ -31,8 +31,10 @@ describe("at a person's pace", () => {
       }
       expect(game.fired, `game ${g}`).toBe(false);
     }
-    expect(early.withWalkout / early.days).toBeLessThanOrEqual(0.07); // (a rare chain of a late order and bad luck)
-    expect(early.late / early.days).toBeLessThanOrEqual(0.15);
+    // (A rare chain of a late order and bad luck. With a coworker on (v9: they share the machines, ask for help, and
+    // customers have moods of their own) it's a bit busier than it was alone, by design: still about one day in ten.)
+    expect(early.withWalkout / early.days).toBeLessThanOrEqual(0.1);
+    expect(early.late / early.days).toBeLessThanOrEqual(0.2); // (about one late order every five days)
     expect(laterWalkouts).toBeGreaterThan(0); // it isn't trivially easy
   });
 });

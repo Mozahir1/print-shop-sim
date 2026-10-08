@@ -6,15 +6,17 @@ import type { GameState, JobStatus, Package } from "../sim/types";
 import { MACHINE_LABEL, SERVICE_LABEL, machineFor } from "../sim/orders";
 import { customerById, jobById } from "../sim/util";
 import { describeSpec, needsAction } from "../sim/messages";
+import { coworkerDef } from "../sim/schedule";
 import { formatClock } from "../sim/time";
 import { esc, labelForm, orderForm, stepButtons, taskButton } from "./view";
 
-export type App = "orders" | "email" | "devices" | "shipping";
+export type App = "orders" | "email" | "devices" | "shipping" | "schedule";
 export const APPS: { id: App; label: string; icon: string }[] = [
   { id: "orders", label: "Orders", icon: '<path d="M6 3h9l3 3v15H6z"/><path d="M9 10h6M9 14h6M9 18h4"/>' },
   { id: "email", label: "Email", icon: '<rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 6l9 7 9-7"/>' },
   { id: "devices", label: "Devices", icon: '<rect x="3" y="9" width="18" height="8" rx="1"/><path d="M7 9V4h10v5M7 17v3h10v-3"/>' },
   { id: "shipping", label: "Shipping", icon: '<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>' },
+  { id: "schedule", label: "Schedule", icon: '<rect x="3" y="5" width="18" height="16" rx="1"/><path d="M3 10h18M8 3v4M16 3v4"/>' },
 ];
 
 export const STATUS: Record<JobStatus, string> = {
@@ -34,10 +36,11 @@ export const STATUS: Record<JobStatus, string> = {
 // What needs you in each app: orders to enter or send, unread email, machines that are down, packages to deal with.
 export function badges(s: GameState): Record<App, number> {
   return {
-    orders: s.jobs.filter((j) => j.status === "new" || j.status === "entered").length,
+    orders: s.jobs.filter((j) => (j.status === "new" || j.status === "entered") && !customerById(s, j.customerId)?.crew).length + s.mistakes.filter((m) => !m.fixed).length,
     email: s.messages.filter((m) => !m.read && !m.snoozed).length,
     devices: problems(s).length,
     shipping: s.packages.filter((p) => p.status === "labeled" || p.status === "scanned").length + (s.truck.status === "waiting" ? 1 : 0),
+    schedule: 0,
   };
 }
 
@@ -59,11 +62,13 @@ export function stepBar(s: GameState): string {
 
 export function ordersApp(s: GameState, formFor: number | null): string {
   if (formFor !== null) return orderForm(s, formFor);
-  const jobs = s.jobs.filter((j) => j.status !== "canceled" && j.status !== "unread");
+  // Your coworker's mistakes: yours to fix now (or leave).
+  const fixes = s.mistakes.filter((m) => !m.fixed).map((m) => `<div class="order st-new"><div class="what"><b>${esc(m.text)}</b></div>${taskButton(s, { type: "fix_mistake", mistakeId: m.id }, { label: "Fix it", primary: true })}</div>`).join("");
+  const jobs = s.jobs.filter((j) => j.status !== "canceled" && j.status !== "unread" && !customerById(s, j.customerId)?.crew); // (your coworker's are theirs)
   // Open orders, soonest due first (as many as fit); the picked-up ones in a line.
   const open = jobs.filter((j) => j.status !== "picked_up").sort((a, b) => a.dueDay - b.dueDay || a.dueAt - b.dueAt);
   const done = jobs.filter((j) => j.status === "picked_up");
-  if (!jobs.length) return `<h1>Orders</h1><p class="muted">No orders yet today.</p>`;
+  if (!jobs.length && !fixes) return `<h1>Orders</h1><p class="muted">No orders yet today.</p>`;
   const row = (j: (typeof jobs)[number]) => {
     const who = customerById(s, j.customerId)?.name ?? "";
     const due = j.dueDay > s.day ? `tomorrow ${formatClock(j.dueAt)}` : formatClock(j.dueAt);
@@ -73,7 +78,7 @@ export function ordersApp(s: GameState, formFor: number | null): string {
   };
   const shown = open.slice(0, 5);
   const more = open.length - shown.length;
-  return `<h1>Orders</h1><div class="list">${shown.map(row).join("") || `<p class="muted">Nothing open.</p>`}</div>
+  return `<h1>Orders</h1><div class="list">${fixes}${shown.map(row).join("") || (fixes ? "" : `<p class="muted">Nothing open.</p>`)}</div>
     <p class="small muted">${more ? `+${more} more open (see the notes). ` : ""}${done.length ? `Picked up today: ${done.map((j) => `#${j.id}`).join(", ")}. ` : ""}Tap an order for everything about it.</p>`;
 }
 
@@ -172,4 +177,20 @@ export function shippingApp(s: GameState, labelFor: number | null): string {
       ? `<div class="list">${out.map((p) => `<div class="pkg"><b>#${p.id} ${esc(customerById(s, p.customerId)?.name ?? "")}</b><span>${p.kind === "dropoff" ? "Drop-off" : `${p.weightLb} lb, ${p.service ? SERVICE_LABEL[p.service] : ""}`}</span><span class="status">${PKG[p.status]}</span></div>`).join("")}</div>`
       : `<p class="muted">Nothing going out yet.</p>`
   }<p class="small muted">${shelf ? `On the pickup shelf: ${shelf} package${shelf === 1 ? "" : "s"} waiting for whoever they're for. ` : ""}Labels are printed at Shipping, once the box is weighed.</p>`;
+}
+
+// ---------- Schedule ----------
+
+// Who's on with you: today and the next two days. (You don't get a say.)
+export function scheduleApp(s: GameState): string {
+  if (!s.schedule.length) return `<h1>Schedule</h1><p class="muted">Just you.</p>`;
+  const when = (i: number) => (i === 0 ? `Today (day ${s.day})` : i === 1 ? `Tomorrow (day ${s.day + 1})` : `Day ${s.day + i}`);
+  const cw = s.coworker;
+  return `<h1>Schedule</h1><div class="list">${s.schedule
+    .map((id, i) => {
+      const def = coworkerDef(id);
+      const now = i === 0 && cw ? ` <span class="status">${cw.task ? esc(cw.task.what) : cw.at === "break" ? "On break" : cw.at === "gone" ? "Gone home" : "Here"}</span>` : "";
+      return `<div class="device${i === 0 ? " today" : ""}"><b>${when(i)}: you and ${esc(def.name)}</b><span>9 AM to 5 PM</span>${now}</div>`;
+    })
+    .join("")}</div><p class="small muted">Posted by the manager. Questions about the schedule can be directed to the manager.</p>`;
 }

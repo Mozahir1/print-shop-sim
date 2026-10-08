@@ -5,7 +5,7 @@
 import { emit, SHEETS_PER_EVENT } from "./bus";
 import type { CounterAction, Customer, EventKind, Workflow, WorkflowKind, Flag, GameState, Job, MessageDraft, Package, Station, Task, TaskRequest, TaskType } from "./types";
 import { createRng, keyedRoll, randInt, type Rng } from "./rng";
-import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, EVENTS, HEAT, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, EASE_IN, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
+import { ANSWER_WITHIN, ASK_AGAIN_PATIENCE, CLOSING, EVENTS, HEAT, TRAITS, SALES, SELF_SERVE, DURATIONS, MOOD, PRINTER, REACTIONS, RESPOND_MINUTES, EASE_IN, SHIPPING, SMUDGE_CHANCE, STANDARD_LEAD, TUNING } from "./config";
 import { choiceType, leave, recordChoice, resetPatience, runPatience, wear } from "./mood";
 import { lastDueAt, machineMinutes, morningDueAt, quoteFor, type CounterQuote } from "./quote";
 import { postMessage } from "./messages";
@@ -21,6 +21,9 @@ import { customerById, isOverdue, jobById, log, money, packageById } from "./uti
 import { createDirector, refundArrival, runDirector } from "./director";
 import { activeCount } from "./todo";
 import { pickLine, POOLS } from "./lines";
+import { createCoworker, crewGoesHome, crewJob, inUse, isCrew, mistakesAtClose, onYourOrder, resolveRequest, runCoworker, theirs } from "./coworker";
+import { think } from "./thoughts";
+import { coworkerDef } from "./schedule";
 import { customerSay, mcSay, type Reaction } from "./mc";
 
 // Separate random streams, so adding a system never changes what the others roll.
@@ -31,6 +34,7 @@ export interface SimRng {
   events: Rng; // the day's bad luck
   business: Rng; // when business clients come in
   shelf: Rng; // who the packages on the pickup shelf are for
+  crew: Rng; // the coworker (their breaks)
 }
 
 export interface Sim {
@@ -48,7 +52,13 @@ export interface DayOptions {
   heat?: number;
   flags?: Flag[];
   morning?: MessageDraft[]; // messages that arrive first thing
+  coworker?: string; // who's on shift with you (an id from coworkers.json; none: you're alone)
+  schedule?: string[]; // who's on today and the next two days (the Schedule app)
+  crewRelationship?: number; // how things stand with today's coworker (hidden; see game.ts)
+  crewStory?: number; // how far into their story
 }
+
+const MISHAPS: EventKind[] = ["copier_dies", "card_reader_down", "wifi_drop"];
 
 export function createSim(seed: number, opts: DayOptions = {}): Sim {
   const rng: SimRng = {
@@ -58,6 +68,7 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     events: createRng(seed ^ 0x61c88647),
     business: createRng(seed ^ 0x2545f491),
     shelf: createRng(seed ^ 0x5bd1e995),
+    crew: createRng(seed ^ 0x68e31da4),
   };
   const dayLength = TUNING.dayLength;
   const day = opts.day ?? 1;
@@ -90,12 +101,18 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
     choices: [],
     failures: [],
     workflow: null,
+    coworker: opts.coworker ? createCoworker(opts.coworker, dayLength, rng.crew, { relationship: opts.crewRelationship, story: opts.crewStory }) : null,
+    request: null,
+    mistakes: [],
+    shelfOrder: 0,
+    thoughts: [],
+    schedule: opts.schedule ?? (opts.coworker ? [opts.coworker] : []),
     machines: { cards: { queue: [], currentJobId: null, left: 0, total: 0 }, wide: { queue: [], currentJobId: null, left: 0, total: 0 } },
     setAside: null,
     wentHome: null,
     captions: [],
     manager: createManager(opts.heat ?? 0, opts.flags ?? []),
-    director: createDirector(rng.director, rng.business, dayLength),
+    director: createDirector(rng.director, rng.business, dayLength, opts.coworker ? coworkerDef(opts.coworker).capacity : 0),
     employee: { task: null, busySeconds: 0 },
     log: [],
     nextId: opts.nextId ?? 1,
@@ -111,7 +128,18 @@ export function createSim(seed: number, opts: DayOptions = {}): Sim {
   const note = pickLine(POOLS.messages, "corporate_note", {}, day - 1);
   postMessage(state, { kind: "note", from: "Corporate", subject: note.subject ?? "", body: note.text, at: 0 });
   for (const d of opts.morning ?? []) deliver(state, d);
+  // A coworker who breaks things: their mishap is the day's bad luck (instead of the usual, never as well as).
+  if (state.coworker && coworkerDef(state.coworker.id).hooks.includes("mishap")) {
+    if (!state.event && day >= 2) state.event = rollEvent(rng.crew, dayLength, day, true);
+    if (state.event) {
+      state.event.by = state.coworker.id;
+      // (His are the kind that just happen: no waiting for a job to jam or a box to rip.)
+      const own = MISHAPS[Math.floor(keyedRoll(state.seed, "mishap") * MISHAPS.length)];
+      if (state.event.kind === "printer_jam" || state.event.kind === "box_rips") state.event.kind = own;
+    }
+  }
   log(state, `Day ${day}. Store open.`);
+  think(state, "day_start", { coworker: state.coworker?.id });
   return { state, rng };
 }
 
@@ -135,6 +163,7 @@ export function tick(sim: Sim, dt: number): void {
   runConsequences(state);
   runPrinter(state, dt);
   runMachines(state, dt);
+  runCoworker(state, dt);
   runSelfServe(state);
   runTruck(state, dt);
   runRestarts(state);
@@ -159,7 +188,7 @@ function closeTheStore(state: GameState): void {
   let lingerer = false;
   for (const c of state.customers) {
     if (c.state !== "line" && c.state !== "talking") continue;
-    if (state.workflow?.customerId === c.id) continue; // you're helping them
+    if (state.workflow?.customerId === c.id || c.crew) continue; // you're helping them (or your coworker is)
     if (!lingerer && keyedRoll(state.seed, "linger", c.id) < CLOSING.lingerChance) {
       lingerer = true;
       c.lingering = true;
@@ -187,12 +216,13 @@ function runOvertime(state: GameState): void {
 // What you'd be leaving behind if you went home now.
 export function workLeft(state: GameState): string[] {
   const left: string[] = [];
-  for (const c of state.customers) if (c.state === "line" || c.state === "talking" || c.state === "waiting") left.push(`${c.name} still in the store`);
+  for (const c of state.customers) if (!c.crew && (c.state === "line" || c.state === "talking" || c.state === "waiting")) left.push(`${c.name} still in the store`);
   for (const j of state.jobs) {
     const owner = customerById(state, j.customerId);
+    if (owner?.crew) continue; // (your coworker's)
     if (j.dueDay <= state.day && !["bagged", "picked_up", "canceled"].includes(j.status) && owner?.state !== "gone") left.push(`order #${j.id} not done`);
   }
-  for (const p of state.packages) if (p.status === "labeled" || p.status === "scanned") left.push(`package #${p.id} not in the bin`);
+  for (const p of state.packages) if ((p.status === "labeled" || p.status === "scanned") && !isCrew(state, p.customerId)) left.push(`package #${p.id} not in the bin`);
   if (state.event?.status === "active") left.push("today's problem not dealt with");
   return left;
 }
@@ -212,6 +242,8 @@ export function goHome(state: GameState, sentHome = false): string | null {
   const onTime = !sentHome && left.length === 0 && overtime <= CLOSING.onTimeGrace;
   state.employee.task = null;
   state.workflow = state.setAside = null;
+  crewGoesHome(state);
+  mistakesAtClose(state);
   for (const c of state.customers) if (c.state === "self_serve") finishSelfServe(state, c);
   for (const c of state.customers) if (c.state === "line" || c.state === "talking" || c.state === "waiting") showOut(state, c);
   // (Something you reset and left restarting counts as fixed.)
@@ -221,6 +253,7 @@ export function goHome(state: GameState, sentHome = false): string | null {
   closeEvents(state);
   for (const j of state.jobs) {
     const owner = customerById(state, j.customerId);
+    if (owner?.crew) continue; // (your coworker's: they'll get to it tomorrow)
     if (j.dueDay <= state.day && !j.late && !["bagged", "picked_up", "canceled"].includes(j.status) && owner?.state !== "gone") {
       onUnfinished(state, j);
       recordFailure(state, "late_order", { name: owner?.name ?? "a customer", job: j.id }, { customerId: owner?.id, jobId: j.id });
@@ -460,7 +493,7 @@ export const STATION = Object.fromEntries(Object.entries(STEP).map(([k, v]) => [
 
 // The customer at the front of the line: the one you're talking to, or would talk to next.
 export function currentCustomer(state: GameState): Customer | undefined {
-  return state.customers.filter((c) => c.state === "line" || c.state === "talking").sort((a, b) => a.lineTicket - b.lineTicket)[0];
+  return state.customers.filter((c) => !c.crew && (c.state === "line" || c.state === "talking")).sort((a, b) => a.lineTicket - b.lineTicket)[0];
 }
 
 function waitingCustomer(state: GameState, req: TaskRequest): Customer | string {
@@ -486,6 +519,11 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
   if (state.over) return "The day is over.";
   const cur = state.employee.task;
   if (cur) return lockMessage(cur.type);
+  // Your coworker's customers, orders, and packages are theirs; a shared station they're at waits for them.
+  const crew = theirs(state, req);
+  if (crew) return crew;
+  const busy = inUse(state, STATION[req.type]);
+  if (busy) return busy;
   // In the middle of a workflow, only its current step (or that step's alternatives) can start. Or a quick chore, if
   // what you're doing can be put down for one.
   if (state.workflow) {
@@ -606,6 +644,12 @@ export function canStart(state: GameState, req: TaskRequest): string | null {
       if (machineFor(job.spec) === "wide" && job.status !== "finished") return job.status === "collected" ? `Roll order #${job.id} up first.` : `Order #${job.id} isn't on the finishing table.`;
       if (job.status === "collected" && job.spec.finishing !== "none") return `Order #${job.id} needs to be ${FINISHING_LABEL[job.spec.finishing].toLowerCase()}d first.`;
       return job.status === "collected" || job.status === "finished" ? null : `Order #${job.id} isn't on the finishing table.`;
+    }
+    case "help_coworker":
+      return state.request ? null : "Nobody's asking you anything.";
+    case "fix_mistake": {
+      const m = state.mistakes.find((x) => x.id === req.mistakeId);
+      return m && !m.fixed ? null : "There's nothing to fix.";
     }
     case "usher_out": {
       const c = customerById(state, req.customerId ?? -1);
@@ -733,7 +777,8 @@ function advanceWorkflow(state: GameState, done: TaskType): void {
 // On with the workflow you're in, or done with it (and back to the job you put down for it, if there is one).
 function carryOn(state: GameState): void {
   const step = state.workflow ? currentStep(state) : null;
-  const free = !!step && (canStart(state, step.req) === null || step.alts.some((a) => canStart(state, a) === null) || (step.type === "respond" && customerById(state, step.req.customerId!)?.state === "talking"));
+  // (A shared station your coworker's at is a wait: the step's still yours.)
+  const free = !!step && (canStart(state, step.req) === null || step.alts.some((a) => canStart(state, a) === null) || (step.type === "respond" && customerById(state, step.req.customerId!)?.state === "talking") || inUse(state, step.data.station) !== null);
   if (!step || !free) {
     state.workflow = state.setAside;
     state.setAside = null;
@@ -756,7 +801,8 @@ export function taskDuration(state: GameState, req: TaskRequest): number {
   if (req.type === "respond") {
     // Writing up a print order takes a couple of minutes; saying "sure" to anything else doesn't.
     const c = customerById(state, req.customerId!);
-    return c && isPrintKind(c.kind) ? RESPOND_MINUTES[req.choice!] : 1;
+    const extra = c?.trait ? TRAITS.extraTalk[c.trait] : 0; // (a confused or chatty customer takes longer)
+    return (c && isPrintKind(c.kind) ? RESPOND_MINUTES[req.choice!] : 1) + extra;
   }
   return DURATIONS[req.type];
 }
@@ -778,6 +824,10 @@ export function taskLabel(state: GameState, req: TaskRequest): string {
       return `Show ${name} the copier`;
     case "usher_out":
       return `Show ${name} out`;
+    case "help_coworker":
+      return `Help ${state.coworker?.name ?? "your coworker"}`;
+    case "fix_mistake":
+      return state.mistakes.find((m) => m.id === req.mistakeId)?.text ?? "Fix it";
     case "make_good":
       return `File a claim for ${name}`;
     case "tape":
@@ -869,6 +919,7 @@ function runStep(state: GameState, t: Task): void {
   switch (t.type) {
     case "talk": {
       mcSay(state, "greeting");
+      if (c!.trait) think(state, "customer_trait", { trait: c!.trait });
       const theirs = c!.jobId !== null ? jobById(state, c!.jobId) : undefined;
       if (c!.kind === "order_pickup" && theirs && theirs.status !== "bagged") {
         customerSay(c!, "request", { scene: "missing_order" }, state.time); // "Where's my order?"
@@ -887,6 +938,14 @@ function runStep(state: GameState, t: Task): void {
     case "fetch_bag":
       c!.fetched = t.jobId!;
       return;
+    case "help_coworker":
+      return resolveRequest(state, "do");
+    case "fix_mistake": {
+      const m = state.mistakes.find((x) => x.id === t.mistakeId);
+      if (m) m.fixed = true;
+      log(state, `Fixed ${m?.by ?? "your coworker"}'s mistake.`);
+      return;
+    }
     case "usher_out":
       if (!["line", "talking", "waiting"].includes(c!.state)) return;
       customerSay(c!, "ushered", {}, state.time);
@@ -1166,9 +1225,17 @@ function fixedEvent(state: GameState, kind: EventKind): void {
 }
 
 // Rushes print first (in the order they were sent); everything else waits its turn.
-function queueJob(state: GameState, job: Job): void {
+export function queueJob(state: GameState, job: Job): void {
   const q = queueOf(state, job);
-  if (!job.rush) return void q.push(job.id);
+  if (!job.rush) {
+    // Your coworker lets yours go ahead of theirs when yours is due sooner (theirs never make yours late).
+    const due = (j: Job) => j.dueDay * 10000 + j.dueAt;
+    const yieldsTo = crewJob(state, job) ? -1 : q.findIndex((id) => {
+      const other = jobById(state, id);
+      return !!other && !other.rush && crewJob(state, other) && due(other) > due(job);
+    });
+    return void (yieldsTo < 0 ? q.push(job.id) : q.splice(yieldsTo, 0, job.id));
+  }
   const firstStandard = q.findIndex((id) => !jobById(state, id)?.rush);
   if (firstStandard < 0) q.push(job.id);
   else q.splice(firstStandard, 0, job.id);
@@ -1341,7 +1408,8 @@ function turnAway(state: GameState, c: Customer, q: CounterQuote): void {
 // Taking a print order: they might balk at a fee, or at when it'd be ready.
 function takeOrder(state: GameState, c: Customer, q: CounterQuote, rush: boolean): void {
   if (rush && reacts(state, c, "rush-balk") < REACTIONS.rushBalk) return balk(state, c, q, true);
-  if (!rush && q.standard!.serviceFeeCents > 0 && reacts(state, c, "fee-balk") < REACTIONS.serviceFeeBalk) return balk(state, c, q, false);
+  const feeBalk = REACTIONS.serviceFeeBalk * (c.trait === "cheapskate" ? TRAITS.feeBalk : 1);
+  if (!rush && q.standard!.serviceFeeCents > 0 && reacts(state, c, "fee-balk") < feeBalk) return balk(state, c, q, false);
   agreeOnTime(state, c, q, rush);
 }
 
@@ -1373,7 +1441,8 @@ function agreeOnTime(state: GameState, c: Customer, q: CounterQuote, rush: boole
     say(c, "accept_later");
   }
   const tomorrow = rush ? false : q.tomorrow;
-  const dueAt = tomorrow ? q.morningAt : c.timing === "back" ? Math.max(promise, c.needBy ?? promise) : promise;
+  // (Never later than the last due time: the quote was made a few minutes ago, before they finished explaining.)
+  const dueAt = tomorrow ? q.morningAt : Math.min(lastDueAt(state), c.timing === "back" ? Math.max(promise, c.needBy ?? promise) : promise);
   const job = createJob(state, c, "counter", { rush, dueDay: tomorrow ? state.day + 1 : state.day, dueAt });
   state.stats.ordersTaken++;
   if (c.kind === "business") {
@@ -1386,6 +1455,7 @@ function agreeOnTime(state: GameState, c: Customer, q: CounterQuote, rush: boole
     resetPatience(state, c); // happy to wait until it's due; past that, their patience runs out
   } else c.state = "away"; // (if it's tomorrow now, they'll pick it up tomorrow)
   log(state, `Took ${c.name}'s ${rush ? "rush " : ""}order #${job.id}, due ${tomorrow ? "tomorrow" : formatClock(dueAt)}.`);
+  onYourOrder(state, c, job); // ("Did you offer them lamination?")
 }
 
 // Everything that isn't a print order: you take it on.

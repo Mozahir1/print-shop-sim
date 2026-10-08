@@ -69,7 +69,7 @@ export const ALT_OF: Partial<Record<TaskType, TaskType>> = {
 };
 
 // Quick chores: one step, nothing to do with whoever you're helping.
-export const CHORES: ReadonlySet<TaskType> = new Set(["hand_off", "let_truck_go", "load_paper", "clear_jam", "fix_card_reader", "restart_router", "bin"]);
+export const CHORES: ReadonlySet<TaskType> = new Set(["hand_off", "let_truck_go", "load_paper", "clear_jam", "fix_card_reader", "restart_router", "bin", "help_coworker"]);
 // Jobs you can put down for one: just you and the work (a customer standing there is a different matter).
 const PUT_DOWN: ReadonlySet<WorkflowKind> = new Set(["take_order", "collect_finish", "inbox"]);
 
@@ -229,6 +229,8 @@ function requestFor(state: GameState, wf: Workflow, t: TaskType): TaskRequest {
     case "open_message":
     case "leave_unread":
       return { type: t, messageId: wf.messageId };
+    case "fix_mistake":
+      return { type: t, mistakeId: wf.mistakeId };
     default:
       return { type: t };
   }
@@ -353,5 +355,9 @@ export function workflowFor(state: GameState, req: TaskRequest): Workflow {
       return wf(req.type);
     case "usher_out":
       return wf("usher_out", { customerId: req.customerId });
+    case "help_coworker":
+      return wf("help_coworker");
+    case "fix_mistake":
+      return wf("fix_mistake", { mistakeId: req.mistakeId });
   }
 }

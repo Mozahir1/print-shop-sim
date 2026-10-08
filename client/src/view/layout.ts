@@ -39,6 +39,12 @@ export const STAGE_H = manifest.base.stageHeight; // 266 art pixels = REGION.sta
 export const ACTIONS: Rect = { x: 0, y: 232, w: 500, h: 34 };
 export const BUTTON_H = 28; // art pixels (56 on screen)
 
+// The counter, in art pixels: the left side is your coworker's register (them, and the customer they're helping);
+// your side's on the right, and that's where the conversation box docks (.modal-box.dialog in index.html: 30rem wide,
+// 1rem in from the edge), so it never covers them.
+export const CREW_ZONE: Rect = { x: 88, y: 60, w: 100, h: 206 };
+export const DIALOG_DOCK: Rect = { x: 190, y: 0, w: 310, h: 266 };
+
 // Minimum sizes on the 1280x720 screen.
 export const MIN = { body: 20, label: 16, heading: 28, target: 56 };
 

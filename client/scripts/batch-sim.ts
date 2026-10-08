@@ -42,10 +42,28 @@ interface Row {
   writeUps: number;
   served: number;
   byDay: { days: number; walkouts: number; late: number; served: number; lost: number }[]; // by day number
+  byCrew: Record<string, CrewRow>; // by who you worked with
+}
+
+// Per coworker: your load and idle time, your time spent (task minutes), their requests, and the days you got
+// written up or fired on.
+interface CrewRow {
+  days: number;
+  active: number;
+  idle: number;
+  open: number;
+  busy: number;
+  walkouts: number;
+  late: number;
+  theirServed: number;
+  asked: number;
+  helped: number;
+  mistakes: number;
+  writeUps: number;
 }
 
 async function run(style: BotStyle): Promise<Row> {
-  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, late: 0, lostSales: 0, onTime: 0, revenue: 0, bizLost: 0, badSurveys: 0, overtime: 0, walkouts: 0, warnings: 0, writeUps: 0, served: 0, byDay: [] };
+  const row: Row = { survived: [], dayCount: 0, idle: 0, open: 0, active: 0, maxActive: 0, complaints: 0, late: 0, lostSales: 0, onTime: 0, revenue: 0, bizLost: 0, badSurveys: 0, overtime: 0, walkouts: 0, warnings: 0, writeUps: 0, served: 0, byDay: [], byCrew: {} };
   for (let g = 0; g < games; g++) {
     const game = newGame(seed + g * 1000);
     while (!game.fired && game.day <= days) {
@@ -80,7 +98,21 @@ async function run(style: BotStyle): Promise<Row> {
       row.badSurveys += s.stats.badSurveys;
       row.overtime += s.wentHome?.overtime ?? 0;
       row.served += s.stats.served;
+      const k = s.coworker?.name ?? "alone";
+      const c = (row.byCrew[k] ??= { days: 0, active: 0, idle: 0, open: 0, busy: 0, walkouts: 0, late: 0, theirServed: 0, asked: 0, helped: 0, mistakes: 0, writeUps: 0 });
+      c.days++;
+      c.active += s.stats.activeSeconds;
+      c.idle += s.stats.idleSeconds;
+      c.open += s.closeAt;
+      c.busy += s.employee.busySeconds;
+      c.walkouts += s.stats.left;
+      c.late += s.stats.lateOrders;
+      c.theirServed += s.coworker?.stats.served ?? 0;
+      c.asked += s.choices.filter((x) => x.what === "coworker").length;
+      c.helped += s.choices.filter((x) => x.what === "coworker" && x.type === "do").length;
+      c.mistakes += s.mistakes.length;
       const r = endDay(game, sim);
+      if (r.outcome === "write_up" || r.outcome === "fired") c.writeUps++;
       if (r.outcome === "warning") row.warnings++;
       if (r.outcome === "write_up" || r.outcome === "fired") row.writeUps++;
       if (postUrl) {
@@ -129,6 +161,16 @@ async function main() {
         (r.served / r.dayCount).toFixed(1).padStart(10),
       ].join("  "),
     );
+  }
+  // v9: by coworker. Your load and idle time, the minutes you spent working, and how each one's days go.
+  console.log("\nby coworker: days, your avg load, idle %, your work min/day, walkouts/day, late/day, they served/day, requests/day (you helped), their mistakes/day, write-up days");
+  for (const style of styles) {
+    const r = rows.get(style)!;
+    for (const [name, c] of Object.entries(r.byCrew).sort()) {
+      console.log(
+        `${style.padEnd(13)} ${name.padEnd(6)} ${String(c.days).padStart(4)}  load ${(c.active / c.open).toFixed(2)}  idle ${((c.idle / c.open) * 100).toFixed(0).padStart(2)}%  work ${(c.busy / c.days).toFixed(0).padStart(3)} min  walkouts ${(c.walkouts / c.days).toFixed(2)}  late ${(c.late / c.days).toFixed(2)}  they served ${(c.theirServed / c.days).toFixed(1)}  requests ${(c.asked / c.days).toFixed(1)} (${(c.helped / c.days).toFixed(1)})  mistakes ${(c.mistakes / c.days).toFixed(1)}  write-ups ${c.writeUps}`,
+      );
+    }
   }
   if (human) {
     // The spec's targets: days 1 to 3 everything on time and nobody leaving; by day 5, now and then one walks out.

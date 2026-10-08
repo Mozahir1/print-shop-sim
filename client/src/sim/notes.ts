@@ -19,7 +19,7 @@ export const NOTE_FADE = 45; // game minutes a crossed-off note stays up
 
 export function notes(state: GameState): Note[] {
   const out: Note[] = [];
-  const jobs = state.jobs.filter((j) => j.status !== "unread").sort((a, b) => a.dueDay - b.dueDay || a.dueAt - b.dueAt);
+  const jobs = state.jobs.filter((j) => j.status !== "unread" && !customerById(state, j.customerId)?.crew).sort((a, b) => a.dueDay - b.dueDay || a.dueAt - b.dueAt);
   for (const j of jobs) {
     const done = j.status === "picked_up" || j.status === "canceled";
     if (done && (j.closedAt === null || state.time - j.closedAt > NOTE_FADE)) continue;

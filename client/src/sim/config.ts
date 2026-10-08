@@ -259,6 +259,40 @@ export const SALES = {
   strongDayCool: 3,
 };
 
+// Coworkers (src/data/coworkers.json, sim/coworker.ts, sim/schedule.ts). One is on shift with you each day.
+export const CREW = {
+  streak: 2, // the schedule never puts the same coworker on more than this many days in a row
+  maxActive: 3, // the coworker's own load: at most this many of their customers on the go at once
+  // What they take at the counter. (Self-serve help, complaints, and web orders are yours.)
+  kinds: ["quick_copies", "large_job", "poster", "business_cards", "large_format", "ship", "dropoff", "package_pickup"] as Arrival[],
+  breakJitter: 20, // minutes either way of an evenly spaced break
+  walk: 1, // minutes to walk over to another station
+  workingLine: 0.15, // chance they say something as they start a task
+  missing: [10, 20] as [number, number], // minutes, when someone goes missing
+  requestWait: 10, // minutes a request waits for your answer (then it's an Ignore)
+  louderFor: 45, // ignored mid-story: minutes they keep at it, louder
+  storyPerDay: 3, // story parts told a day (it goes on tomorrow)
+  chatUpMinutes: 2, // patience it costs the customer they chat up
+  relationshipNudge: 0.1, // per point: how much more (or less) they come to you
+  blameChance: 0.4, // a coworker's mistake you left unfixed: the manager blames you anyway
+  blameHeat: 3,
+};
+
+// The MC's thought bubbles (sim/thoughts.ts).
+export const THOUGHTS = {
+  cooldown: 25, // minutes between thoughts (the day-start one always shows)
+  shownFor: 12, // minutes one stays up
+};
+
+// Light customer traits (rolled per customer: most have none). Patience multiplies how long they'll wait.
+export const TRAITS = {
+  chance: 0.35,
+  weights: { frantic: 3, confused: 2, cheapskate: 2, chatty: 3 } as Record<"frantic" | "confused" | "cheapskate" | "chatty", number>,
+  patience: { frantic: 0.9, confused: 1, cheapskate: 1, chatty: 1.15 } as Record<"frantic" | "confused" | "cheapskate" | "chatty", number>,
+  extraTalk: { frantic: 0, confused: 1, cheapskate: 0, chatty: 1 } as Record<"frantic" | "confused" | "cheapskate" | "chatty", number>, // minutes on answering them
+  feeBalk: 2, // a cheapskate balks at fees this much more often
+};
+
 // The card machine prints and cuts business cards by itself; the wide-format printer is slow (and the trimming and
 // rolling after are done by hand). Both run on their own once you send them a job.
 export const MACHINES = {

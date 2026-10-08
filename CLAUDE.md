@@ -99,6 +99,39 @@ whether a first-time human can understand and do it. See `SIM_SPEC.md`.
   per machine (`machineMinutes`). Paper on the order form is now a dropdown (six choices). Bigger lost sales add
   `HEAT.lostBigSale`. Tests in `products.test.ts`; screenshots in `playtest/products/`. Dev drawer: skip-to buttons
   and N (next thing that needs you).
+- Spec v9 Phase 1 done (2026-10-08): coworkers. `data/coworkers.json` (A, B = "Brody", C; B's lore: the owner's son,
+  which is why he can't be fired; owner request), `sim/schedule.ts` (posted ahead, weight = (1 + days since)^2, never
+  3 days running; `game.crew` persisted, save version 3), `sim/coworker.ts` (agent with its own customers, flagged
+  `Customer.crew`: serves them start to finish with the usual step times x their station speed; shares the printer
+  queue (yours go first when due sooner, `queueJob`) and the printer/finishing table (`inUse`, your steps there wait,
+  they never take a station you're mid-step at); breaks; goes home after close). Director scales perDay/budget by
+  capacity and gives that share to them (`crewShare`; theirs wait for them, never become yours). Crew stuff is off
+  your to-do list, notes, load, line, patience, and go-home penalties (`theirs`, `isCrew`). UI: day-start card,
+  "Working with:" in the top bar, "In use: X, about N min" banner on stations, Schedule app. Tests in
+  `coworker.test.ts`. Human pace (smart, 30 games x 5 days) late orders/day: solo 0.21, A 0.27, B 0.21, C 0.13;
+  walkouts/day A 0.05, B 0.09, C 0.04. Screenshots in `playtest/v9-phase1/`. Next: Phase 2 (personalities, hooks).
+  Owner request (2026-10-08): the coworker is on screen. The counter has two sides: the coworker's register on the left
+  (`CREW_ZONE` in layout.ts: them, the customer they're helping walking in from the door, "N more waiting for X", or
+  where they went), and the conversation box docked bottom right over your side (`DIALOG_DOCK`, 30rem; the customer's
+  mood shows in its header since the box covers them). `crewFigure()` in station.ts puts them at the printer,
+  finishing, shipping, or shelf when they're working there (manifest spots `crew*`). layout.test.ts checks the zone
+  stays clear of the box; `audit()` reports a coworker under the counter's box.
+- Spec v9 Phases 2 to 4 done (2026-10-08): personalities in `data/coworkers.json` (rates, hooks, requests with
+  data outcomes, lines, C's story, report rating). `sim/coworker.ts`: speech (`crewSays`, lines cycle without
+  repeats via `spoke`), requests (`state.request`, `answerRequest`/`resolveRequest`; Do = `help_coworker`, a quick
+  chore; auto-Ignore after `CREW.requestWait`), relationship (persisted in `game.crew`, nudges request/hook rates),
+  hooks: A upsell (`onYourOrder`), double-check, re-sort shelf (`state.shelfOrder`), clear jams; Brody mishap = the
+  day's event (`BadLuck.by`, immediate kinds), help requests (Don't/Ignore -> `state.mistakes`, `fix_mistake` on the
+  computer; unfixed at close = failure + `CREW.blameChance`), goes missing (customers move to your line), praise memo;
+  C chat-up (wears your line), wants a response (Ignore -> louder), story across days. Pace: walking, dawdle, chatter.
+  MC thoughts: `sim/thoughts.ts` + `data/mc_thoughts.json` (cooldown `THOUGHTS`). Traits: `Customer.trait`
+  (`TRAITS`, keyed roll): patience, extra answer time, fee balk, a dialogue line, a tag in the dialogue header.
+  UI: request card + thought slot in the rail, speech bubble over the coworker (kept in `CREW_ZONE` at the counter),
+  "Working with" on row 2, Fix it rows in Orders, two-column report with "Team collaboration". Batch prints a
+  by-coworker table. Bots answer requests by style (smart helps between jobs). Human pace (60 games, days 1 to 3):
+  walkout days A 3%, Brody 6%, C 9%; your work min/day (smart bot) A 138, Brody 161 (+17%), C 154. Human-pace test
+  thresholds now 10% walkout days, 0.2 late/day (v9 adds work by design). Tests: `personality.test.ts`,
+  `coworker.test.ts`. Screenshots in `playtest/v9/`. No Playwright playtest exists yet (spec v8 Phase 5).
 - Known for later phases: phone sizes are the same layout scaled down (about 11px text on an 844x390 phone, worse in
   portrait).
 - Art: placeholders only. The owner will draw custom pixel art later from `ART_CHECKLIST.md` (2x art grid, 500x266 per

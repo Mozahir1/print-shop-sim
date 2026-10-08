@@ -1,5 +1,6 @@
 // End-of-day numbers. report() is the satirical corporate report the player sees; summarize() is what the server
 // stores (its shape is fixed: the server and SQL don't change).
+import { coworkerDef } from "./schedule";
 import type { GameState, Job } from "./types";
 import type { DayResult } from "./game";
 import { POOLS, say } from "./lines";
@@ -86,6 +87,19 @@ export interface DayReport {
   tone: string; // a line from the manager outcome; never the heat itself
   failures: string[]; // what went wrong, by name
   wentHome: string; // when you left, and how
+  crew: CrewReport | null; // who you worked with, in corporate words
+}
+
+export interface CrewReport {
+  name: string;
+  served: number;
+  ordersTaken: number;
+  revenueCents: number;
+  asked: number; // things they asked you...
+  helped: number; // ...and how many you helped with
+  mistakesFixed: number;
+  mistakesLeft: number;
+  rating: string;
 }
 
 export function report(state: GameState, result: DayResult): DayReport {
@@ -106,6 +120,24 @@ export function report(state: GameState, result: DayResult): DayReport {
     tone: say(POOLS.messages, "tone", { outcome: result.outcome }),
     failures: state.failures.map((f) => f.text),
     wentHome: wentHomeText(state),
+    crew: crewReport(state),
+  };
+}
+
+function crewReport(state: GameState): CrewReport | null {
+  const cw = state.coworker;
+  if (!cw) return null;
+  const asked = state.choices.filter((c) => c.what === "coworker");
+  return {
+    name: cw.name,
+    served: cw.stats.served,
+    ordersTaken: cw.stats.ordersTaken,
+    revenueCents: cw.stats.revenueCents,
+    asked: asked.length,
+    helped: asked.filter((c) => c.type === "do").length,
+    mistakesFixed: state.mistakes.filter((m) => m.fixed).length,
+    mistakesLeft: state.mistakes.filter((m) => !m.fixed).length,
+    rating: coworkerDef(cw.id).rating,
   };
 }
 

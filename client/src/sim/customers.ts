@@ -1,8 +1,8 @@
 // Who walks in and what they want. Every roll here comes from the rng you pass in, so the caller decides which
 // stream pays for it (the flow director's own stream during a day, a separate one for dev mode).
 import { emit } from "./bus";
-import type { Customer, FlagKind, GameState, Job, JobSpec, Package, RequestKind, ShipService, Timing } from "./types";
-import { FLAGS, LATEST_ASK, MOOD, PAYS_CASH, PICKUP_AFTER, PRINT_REQUESTS, RUSH_BUFFER, SHIPPING, TIMING } from "./config";
+import type { Customer, FlagKind, GameState, Job, JobSpec, Package, RequestKind, ShipService, Timing, Trait } from "./types";
+import { FLAGS, LATEST_ASK, TRAITS, MOOD, PAYS_CASH, PICKUP_AFTER, PRINT_REQUESTS, RUSH_BUFFER, SHIPPING, TIMING } from "./config";
 import { estimateReadyAt, lastDueAt, morningDueAt } from "./quote";
 import { keyedRoll, randInt, pick, type Rng } from "./rng";
 import { giveUpFor, resetPatience } from "./mood";
@@ -18,6 +18,13 @@ export const PRINT_KINDS: RequestKind[] = ["quick_copies", "large_job", "poster"
 
 export function isPrintKind(kind: RequestKind): kind is PrintKind {
   return PRINT_KINDS.includes(kind);
+}
+
+// A light personality tag (frantic, confused, cheapskate, chatty), or none: a keyed roll per customer, so it costs no
+// randomness from anything else.
+export function rollTrait(seed: number, id: number): Trait | null {
+  if (keyedRoll(seed, "trait", id) >= TRAITS.chance) return null;
+  return weighted<Trait>(keyedRoll(seed, "trait-kind", id), TRAITS.weights);
 }
 
 // Picks a key by weight, given a roll in [0, 1).
@@ -127,7 +134,9 @@ export function spawnCustomer(state: GameState, rng: Rng, kind: Exclude<RequestK
 }
 
 function newCustomer(state: GameState, name: string, kind: RequestKind): Customer {
+  const trait = rollTrait(state.seed, state.nextId);
   return {
+    trait,
     id: state.nextId++,
     name,
     kind,
@@ -152,7 +161,7 @@ function newCustomer(state: GameState, name: string, kind: RequestKind): Custome
     mood: MOOD.start,
     choices: 0,
     ignored: 0,
-    giveUp: giveUpFor(kind, state.day),
+    giveUp: giveUpFor(kind, state.day) * (trait ? TRAITS.patience[trait] : 1),
     waited: 0,
     stage: "fine",
     answerBy: null,

@@ -14,6 +14,8 @@ export interface SimEvents {
   copier_broken: Record<string, never>;
   truck_arrived: Record<string, never>;
   truck_left: Record<string, never>;
+  crew_said: { text: string };
+  crew_request: { text: string };
   package_binned: { packageId: number };
   bag_shelved: { jobId: number };
   payment_done: { customerId: number; cents: number };

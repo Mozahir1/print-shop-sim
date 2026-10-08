@@ -30,6 +30,7 @@ function daysUntilFired(seed: number, style: BotStyle, max = 20): number | null 
 function quietDay(game: Game) {
   const sim = startDay(game);
   sim.state.director.enabled = false;
+  sim.state.coworker = null; // (nobody asking you things)
   sim.state.printer.paperOutAt = Infinity;
   return sim;
 }

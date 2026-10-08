@@ -180,6 +180,19 @@
       "moment": "failure",
       "kind": "wrong_label",
       "text": "{name}'s package came back. The label was wrong."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "crew_mistake",
+      "text": "{name}'s mistake never got fixed."
+    },
+    {
+      "speaker": "system",
+      "moment": "failure",
+      "kind": "crew_mistake",
+      "job": "yes",
+      "text": "{name}'s mistake on order #{job} never got fixed."
     }
   ]
 }

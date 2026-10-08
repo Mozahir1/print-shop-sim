@@ -42,7 +42,7 @@ describe("bot playstyles", () => {
     const tasks = (style: BotStyle) => {
       const game = newGame(9);
       const all = [];
-      for (let d = 0; d < 3; d++) all.push(...playDay(game, style).sim.state.choices.filter((c) => c.what !== "counter" && c.what !== "event" && c.what !== "inbox" && c.what !== "truck"));
+      for (let d = 0; d < 3; d++) all.push(...playDay(game, style).sim.state.choices.filter((c) => c.what !== "counter" && c.what !== "event" && c.what !== "inbox" && c.what !== "truck" && c.what !== "coworker")); // (a request can lapse while you're with a customer)
       return new Set(all.map((c) => c.type));
     };
     expect(tasks("smart")).toEqual(new Set(["do"]));

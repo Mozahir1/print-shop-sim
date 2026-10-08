@@ -1349,6 +1349,46 @@
    "category": "box",
    "icon": "tube",
    "purpose": "An empty tube for a rolled-up large print"
+  },
+  "crew/body": {
+   "label": "Coworker",
+   "size": [
+    60,
+    104
+   ],
+   "anchor": [
+    0.5,
+    1
+   ],
+   "layer": "props",
+   "category": "person",
+   "color": "#3f8f6b",
+   "purpose": "Your coworker (seen from behind the counter, or at a station). Idle: a slow breathing loop",
+   "animations": {
+    "idle": {
+     "frames": 2,
+     "fps": 2
+    },
+    "walk": {
+     "frames": 4,
+     "fps": 8
+    }
+   }
+  },
+  "counter/crew_register": {
+   "label": "Coworker's register",
+   "size": [
+    56,
+    40
+   ],
+   "anchor": [
+    0.5,
+    0.5
+   ],
+   "layer": "props",
+   "category": "machine",
+   "icon": "register",
+   "purpose": "The second register, your coworker's"
   }
  },
  "scenes": {
@@ -1380,8 +1420,13 @@
     "y": 196
    },
    {
+    "key": "counter/crew_register",
+    "x": 150,
+    "y": 214
+   },
+   {
     "key": "counter/bell",
-    "x": 186,
+    "x": 246,
     "y": 206
    },
    {
@@ -1678,6 +1723,30 @@
    62,
    74,
    2
+  ],
+  "crewCounter": [
+   122,
+   252
+  ],
+  "crewCustomer": [
+   156,
+   196
+  ],
+  "crewPrinter": [
+   30,
+   252
+  ],
+  "crewFinishing": [
+   255,
+   150
+  ],
+  "crewShipping": [
+   370,
+   152
+  ],
+  "crewShelf": [
+   470,
+   262
   ]
  },
  "categories": {

@@ -2,6 +2,7 @@
 // The manager cares about the work getting done and sales, not manners. Heat comes from ignoring people and
 // problems, late or unfinished orders, complaints about bad work, and lost sales.
 // "Usually" outcomes are keyed rolls, so the same choices always lead to the same consequences.
+import { think } from "./thoughts";
 import type { Customer, Flag, GameState, HeatCause, Job, ManagerState, MessageDraft, MessageKind } from "./types";
 import type { CounterQuote } from "./quote";
 import { BUSINESS, SURVEY, COMPLAINT_CHANCE, COMPLAINT_DELAY, COMPLAINT_SAME_DAY, FLAGS, HEAT } from "./config";
@@ -40,7 +41,10 @@ export function draft(pool: MessagePool, vars: Record<string, string | number>, 
 export function deliver(state: GameState, d: MessageDraft): void {
   postMessage(state, { kind: d.kind, from: d.from, subject: d.subject, body: d.body });
   if (d.heat) addHeat(state, d.heat, d.cause);
-  if (d.kind === "reward") mcSay(state, "hollow_reward");
+  if (d.kind === "reward") {
+    mcSay(state, "hollow_reward");
+    think(state, "hollow_reward");
+  }
   if (d.kind === "warning") mcSay(state, "warning");
   if (d.kind === "write_up") mcSay(state, "write_up");
 }

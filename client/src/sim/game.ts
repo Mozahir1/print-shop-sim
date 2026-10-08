@@ -1,12 +1,14 @@
 // A game is a run of days. Only a few things carry over from one day to the next: the day number, manager heat,
 // write-ups, things still to come back (flags), orders not picked up yet, and packages that didn't go out.
 // Money, supplies, and machines start fresh every morning.
+import { coworkerDef, newCrew, planSchedule, type Crew } from "./schedule";
+import { fill } from "./util";
 import type { Customer, Flag, HeatCause, Job, MessageDraft, Package } from "./types";
 import { createSim, type Sim } from "./sim";
 import { FLAGS, HEAT } from "./config";
 import { keyedRoll } from "./rng";
 import { draft } from "./consequences";
-import { POOLS, say } from "./lines";
+import { pickLine, POOLS, say } from "./lines";
 
 export type ManagerOutcome = "none" | "warning" | "write_up" | "fired";
 
@@ -26,7 +28,7 @@ export interface Ending {
 }
 
 export interface Game {
-  version: 2; // bumped when saved state changes shape (old saves just don't load)
+  version: 3; // bumped when saved state changes shape (old saves just don't load)
   baseSeed: number;
   day: number; // the day being played (or next to play)
   nextId: number; // ids stay unique across days
@@ -40,11 +42,12 @@ export interface Game {
   fired: boolean;
   ending: Ending | null;
   results: DayResult[];
+  crew: Crew; // the schedule (who's on with you each day), and how things stand with each coworker
 }
 
 export function newGame(baseSeed: number): Game {
   return {
-    version: 2,
+    version: 3,
     baseSeed,
     day: 1,
     nextId: 1,
@@ -58,6 +61,7 @@ export function newGame(baseSeed: number): Game {
     fired: false,
     ending: null,
     results: [],
+    crew: newCrew(),
   };
 }
 
@@ -73,7 +77,13 @@ export function daySeed(game: Game): number {
 
 export function startDay(game: Game): Sim {
   const copy = <T>(x: T): T => JSON.parse(JSON.stringify(x));
+  const schedule = planSchedule(game.crew, game.baseSeed, game.day + 2); // (posted ahead: today and the next two days)
+  const coworker = schedule[game.day - 1];
   return createSim(daySeed(game), {
+    coworker,
+    crewRelationship: game.crew.relationship[coworker] ?? 0,
+    crewStory: game.crew.story[coworker] ?? 0,
+    schedule: schedule.slice(game.day - 1, game.day + 2),
     day: game.day,
     nextId: game.nextId,
     ...copy(game.carried),
@@ -111,6 +121,17 @@ export function endDay(game: Game, sim: Sim): DayResult {
   const reason = say(POOLS.messages, "reason", { cause: why });
   if (outcome === "write_up") morning.push(draft("write_up", { reason, count: game.writeUps }, 0, 0, "complaints"));
   if (outcome === "warning") morning.push(draft("warning", { reason }, 0, 0, "complaints"));
+  // The coworker: how things stand with them, and how far into their story, carry over. And if they're the kind who
+  // never gets in trouble (the owner's son), the manager's memo praises them whatever happened.
+  const cw = s.coworker;
+  if (cw) {
+    game.crew.relationship[cw.id] = cw.relationship;
+    game.crew.story[cw.id] = cw.story;
+    if (coworkerDef(cw.id).hooks.includes("never_in_trouble")) {
+      const line = pickLine(POOLS.messages, "crew_praise", {}, s.day);
+      morning.push({ kind: "note", from: "Manager", subject: fill(line.subject ?? "", { name: cw.name }), body: fill(line.text, { name: cw.name }), at: 0, heat: 0, cause: "complaints" });
+    }
+  }
   const clean = m.complaints === 0;
   if (clean) {
     heat -= HEAT.cleanDayCool;
@@ -162,7 +183,7 @@ export function loadGame(text: string | null): Game | null {
   if (!text) return null;
   try {
     const g = JSON.parse(text) as Game;
-    return g && g.version === 2 && typeof g.day === "number" ? g : null;
+    return g && g.version === 3 && typeof g.day === "number" ? g : null;
   } catch {
     return null;
   }

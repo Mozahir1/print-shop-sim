@@ -4,6 +4,7 @@ import type { CounterAction, Customer, GameState, Station, TaskRequest, TaskType
 import { canStart, currentCustomer, STATION } from "./sim";
 import { jobById, packageById } from "./util";
 import { MACHINE_LABEL, machineFor } from "./orders";
+import { isCrew, theirs } from "./coworker";
 import { eventIsActive } from "./events";
 import { CHORES, WORKFLOWS, currentStep } from "./workflow";
 
@@ -21,13 +22,14 @@ export interface TodoItem {
 export function activeCount(state: GameState): number {
   let n = 0;
   for (const c of state.customers) if (isActive(state, c)) n++;
-  for (const p of state.packages) if (p.status === "labeled" || p.status === "scanned") n++;
+  for (const p of state.packages) if ((p.status === "labeled" || p.status === "scanned") && !isCrew(state, p.customerId)) n++;
   if (state.truck.status === "waiting") n++;
   if (eventIsActive(state)) n++;
   return n;
 }
 
 export function isActive(state: GameState, c: Customer): boolean {
+  if (c.crew) return false; // (your coworker's)
   if (c.state === "line" || c.state === "talking" || c.state === "waiting") return true;
   if (c.state !== "away") return false;
   const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
@@ -51,6 +53,7 @@ export function todoList(state: GameState): TodoItem[] {
   const items: TodoItem[] = [];
   const free = { ...state, employee: { ...state.employee, task: null }, workflow: null };
   const add = (text: string, station: Station, req: TaskRequest, customerId?: number, alts: TaskRequest[] = []) => {
+    if (theirs(state, req) || isCrew(state, customerId)) return; // (your coworker's)
     if (canStart(free, req) === null) items.push({ text, station, req, alts, customerId });
   };
   const p = state.printer;
@@ -124,11 +127,14 @@ export function todoList(state: GameState): TodoItem[] {
   for (const pkg of state.packages) {
     if (pkg.status === "labeled" || pkg.status === "scanned") add(`Put package #${pkg.id} in the outbound bin`, "shipping", { type: "bin", packageId: pkg.id });
   }
+  // Your coworker's mistakes, now yours to fix (or leave).
+  for (const m of state.mistakes) if (!m.fixed) add(m.text, "computer", { type: "fix_mistake", mistakeId: m.id });
   // Someone waiting for your answer first (walking away from them is ignoring them); then machines, the truck, and
   // quick chores; then whatever's due soonest: an order by its due time, someone in the store by when they came in
   // (plus a minute). Orders for tomorrow go last.
   const rank = (item: TodoItem): number => {
     if (item.req.type === "respond") return -2;
+    if (item.req.type === "fix_mistake") return state.closeAt; // (whenever you get to it, before you go)
     const job = item.req.jobId !== undefined ? jobById(state, item.req.jobId) : undefined;
     if (job) return job.dueDay > state.day ? state.closeAt * 3 : job.dueAt;
     const c = item.customerId !== undefined ? state.customers.find((x) => x.id === item.customerId) : undefined;
@@ -170,5 +176,6 @@ export function availableTasks(state: GameState, station: Station): TaskRequest[
   for (const j of state.jobs) for (const type of types(["enter_order", "send_job", "collect", "trim", "roll", "reprint", "use_anyway", "finish", "skip_finish", "bag"])) reqs.push({ type, jobId: j.id });
   for (const p of state.packages) for (const type of types(["pack", "tape_shut", "tape", "weigh", "label", "bin"])) reqs.push({ type, packageId: p.id });
   for (const m of state.messages) for (const type of types(["open_message", "leave_unread"])) reqs.push({ type, messageId: m.id });
+  for (const m of state.mistakes) for (const type of types(["fix_mistake"])) reqs.push({ type, mistakeId: m.id });
   return reqs.filter((r) => canStart(free, r) === null);
 }

@@ -13,6 +13,7 @@ import { customerById, jobById, packageById } from "../sim/util";
 import { CLOCK, CLOSING } from "../sim/config";
 import type { BoxSize, EventKind, GameState, ShipService, TaskRequest } from "../sim/types";
 import { getLeaderboard, postShift } from "../api";
+import { answerRequest } from "../sim/coworker";
 import * as html from "../ui/view";
 import type { Tab } from "../ui/view";
 import { toast } from "./hud";
@@ -51,7 +52,7 @@ export const ctl = {
   bot: null as Bot | null,
   speed: SPEEDS[0],
   paused: true,
-  screen: "start" as "start" | "report" | "ending" | null,
+  screen: "start" as "start" | "daystart" | "report" | "ending" | null,
   tab: "counter" as Tab,
   doing: null as Doing | null,
   talk: { id: -1, n: 0, at: 0 }, // the customer talking, and how many lines they've said
@@ -117,6 +118,13 @@ function playDay(): void {
   sim.state.handsOn = true; // you do every step by hand
   Object.assign(window, { sim, game: ctl.game, ctl }); // (for the console)
   Object.assign(ctl, { sim, tab: "counter", doing: null, followed: "", talk: { id: -1, n: 0, at: 0 }, screen: null, paused: false, note: null, app: "orders", mail: null, webForm: null });
+  // Who you're working with today (the clock waits until you start).
+  if (sim.state.coworker) showScreen("daystart", html.dayStartScreen(sim.state));
+}
+
+function startShift(): void {
+  ctl.screen = null;
+  ctl.paused = false;
 }
 
 async function finishDay(): Promise<void> {
@@ -414,6 +422,7 @@ function onKey(e: KeyboardEvent): void {
     return;
   }
   if (e.key === "`" && devEnabled && ctl.sim) return void ($("dev").hidden = !$("dev").hidden);
+  if (ctl.screen === "daystart" && e.key === "Enter") return startShift();
   if (ctl.screen || !ctl.sim) return;
   if (ctl.note !== null) {
     if (e.key === "Escape" || e.key === "Enter") ctl.note = null; // (nothing else while you're reading a note)
@@ -463,6 +472,13 @@ export function act(el: HTMLElement): void {
       return startGame(loadGame(read(SAVE_KEY))!);
     case "nextDay":
       return playDay();
+    case "startShift":
+      return startShift();
+    case "crewAnswer": {
+      if (!ctl.sim) return;
+      const err = answerRequest(ctl.sim.state, d.choice as "do" | "dont" | "ignore");
+      return void (err && ctl.tip(err));
+    }
     case "pause":
       if (!ctl.screen) ctl.paused = !ctl.paused;
       return;

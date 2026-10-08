@@ -84,3 +84,25 @@ describe("the station scenes", () => {
     }
   });
 });
+
+describe("the counter's two sides", () => {
+  it("your coworker's register (them, and who they're helping) never sits under the conversation box", async () => {
+    const { CREW_ZONE, DIALOG_DOCK } = await import("./layout");
+    const [cx, cy] = spots.crewCounter;
+    const [kx, ky] = spots.crewCustomer;
+    const scaled = (r: Rect, s: number, ax: number, ay: number): Rect => ({ x: ax - (ax - r.x) * s, y: ay - (ay - r.y) * s, w: r.w * s, h: r.h * s });
+    const crew: [string, Rect][] = [
+      ["coworker", rectOf("crew/body", cx, cy)],
+      ["their customer", scaled(rectOf("customer/body_b", kx, ky), 0.85, kx, ky)],
+      ["their register", rectOf("counter/crew_register", scenes.counter.find((o) => o.key === "counter/crew_register")!.x, scenes.counter.find((o) => o.key === "counter/crew_register")!.y)],
+    ];
+    for (const [name, r] of crew) expect(inside(r, CREW_ZONE), name).toBe(true);
+    expect(overlaps(CREW_ZONE, DIALOG_DOCK)).toBe(false);
+    // The box's CSS width (index.html) is what DIALOG_DOCK says, 1rem (10 art pixels) in from the stage's edge.
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
+    const rem = Number(/\.modal-box\.dialog \{ width: ([\d.]+)rem/.exec(css)![1]);
+    expect(rem * 20 + 20).toBe(DIALOG_DOCK.w * ART);
+    expect(DIALOG_DOCK.x + DIALOG_DOCK.w).toBe(STAGE_W);
+  });
+});

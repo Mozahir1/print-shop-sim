@@ -115,6 +115,19 @@ The first time you turn someone away, walk away from a job, or go home with work
   Finishing, which is slow (about 12 minutes a print, the longest wait in the shop), and the rest is by hand: cut it
   off the roll, hold the cutter on it to trim it, roll it up and slide it into a tube, bag it. Each machine has its
   own queue; the order form's Paper list picks where it goes, and the quote says which machine and how long.
+- **Coworkers.** One is on shift with you each day, by a schedule you can't change (the Schedule app shows today
+  and the next two days; nobody works more than two days running). They take their own customers at their own
+  register on the left of the counter, run them through the same machines (you share the printer and the finishing
+  table: "In use: Brody, about 3 min"), take breaks, and talk the whole time (speech bubbles over them, and the log).
+  **A** believes in corporate: metrics talk, nags you to upsell lamination, double-checks your orders (and catches
+  your mistakes, loudly), re-sorts the pickup shelf, clears jams. **Brody** is the owner's son: slow, always asking
+  for help (ignore him and he does it wrong, and the fix lands on you), wanders off (his customers come to your
+  line), breaks things (his mishap is the day's bad luck), and the manager's memo praises him anyway. **C** talks:
+  a story that goes on for days, gossip, chatting up the customers in your line, and wanting you to respond.
+  Requests come up in the corner as Do / Don't / Ignore, and how you answer stays with them.
+- **The MC's thoughts.** Short and dry, in the corner: about who's on, what they're asking, a customer's mood.
+- **Customers have moods.** Some are frantic, confused, cheapskates, or chatty: you'll hear it in what they say, and
+  it shows a little in their patience.
 - **The truck and the pickup shelf.** Packages for pickup only ever come on the truck: it takes the outbound bin and
   drops off the day's deliveries (1 to 3, as many as fit on a 6-package shelf). Your first day isn't the shop's, so
   the shelf already has a few on it, and whatever nobody comes for stays there tomorrow. Someone picking up a package

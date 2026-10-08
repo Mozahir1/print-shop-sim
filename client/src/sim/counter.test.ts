@@ -41,7 +41,7 @@ describe("the customer says what they want, in words", () => {
       for (let i = 0; i < 25; i++) {
         const c = spawnCustomer(sim.state, rng, kind, { spec: rollSpec(rng, kind) });
         const s = c.spec!;
-        const lines = requestLines(sim.state, c);
+        const lines = requestLines(sim.state, c).slice(c.trait ? 1 : 0); // (a trait line first: how they come across)
         expect(lines.length).toBe(8); // what they came for, then seven details
         const all = lines.join(" ");
         expect(all).toMatch(s.copies === 1 ? /one copy/i : `${s.copies} copies`);

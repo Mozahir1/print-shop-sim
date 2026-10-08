@@ -10,9 +10,11 @@
 //   turn_away      says no to new business (print and shipping) and cuts corners on the work
 //   ignore         ignores people and problems
 //   random         a different answer every time (from its own stream, never the game's)
+import { answerRequest } from "./coworker";
+import { keyedRoll } from "./rng";
 import type { CounterAction, GameState, OrderEntry, TaskRequest } from "./types";
 import { createRng, type Rng } from "./rng";
-import { abandonWorkflow, goHome, startTask, workLeft } from "./sim";
+import { abandonWorkflow, goHome, startTask, workLeft, currentCustomer } from "./sim";
 import { currentStep } from "./workflow";
 import { choreNow, DONT, suggested, todoList, type TodoItem } from "./todo";
 import { quoteFor, rushBumpsSomeone } from "./quote";
@@ -48,6 +50,8 @@ export function botAct(bot: Bot, state: GameState, dt: number): void {
   if (bot.cooldown > 0) return;
   bot.cooldown = bot.reaction;
   // In a workflow: its next step is the only thing you can do (or walk away from).
+  // Your coworker's asking you something: each style answers its way (ignore lets it lapse).
+  if (state.request && answerAs(bot, state)) return;
   const step = currentStep(state);
   // A quick chore comes up (the truck): put the job down for it, then go back to it. (Unless you ignore things.)
   const chore = step && step.type !== "respond" && bot.style !== "ignore" ? choreNow(state) : undefined;
@@ -86,6 +90,19 @@ export function botAct(bot: Bot, state: GameState, dt: number): void {
     const req = choose(bot, state, item.req, item.alts);
     if (req && go(bot, state, req)) return;
   }
+}
+
+// A coworker's request: smart and do-everything help; careless helps half the time; turn-away says no; ignore never
+// answers; random picks. Helping can wait until you're free of a customer (or lapse). Returns whether it answered.
+function answerAs(bot: Bot, state: GameState): boolean {
+  const r = state.request!;
+  const roll = keyedRoll(state.seed, "bot-request", r.id);
+  const choice: "do" | "dont" | null =
+    bot.style === "smart" || bot.style === "do_everything" ? "do" : bot.style === "careless" ? (roll < 0.5 ? "do" : "dont") : bot.style === "turn_away" ? "dont" : bot.style === "random" ? (roll < 0.4 ? "do" : roll < 0.7 ? "dont" : null) : null;
+  if (!choice) return false;
+  // (Smart helps between jobs, with nobody waiting on you at the counter. If that doesn't come in time, it lapses.)
+  if (choice === "do" && bot.style === "smart" && (currentCustomer(state) || state.workflow)) return false; // (between jobs)
+  return answerRequest(state, choice) === null;
 }
 
 // First come, first served: when the order (or the person) came in. Someone waiting for an answer still comes first.

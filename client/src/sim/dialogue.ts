@@ -16,6 +16,7 @@ const ORDER = data.order as Record<string, Field[]>;
 export function requestLines(state: GameState, c: Customer): string[] {
   const scene = sceneOf(state, c) ?? undefined;
   const lines = [say(POOLS.customers, "request", { request: c.kind, about: c.about ?? undefined, scene }, c.id)];
+  if (c.trait && !scene) lines.unshift(say(POOLS.customers, "trait", { trait: c.trait }, c.id)); // (how they come across)
   if (scene && scene !== "missing_order") return lines; // they're here about something else
   const spec = c.spec;
   const vars = { copies: spec?.copies ?? 0, item: spec?.item ?? "", originals: spec?.originals ?? 0, needBy: c.needBy === null ? "" : formatClock(c.needBy), name: c.name };

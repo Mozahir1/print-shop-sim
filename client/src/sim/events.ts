@@ -1,5 +1,7 @@
 // Bad luck: about one thing a day goes wrong. Each one is obvious, takes a task or two to fix, and gets worse if
 // you leave it. Rolled from its own stream when the day starts.
+import { crewSays } from "./coworker";
+import { think } from "./thoughts";
 import { emit } from "./bus";
 import type { BadLuck, EventKind, GameState, Package } from "./types";
 import { DIRECTOR, EASE_IN, EVENTS } from "./config";
@@ -14,8 +16,9 @@ import type { Sim } from "./sim";
 import { pickLine, POOLS } from "./lines";
 import { mcSay } from "./mc";
 
-export function rollEvent(rng: Rng, dayLength: number, day = 99): BadLuck | null {
-  const has = rng() < (EASE_IN.eventChance[day - 1] ?? EVENTS.chance);
+// (always: there's one, whatever the day's odds: a coworker's mishap.)
+export function rollEvent(rng: Rng, dayLength: number, day = 99, always = false): BadLuck | null {
+  const has = rng() < (EASE_IN.eventChance[day - 1] ?? EVENTS.chance) || always;
   const pickRoll = rng();
   const atRoll = rng();
   if (!has) return null;
@@ -70,6 +73,7 @@ function fire(sim: Sim, e: BadLuck): void {
   const { state } = sim;
   e.status = "active";
   e.firedAt = state.time;
+  mishap(state, e);
   switch (e.kind) {
     case "printer_jam":
       state.printer.status = "jammed";
@@ -102,11 +106,18 @@ export function onPacked(state: GameState, pkg: Package): boolean {
   if (e?.kind !== "box_rips" || e.status !== "pending" || state.time < e.at) return false;
   e.status = "active";
   e.firedAt = state.time;
+  mishap(state, e);
   pkg.status = "new";
   pkg.taped = false;
   log(state, eventText("box_rips").prompt);
   mcSay(state, "bad_luck");
   return true;
+}
+
+// Whose fault: a coworker's mishap, they say so (in their own way). Either way the MC has a thought.
+function mishap(state: GameState, e: BadLuck): void {
+  if (e.by && state.coworker?.id === e.by) crewSays(state, `mishap_${e.kind}`);
+  think(state, "event", { coworker: e.by });
 }
 
 // Called when the thing that went wrong is dealt with.

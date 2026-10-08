@@ -10,6 +10,7 @@ import { noteDetail, notes, NOTE_FADE } from "../sim/notes";
 import type { GameState } from "../sim/types";
 import { attention, banner, esc, inLine, noteHtml, tabOf, TABS, type Tab } from "../ui/view";
 import { choreNow } from "../sim/todo";
+import { currentThought } from "../sim/thoughts";
 import { devPanel } from "../ui/dev";
 import { ART, H, REGION, W, type Region } from "./layout";
 import { SPEEDS } from "./config";
@@ -187,6 +188,7 @@ export function update(time: number, bellUntil: number): void {
   const s = sim.state;
   put("clock", `Day ${s.day} · ${formatClock(s.time)}${s.time >= s.closeAt ? " (closed)" : ""}`);
   put("mood", `Manager: <b>${esc(managerMood(s.manager.heat))}</b>`);
+  put("crew", crewLine(s));
   put("doing", doingLine(s));
   const next = nextHint();
   const away = !!next && next.tab !== ctl.tab;
@@ -252,6 +254,15 @@ function holdingBox(s: GameState): void {
   if (!c) delete ghost.dataset.key;
 }
 
+// "Working with: Brody (at the printer)"
+const WHERE: Record<string, string> = { missing: "missing", counter: "at the counter", computer: "at the computer", printer: "at the printer", finishing: "at the finishing table", shipping: "at shipping", shelf: "at the pickup shelf", self_serve: "at self-serve", break: "on break", gone: "gone home" };
+function crewLine(s: GameState): string {
+  const cw = s.coworker;
+  if (!cw) return "";
+  $("crew").title = cw.task ? cw.task.what : "";
+  return `Working with: <b>${esc(cw.name)}</b> (${WHERE[cw.at] ?? ""})`;
+}
+
 // What's going on by itself while your hands are free: " Order #3 is printing."
 function background(s: GameState): string {
   const on: string[] = [];
@@ -277,6 +288,18 @@ function doingLine(s: GameState): string {
 
 // The sticky notes: up to 4, as many as fit, then "+N more". And the last few things that happened.
 function rail(s: GameState): void {
+  // What your coworker's asking, and what you're thinking.
+  const r = s.request;
+  const rq = $("request");
+  rq.hidden = !r;
+  if (r) {
+    const name = s.coworker?.name ?? "";
+    const left = Math.max(1, Math.ceil(r.until - s.time));
+    put("request", `<div class="from">${esc(name)} asks</div><p>${esc(r.text)}</p><div class="btns"><button class="btn primary" data-act="crewAnswer" data-choice="do">${esc(r.do)}</button><button class="btn" data-act="crewAnswer" data-choice="dont">${esc(r.dont)}</button><button class="btn" data-act="crewAnswer" data-choice="ignore">Ignore</button></div><div class="small">Goes away in ${left} min.</div>`);
+  }
+  const t = currentThought(s);
+  $("thought").hidden = !t;
+  if (t) put("thought", esc(t));
   const list = notes(s);
   const html = list.length
     ? list
@@ -289,7 +312,9 @@ function rail(s: GameState): void {
         .join("")
     : `<div class="note empty">No orders yet.</div>`;
   const recent = s.log.slice(-2).reverse().map((e) => `<div><time>${formatClock(e.time)}</time>${esc(e.text)}</div>`).join("");
-  if (last.notes === html && last.recent === recent) return;
+  const extra = `${r?.id ?? ""}|${t ?? ""}`; // (the request card and the thought take room from the notes)
+  if (last.notes === html && last.recent === recent && last.railExtra === extra) return;
+  last.railExtra = extra;
   put("notes", html);
   put("recent", recent);
   // Drop notes from the bottom until the rest fit (nothing's ever cut off).

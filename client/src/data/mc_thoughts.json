@@ -1,0 +1,33 @@
+{
+  "lines": [
+    { "speaker": "mc", "moment": "day_start", "text": "Another day." },
+    { "speaker": "mc", "moment": "day_start", "coworker": "A", "text": "A is here. Somebody's going to say synergy." },
+    { "speaker": "mc", "moment": "day_start", "coworker": "A", "text": "A brought a clipboard. A always brings a clipboard." },
+    { "speaker": "mc", "moment": "day_start", "coworker": "B", "text": "Brody. Great." },
+    { "speaker": "mc", "moment": "day_start", "coworker": "B", "text": "The owner's kid. So, two of us, technically." },
+    { "speaker": "mc", "moment": "day_start", "coworker": "C", "text": "It's going to be a long seven hours." },
+    { "speaker": "mc", "moment": "day_start", "coworker": "C", "text": "C's here. I should have brought earplugs." },
+    { "speaker": "mc", "moment": "coworker_request", "text": "Everyone always needs something." },
+    { "speaker": "mc", "moment": "coworker_request", "coworker": "A", "text": "It's a print shop. Not a quarterly review." },
+    { "speaker": "mc", "moment": "coworker_request", "coworker": "B", "text": "Man, this guy..." },
+    { "speaker": "mc", "moment": "coworker_request", "coworker": "B", "text": "He's asked me that before. Twice." },
+    { "speaker": "mc", "moment": "coworker_request", "coworker": "C", "text": "I wasn't listening. I'm never listening." },
+    { "speaker": "mc", "moment": "coworker_missing", "text": "And he's gone." },
+    { "speaker": "mc", "moment": "coworker_missing", "coworker": "B", "text": "Brody's 'in the back.' There is no back." },
+    { "speaker": "mc", "moment": "coworker_metrics", "text": "Shareholders. Sure." },
+    { "speaker": "mc", "moment": "coworker_metrics", "coworker": "A", "text": "I don't know what a KPI is and I'd like to keep it that way." },
+    { "speaker": "mc", "moment": "coworker_story", "text": "Here we go." },
+    { "speaker": "mc", "moment": "coworker_story", "coworker": "C", "text": "Part two of the saga. I didn't ask for part one." },
+    { "speaker": "mc", "moment": "customer_trait", "text": "Okay." },
+    { "speaker": "mc", "moment": "customer_trait", "trait": "frantic", "text": "Everyone always needs something urgent..." },
+    { "speaker": "mc", "moment": "customer_trait", "trait": "confused", "text": "This is going to take a minute." },
+    { "speaker": "mc", "moment": "customer_trait", "trait": "cheapskate", "text": "They're going to ask about the fee." },
+    { "speaker": "mc", "moment": "customer_trait", "trait": "chatty", "text": "Please don't tell me about your weekend." },
+    { "speaker": "mc", "moment": "event", "text": "Of course it did." },
+    { "speaker": "mc", "moment": "event", "coworker": "B", "text": "Brody touched something." },
+    { "speaker": "mc", "moment": "failure", "text": "That's going in the report." },
+    { "speaker": "mc", "moment": "failure", "text": "Can't win them all. Can't win most of them." },
+    { "speaker": "mc", "moment": "hollow_reward", "text": "A certificate. Neat." },
+    { "speaker": "mc", "moment": "hollow_reward", "text": "Recognized. Still underpaid." }
+  ]
+}

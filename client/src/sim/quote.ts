@@ -4,7 +4,7 @@ import type { Customer, GameState, Job, JobSpec, Machine, Timing } from "./types
 import { CLOSING, DURATIONS, MACHINES, PRINTER, RESPOND_MINUTES, RUSH_BUFFER, STANDARD_LEAD, WORTH_MIN_CENTS } from "./config";
 import { finishMinutes, fullServiceQuote, machineFor, selfServeBlocker, selfServePriceCents, shipQuote, totalSheets, type FullServiceQuote, type ShipQuote } from "./orders";
 import { isPrintKind, morningTime } from "./customers";
-import { jobById } from "./util";
+import { customerById, jobById } from "./util";
 
 export interface CounterQuote {
   // print requests
@@ -62,6 +62,8 @@ function printerBacklog(state: GameState, rush: boolean, machine: Machine): numb
     if (machineFor(j.spec) !== machine) continue; // (each machine has its own queue)
     if (j.status === "printing") seconds += remaining(state, j);
     else if (j.status === "queued" && (!rush || j.rush)) seconds += printMinutes(j.spec);
+    // (Your coworker's orders that are about to go in: they send theirs right away.)
+    else if ((j.status === "new" || j.status === "entered") && !rush && customerById(state, j.customerId)?.crew) seconds += printMinutes(j.spec);
   }
   return seconds;
 }

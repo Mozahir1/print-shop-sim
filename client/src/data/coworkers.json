@@ -1,0 +1,632 @@
+{
+  "coworkers": [
+    {
+      "id": "A",
+      "name": "A",
+      "about": "Neurotic corporate believer. Competent and helpful; cares far too much.",
+      "lore": "",
+      "capacity": 0.6,
+      "speed": {
+        "counter": 1,
+        "computer": 1,
+        "printer": 0.9,
+        "finishing": 0.9,
+        "shipping": 1,
+        "shelf": 1,
+        "self_serve": 1
+      },
+      "breaks": {
+        "count": 1,
+        "minutes": 15
+      },
+      "rates": {
+        "chat": 5,
+        "requests": 0,
+        "dawdle": 0,
+        "missing": 0,
+        "upsell": 0.5,
+        "doubleCheck": 0.6,
+        "reorganize": 0.5,
+        "fixJam": 0.8,
+        "chatUp": 0
+      },
+      "hooks": [
+        "upsell",
+        "double_check",
+        "reorganize",
+        "fix_jam"
+      ],
+      "opening": "Good morning! Our customer score target today is 94.2 percent. I believe in us.",
+      "requests": [
+        {
+          "id": "upsell",
+          "do": "Offer it",
+          "dont": "No",
+          "outcomes": {
+            "do": {
+              "minutes": 1,
+              "relationship": 1,
+              "revenueCents": 400,
+              "mood": -0.3,
+              "reply": "upsell_yes"
+            },
+            "dont": {
+              "relationship": -1,
+              "reply": "fret"
+            },
+            "ignore": {
+              "relationship": -1,
+              "reply": "fret"
+            }
+          }
+        }
+      ],
+      "lines": [
+        {
+          "moment": "ask_upsell",
+          "text": "Did you offer {name} lamination? Attach rate is a KPI."
+        },
+        {
+          "moment": "ask_upsell",
+          "text": "Quick check: did {name} get the lamination pitch? It's on the scorecard."
+        },
+        {
+          "moment": "upsell_yes",
+          "text": "Yes! That's an attach! I'm logging it."
+        },
+        {
+          "moment": "upsell_yes",
+          "text": "Love that. That's shareholder value, right there."
+        },
+        {
+          "moment": "fret",
+          "text": "Okay. That's fine. That's totally fine. The attach rate is just a number."
+        },
+        {
+          "moment": "fret",
+          "text": "No, sure. I'll just note it as a missed opportunity. For us. As a team."
+        },
+        {
+          "moment": "chat",
+          "text": "Corporate says every interaction is a brand moment. Even this one."
+        },
+        {
+          "moment": "chat",
+          "text": "Our net promoter score is up two tenths this quarter. I printed the chart."
+        },
+        {
+          "moment": "chat",
+          "text": "Remember: we don't sell copies. We sell outcomes."
+        },
+        {
+          "moment": "chat",
+          "text": "Shareholder value starts at the counter. I read that in the onboarding deck."
+        },
+        {
+          "moment": "chat",
+          "text": "If you see a smile, that's a five-star review in waiting."
+        },
+        {
+          "moment": "chat",
+          "text": "One of our core values is Ownership. I own this stapler."
+        },
+        {
+          "moment": "chat_break",
+          "text": "Break in {minutes} minutes. Not that I'm counting. I am counting."
+        },
+        {
+          "moment": "chat_dip",
+          "text": "Our numbers are dipping. Is it me? It's probably me."
+        },
+        {
+          "moment": "chat_dip",
+          "text": "The manager looked at the dashboard and sighed. I heard it from the back."
+        },
+        {
+          "moment": "working",
+          "text": "Processing. Efficiently."
+        },
+        {
+          "moment": "working",
+          "text": "Order in, order out. That's throughput."
+        },
+        {
+          "moment": "double_check",
+          "text": "Caught one! Order #{job}: they asked for {field}. I fixed it before it printed. You're welcome! Teamwork!"
+        },
+        {
+          "moment": "reorganize",
+          "text": "I re-sorted the pickup shelf by due date. It's more intuitive. You'll love it."
+        },
+        {
+          "moment": "fix_jam",
+          "text": "Jam cleared! Uptime is a value."
+        },
+        {
+          "moment": "break",
+          "text": "Taking my fifteen. Fourteen and a half, actually."
+        },
+        {
+          "moment": "back",
+          "text": "I'm back. I used the time to reflect on our goals."
+        },
+        {
+          "moment": "bye",
+          "text": "Great shift, team! Same time tomorrow? Please say yes."
+        },
+        {
+          "moment": "chat",
+          "text": "I color-coded the break schedule. Green means rest. Rest is a deliverable."
+        },
+        {
+          "moment": "chat",
+          "text": "If we hit 95 percent today, regional sends a pizza. One pizza. For the region."
+        },
+        {
+          "moment": "chat",
+          "text": "Pro tip: say 'absolutely' instead of 'yes.' It tests better."
+        },
+        {
+          "moment": "chat",
+          "text": "I read the employee handbook again last night. For fun. Chapter four is a page-turner."
+        },
+        {
+          "moment": "chat",
+          "text": "Every jammed printer is just an uptime opportunity."
+        },
+        {
+          "moment": "chat",
+          "text": "I set three goals for today. Two are about synergy. One is about lunch."
+        },
+        {
+          "moment": "chat",
+          "text": "Customer delight is up. I can feel it. I can't prove it."
+        },
+        {
+          "moment": "chat",
+          "text": "Corporate says we're a family. A family with quarterly targets."
+        },
+        {
+          "moment": "ask_upsell",
+          "text": "Did {name} hear about our premium cardstock? Asking for the dashboard."
+        }
+      ],
+      "rating": "Exceeds expectations (self-assessed, with a chart)"
+    },
+    {
+      "id": "B",
+      "name": "Brody",
+      "about": "The one you don't want. Slow, needs help, never gets in trouble.",
+      "lore": "The owner's son. That's why he still works here: he can't be fired, and the manager knows better than to try.",
+      "capacity": 0.3,
+      "speed": {
+        "counter": 1.4,
+        "computer": 1.3,
+        "printer": 1.5,
+        "finishing": 1.5,
+        "shipping": 1.4,
+        "shelf": 1.3,
+        "self_serve": 1.3
+      },
+      "breaks": {
+        "count": 2,
+        "minutes": 15
+      },
+      "rates": {
+        "chat": 3,
+        "requests": 0.75,
+        "dawdle": 4,
+        "missing": 0.8,
+        "upsell": 0,
+        "doubleCheck": 0,
+        "reorganize": 0,
+        "fixJam": 0,
+        "chatUp": 0
+      },
+      "hooks": [
+        "mishap",
+        "needs_help",
+        "goes_missing",
+        "never_in_trouble"
+      ],
+      "opening": "Oh. Hey. You know how to do the printer stuff, right? Cool.",
+      "requests": [
+        {
+          "id": "help",
+          "do": "Help him",
+          "dont": "Figure it out",
+          "outcomes": {
+            "do": {
+              "minutes": 3,
+              "relationship": 1,
+              "reply": "thanks"
+            },
+            "dont": {
+              "relationship": -1,
+              "flub": true,
+              "reply": "whatever"
+            },
+            "ignore": {
+              "relationship": -1,
+              "flub": true,
+              "reply": "whatever"
+            }
+          }
+        }
+      ],
+      "lines": [
+        {
+          "moment": "ask_help",
+          "text": "Yo. How do I do labels again?"
+        },
+        {
+          "moment": "ask_help",
+          "text": "Hey, the computer's asking me a question. Can you look?"
+        },
+        {
+          "moment": "ask_help",
+          "text": "Which box is the medium one? They all look like boxes."
+        },
+        {
+          "moment": "ask_help",
+          "text": "Is cardstock the thick one or the shiny one?"
+        },
+        {
+          "moment": "ask_help",
+          "text": "This customer wants something. Can you talk to them?"
+        },
+        {
+          "moment": "ask_help",
+          "text": "How do you make the copier do two sides?"
+        },
+        {
+          "moment": "thanks",
+          "text": "Oh nice. Yeah. I knew that."
+        },
+        {
+          "moment": "thanks",
+          "text": "Cool, cool. You're good at this. You should be a manager."
+        },
+        {
+          "moment": "whatever",
+          "text": "Okay. I'll just do it my way."
+        },
+        {
+          "moment": "whatever",
+          "text": "Wow. Fine. I'll figure it out."
+        },
+        {
+          "moment": "flub",
+          "text": "So I kind of messed up order #{job}. It's fine. You can fix it, right?"
+        },
+        {
+          "moment": "chat",
+          "text": "My dad says this place is a learning opportunity."
+        },
+        {
+          "moment": "chat",
+          "text": "Do we get paid for breaks? Asking for me."
+        },
+        {
+          "moment": "chat",
+          "text": "I'm thinking about getting into crypto. Or podcasts."
+        },
+        {
+          "moment": "chat",
+          "text": "I don't really do mornings. Or afternoons."
+        },
+        {
+          "moment": "working",
+          "text": "Working on it. Kind of."
+        },
+        {
+          "moment": "working",
+          "text": "This takes forever, right? Is it supposed to?"
+        },
+        {
+          "moment": "mishap_printer_jam",
+          "text": "The printer made a noise and stopped. I didn't touch it. I touched it a little."
+        },
+        {
+          "moment": "mishap_copier_dies",
+          "text": "The copier was like that when I got here. Like, two minutes ago."
+        },
+        {
+          "moment": "mishap_card_reader_down",
+          "text": "I unplugged the card reader to charge my phone. Is that bad?"
+        },
+        {
+          "moment": "mishap_wifi_drop",
+          "text": "I restarted the router. It was slow. Now it's slower."
+        },
+        {
+          "moment": "mishap_box_rips",
+          "text": "I sat on the box pile. Some of them are flat now."
+        },
+        {
+          "moment": "missing",
+          "text": "Gonna grab something from the back. Brb."
+        },
+        {
+          "moment": "back",
+          "text": "I'm back. There was a thing. Don't worry about it."
+        },
+        {
+          "moment": "break",
+          "text": "I'm taking my break. My other break."
+        },
+        {
+          "moment": "back_break",
+          "text": "Okay. I'm back. Mentally, mostly."
+        },
+        {
+          "moment": "bye",
+          "text": "Peace. Tell my dad I was here."
+        },
+        {
+          "moment": "chat",
+          "text": "Is it Friday? It feels like it should be Friday."
+        },
+        {
+          "moment": "chat",
+          "text": "My dad says I have a natural talent for leadership. I think he's right."
+        },
+        {
+          "moment": "chat",
+          "text": "I'm on my phone but I'm listening. Mostly."
+        },
+        {
+          "moment": "chat",
+          "text": "This shirt was like three hundred dollars. Don't get toner on it."
+        },
+        {
+          "moment": "chat",
+          "text": "I told my dad we should get a smoothie machine in here. He's thinking about it."
+        },
+        {
+          "moment": "chat",
+          "text": "Do you ever just stand here and think about stuff? Same."
+        },
+        {
+          "moment": "chat",
+          "text": "My trainer says I need more rest days. Today's one of them."
+        },
+        {
+          "moment": "ask_help",
+          "text": "Where do the bags go? Like, the paper ones."
+        },
+        {
+          "moment": "ask_help",
+          "text": "The register is beeping at me. Why is it beeping at me?"
+        },
+        {
+          "moment": "ask_help",
+          "text": "Can you watch my station? I have to take a call. It's personal."
+        },
+        {
+          "moment": "ask_help",
+          "text": "How many staples is a stack? Like, roughly."
+        },
+        {
+          "moment": "flub_general",
+          "text": "So I kind of broke something on the computer. It's fine. You can fix it, right?"
+        },
+        {
+          "moment": "flub_general",
+          "text": "I clicked a thing on the computer and now it looks different. Can you fix it?"
+        }
+      ],
+      "rating": "Exceeds expectations (as always)"
+    },
+    {
+      "id": "C",
+      "name": "C",
+      "about": "The talker. Fine at the job; exhausting to be near.",
+      "lore": "",
+      "capacity": 0.45,
+      "speed": {
+        "counter": 1.25,
+        "computer": 1,
+        "printer": 1,
+        "finishing": 1.05,
+        "shipping": 1.05,
+        "shelf": 1,
+        "self_serve": 1
+      },
+      "breaks": {
+        "count": 1,
+        "minutes": 20
+      },
+      "rates": {
+        "chat": 9,
+        "requests": 0.5,
+        "dawdle": 1,
+        "missing": 0,
+        "upsell": 0,
+        "doubleCheck": 0,
+        "reorganize": 0,
+        "fixJam": 0,
+        "chatUp": 0.6
+      },
+      "hooks": [
+        "chat_up",
+        "wants_response",
+        "stories",
+        "gossip"
+      ],
+      "opening": "Okay, so you will not believe what happened at my cousin's thing last night.",
+      "requests": [
+        {
+          "id": "respond",
+          "do": "Engage",
+          "dont": "Mm-hm",
+          "outcomes": {
+            "do": {
+              "minutes": 1,
+              "relationship": 1,
+              "reply": "engaged"
+            },
+            "dont": {
+              "relationship": 0,
+              "reply": "shrug"
+            },
+            "ignore": {
+              "relationship": -1,
+              "louder": true,
+              "reply": "louder"
+            }
+          }
+        }
+      ],
+      "lines": [
+        {
+          "moment": "ask_respond",
+          "text": "Right? Can you believe that? Right?"
+        },
+        {
+          "moment": "ask_respond",
+          "text": "Okay but what would YOU have done?"
+        },
+        {
+          "moment": "ask_respond",
+          "text": "Wait, are you listening? This is the good part."
+        },
+        {
+          "moment": "engaged",
+          "text": "THANK you. Finally someone gets it."
+        },
+        {
+          "moment": "engaged",
+          "text": "See, you get it. Okay, so then..."
+        },
+        {
+          "moment": "shrug",
+          "text": "Mm-hm, right, exactly. Anyway."
+        },
+        {
+          "moment": "louder",
+          "text": "I SAID, can you BELIEVE that?"
+        },
+        {
+          "moment": "louder",
+          "text": "HELLO? I'm telling a STORY."
+        },
+        {
+          "moment": "chat",
+          "text": "Did I tell you about my neighbor's ferret? He has opinions."
+        },
+        {
+          "moment": "chat",
+          "text": "I'm doing a juice cleanse. Day one. It's going badly."
+        },
+        {
+          "moment": "chat",
+          "text": "My horoscope said today would be a lot. It's a lot."
+        },
+        {
+          "moment": "chat",
+          "text": "Have you ever thought about how weird staples are? Little metal hugs."
+        },
+        {
+          "moment": "gossip",
+          "about": "A",
+          "text": "A made a laminated vision board. For this job. It has a mission statement."
+        },
+        {
+          "moment": "gossip",
+          "about": "A",
+          "text": "A asked the manager for feedback. On purpose. Who does that?"
+        },
+        {
+          "moment": "gossip",
+          "about": "B",
+          "text": "Brody's dad owns the place, you know. That's why he's still here."
+        },
+        {
+          "moment": "gossip",
+          "about": "B",
+          "text": "Brody once took a ninety minute break. The manager said good hustle."
+        },
+        {
+          "moment": "chat_up",
+          "text": "Oh my gosh, I love your bag. Where's it from? Tell me everything."
+        },
+        {
+          "moment": "chat_up",
+          "text": "Is that for a party? I love parties. Okay so last weekend..."
+        },
+        {
+          "moment": "working",
+          "text": "Okay so anyway, where was I."
+        },
+        {
+          "moment": "working",
+          "text": "Multitasking. That's my love language."
+        },
+        {
+          "moment": "break",
+          "text": "Taking my break. I'll tell you how it goes."
+        },
+        {
+          "moment": "back",
+          "text": "Okay I'm back and you will NOT believe the line at the coffee place."
+        },
+        {
+          "moment": "bye",
+          "text": "Bye! Text me! Actually don't, I'll text you."
+        },
+        {
+          "moment": "chat",
+          "text": "My sister's getting married. Again. Third time. I'm a bridesmaid. Again."
+        },
+        {
+          "moment": "chat",
+          "text": "I had the weirdest dream. You were in it. You were a stapler."
+        },
+        {
+          "moment": "chat",
+          "text": "Okay so my landlord texted me a thumbs up. Just a thumbs up. What does that mean?"
+        },
+        {
+          "moment": "chat",
+          "text": "I'm starting a podcast. It's about podcasts."
+        },
+        {
+          "moment": "chat",
+          "text": "I can't believe it's only noon. Is it noon? It feels like noon."
+        },
+        {
+          "moment": "chat",
+          "text": "Do you like mushrooms? I have a whole thing about mushrooms."
+        },
+        {
+          "moment": "chat",
+          "text": "I think the guy at the coffee place likes me. He spelled my name right."
+        },
+        {
+          "moment": "ask_respond",
+          "text": "You'd never do that, right? Tell me you'd never do that."
+        },
+        {
+          "moment": "ask_respond",
+          "text": "Be honest. Was I wrong? I wasn't wrong."
+        }
+      ],
+      "story": [
+        "So my cousin's wedding. The DJ shows up dressed as a pirate. Nobody asked for a pirate.",
+        "The pirate DJ only plays sea shanties. My aunt is furious. My uncle is dancing.",
+        "Then the cake arrives and it's shaped like a ship. They planned the pirate. Nobody told me.",
+        "Plot twist: the pirate DJ is my cousin's ex. From high school. He wore the hat back then too.",
+        "My cousin cries, the ex cries, the cake leans. Somebody says it's a sign.",
+        "They get back together. Not the bride. The ex and my aunt. I'm not joking.",
+        "So now my aunt is dating a pirate DJ and the family group chat is on fire.",
+        "Update: they're opening a sea shanty food truck. I've been asked to invest. I have eleven dollars.",
+        "The food truck launched. It's called Shanty Snacks. The fries are shaped like anchors.",
+        "Shanty Snacks got a health inspection. They passed. The inspector requested a shanty.",
+        "My cousin and the bride are fine, by the way. They went on a cruise. Ironic.",
+        "Anyway. That's the story. Ask me about my neighbor's ferret sometime."
+      ],
+      "rating": "Meets expectations (verbally)"
+    }
+  ]
+}

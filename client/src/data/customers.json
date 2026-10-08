@@ -218,6 +218,54 @@
       "request": "complaint",
       "about": "wrong_label",
       "text": "My package came back. You put the wrong label on it."
+    },
+    {
+      "speaker": "customer",
+      "moment": "trait",
+      "trait": "frantic",
+      "text": "Sorry, sorry, I'm in a huge rush."
+    },
+    {
+      "speaker": "customer",
+      "moment": "trait",
+      "trait": "frantic",
+      "text": "Hi, okay, I have like no time at all."
+    },
+    {
+      "speaker": "customer",
+      "moment": "trait",
+      "trait": "confused",
+      "text": "Hi. I think I'm in the right place?"
+    },
+    {
+      "speaker": "customer",
+      "moment": "trait",
+      "trait": "confused",
+      "text": "Okay, so, I'm not sure how this works."
+    },
+    {
+      "speaker": "customer",
+      "moment": "trait",
+      "trait": "cheapskate",
+      "text": "Before anything: is there a fee? There's always a fee."
+    },
+    {
+      "speaker": "customer",
+      "moment": "trait",
+      "trait": "cheapskate",
+      "text": "Is there a coupon for this? There should be."
+    },
+    {
+      "speaker": "customer",
+      "moment": "trait",
+      "trait": "chatty",
+      "text": "Oh hi! What a day, right? Anyway."
+    },
+    {
+      "speaker": "customer",
+      "moment": "trait",
+      "trait": "chatty",
+      "text": "Hello! Love the store. Have you worked here long?"
     }
   ]
 }

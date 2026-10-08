@@ -68,6 +68,8 @@
       #clock { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
       #mood { white-space: nowrap; color: var(--bar-muted); }
       #mood b { color: var(--bar-ink); }
+      #crew { white-space: nowrap; color: var(--bar-muted); margin-left: auto; }
+      #crew b { color: var(--bar-ink); }
       #doing { flex: 1; min-width: 0; color: var(--bar-muted); line-height: 1.2; max-height: 2.4em; overflow: hidden; }
       #doing b { color: var(--bar-ink); }
       #top .btn { background: var(--bar-2); border-color: var(--bar-line); color: var(--bar-ink); white-space: nowrap; }
@@ -89,7 +91,13 @@
       #modal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 1rem; }
       .modal-box { pointer-events: auto; background: var(--paper); color: var(--ink); border: 3px solid var(--ink); border-radius: .6rem; box-shadow: 0 .4rem 1.2rem rgba(0,0,0,.35); padding: .9rem 1rem; max-width: 100%; max-height: 100%; overflow-y: auto; }
       .modal-box.screen { width: 34rem; }
-      .modal-box.dialog { width: 36rem; padding: .7rem .9rem; }
+      /* At the counter the conversation docks to your side (bottom right), clear of your coworker's register on the left
+         (CREW_ZONE / DIALOG_DOCK in view/layout.ts). */
+      .modal-box.dialog { width: 30rem; padding: .7rem .9rem; margin-left: auto; align-self: flex-end; }
+      .modal-box.keypad { margin-left: auto; align-self: flex-end; }
+      .modal-box.dialog .who .mood { font-weight: 600; margin-left: .4rem; }
+      .modal-box.dialog .who .mood.annoyed { color: var(--warn); }
+      .modal-box.dialog .who .mood.angry { color: var(--bad); }
       .modal-box.dialog p { margin: .2rem 0; }
       .answers { grid-template-columns: repeat(3, 1fr); }
       .answers .btn { padding: .25rem .5rem; }
@@ -179,6 +187,16 @@
       #rail { background: #2b2620; border-left: 2px solid var(--bar-line); padding: .6rem; display: flex; flex-direction: column; gap: .5rem; }
       #rail > h2 { color: #e8dcc0; font-size: 1.4rem; text-transform: none; letter-spacing: 0; margin: 0; }
       #notes { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+      /* A coworker asking you something: Do / Don't / Ignore, from anywhere. */
+      #request { background: #e8f3ec; color: var(--ink); border: 3px solid #2e6b50; border-radius: .5rem; padding: .4rem .5rem; }
+      #request .from { font-size: .8rem; color: #2e6b50; font-weight: 700; }
+      #request p { margin: .15rem 0 .35rem; line-height: 1.25; }
+      #request .btns { gap: .3rem; }
+      #request .btn { min-height: 2.8rem; padding: .2rem .55rem; font-size: .85rem; }
+      #request .small { font-size: .8rem; color: var(--muted); }
+      /* The MC's thought: dry, small, never in the way. */
+      #thought { color: #d8cfb8; font-style: italic; font-size: .85rem; border: 2px dashed #6b6250; border-radius: 1rem; padding: .3rem .6rem; }
+      .modal-box.dialog .who .trait { font-size: .8rem; font-weight: 600; background: #efe7d2; color: #5a4a1f; border-radius: .3rem; padding: 0 .35rem; margin-left: .35rem; }
       .note { pointer-events: auto; display: block; width: 100%; text-align: left; border: 0; cursor: pointer; transition: transform .12s; background: #fff3a8; color: #2b2a1f; padding: .4rem .6rem; border-radius: .1rem; box-shadow: .1rem .2rem .3rem rgba(0,0,0,.3); font: 1rem/1.25 var(--hand); }
       .note .hint { margin-top: .2rem; font-size: .8rem; font-weight: 700; color: #5c4d00; }
       .note.done > div:first-child { text-decoration: line-through; }
@@ -228,6 +246,12 @@
 
       /* ---------- screens (start, report, ending) ---------- */
       dl.report { display: grid; grid-template-columns: 1fr auto; gap: .2rem 1rem; margin: .6rem 0; }
+      #screen:has(.report-cols) { width: 48rem; }
+      .report-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; }
+      .report-cols h2 { margin: .5rem 0 .2rem; }
+      .report-cols ul.failures { margin: .2rem 0; padding-left: 1.1rem; }
+      dl.report.crew { grid-template-columns: auto 1fr; }
+      dl.report.crew dd { text-align: left; }
       dl.report dt { color: var(--muted); }
       dl.report dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
       ul.failures { margin: 0; padding-left: 1.2rem; }
@@ -255,7 +279,7 @@
           <button class="btn" id="homeBtn" data-act="home">Go home</button>
           <button class="btn" id="walkBtn" data-act="abandon">Walk away</button>
         </div>
-        <div class="row2"><div id="next"></div><div id="banner" hidden></div></div>
+        <div class="row2"><div id="next"></div><div id="crew"></div><div id="banner" hidden></div></div>
       </header>
       <section id="stage" class="region">
         <div id="modal"><div id="screen" class="modal-box screen" hidden><div id="screenBody"></div></div><div id="note" class="modal-box notecard" hidden></div></div>
@@ -264,7 +288,7 @@
         <div id="tooltip" hidden></div>
       </section>
       <img id="ghost" alt="" hidden>
-      <aside id="rail" class="region"><h2>Notes</h2><div id="notes"></div><div id="more"></div><div id="recent"></div></aside>
+      <aside id="rail" class="region"><div id="request" hidden></div><h2>Notes</h2><div id="notes"></div><div id="more"></div><div id="thought" hidden></div><div id="recent"></div></aside>
       <nav id="bottom" class="region"><div id="tabs"></div><div id="speed"></div></nav>
     </div>
     <aside id="dev" hidden></aside>

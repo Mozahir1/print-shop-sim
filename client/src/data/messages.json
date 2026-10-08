@@ -255,6 +255,24 @@
       "moment": "reason",
       "cause": "overtime",
       "text": "You stayed far past closing."
+    },
+    {
+      "speaker": "manager",
+      "moment": "crew_praise",
+      "subject": "Shoutout to {name}",
+      "text": "Huge shoutout to {name} for the hustle yesterday. Real ownership mindset. The rest of us could learn something. Keep it up, {name}!"
+    },
+    {
+      "speaker": "manager",
+      "moment": "crew_praise",
+      "subject": "Recognition: {name}",
+      "text": "Just want to recognize {name} for going above and beyond yesterday. The owner was very happy to hear it. Great job, {name}."
+    },
+    {
+      "speaker": "manager",
+      "moment": "crew_praise",
+      "subject": "{name} is a rockstar",
+      "text": "Team: {name} is a rockstar. Yesterday proved it again. Let's all bring that {name} energy today."
     }
   ]
 }
