@@ -52,9 +52,10 @@ and the customer a day or two later. The lazy options are the Don'ts, and they'r
 notice), skip the packing paper and just tape it shut (it comes back damaged), hand over smudged copies.
 
 **Sticky notes** replace the to-do list. Taking an order makes the MC write one, from what you entered on the computer
-(not what they asked for): "Resume x25, B&W, cardstock, staple, due 2:00 PM. Dana." Each one says the next step
-("Send to printer", "Printing. You can leave it.", "Collect", "Staple", "Bag and shelve", "Ring up"). Done orders are
-crossed off and fade. Tap a note and it unfolds: every detail of the order and a checklist of every step, with
+(not what they asked for): "#12 Resume x25, B&W, cardstock, staple, due 2:00 PM. Dana R." Each one says the next step
+("Send to printer", "Printing. You can leave it.", "Collect", "Staple", "Bag and shelve", "Ring up"). The ones that
+need you come first; done orders are crossed off and fade within minutes. More than fit? "+N more" pages through them.
+Bags and packages on the shelf carry the name, initial, and number ("Dana R. #12"), and people coming back say theirs. Tap a note and it unfolds: every detail of the order and a checklist of every step, with
 where each one's done (the clock waits while you read). A bell rings and the Counter tab pulses when someone comes in
 while you're elsewhere.
 
@@ -119,12 +120,17 @@ The first time you turn someone away, walk away from a job, or go home with work
   and the next two days; nobody works more than two days running). They take their own customers at their own
   register on the left of the counter, run them through the same machines (you share the printer and the finishing
   table: "In use: Brody, about 3 min"), take breaks, and talk the whole time (speech bubbles over them, and the log).
-  **A** believes in corporate: metrics talk, nags you to upsell lamination, double-checks your orders (and catches
+  **Corinne** believes in corporate: metrics talk, nags you to upsell lamination, double-checks your orders (and catches
   your mistakes, loudly), re-sorts the pickup shelf, clears jams. **Brody** is the owner's son: slow, always asking
-  for help (ignore him and he does it wrong, and the fix lands on you), wanders off (his customers come to your
-  line), breaks things (his mishap is the day's bad luck), and the manager's memo praises him anyway. **C** talks:
+  for help (ignore him and he does it wrong, and the fix lands on you), wanders off (people wait at his empty register,
+  get angry, and come over to yours), breaks things (his mishap is the day's bad luck), and the manager's memo praises
+  him anyway. **Jules** talks:
   a story that goes on for days, gossip, chatting up the customers in your line, and wanting you to respond.
-  Requests come up in the corner as Do / Don't / Ignore, and how you answer stays with them.
+  Requests come up in the corner as Do / Don't / Ignore, and how you answer stays with them. On break, nobody waits at
+  their register.
+  A long wait in their line and people get fed up and come over to yours.
+- **Late means they waited.** An order is late when its customer is here for it, past the time it was promised, and
+  it isn't ready. Bagged before they reach the counter is on time, even if they had to queue behind others.
 - **The MC's thoughts.** Short and dry, in the corner: about who's on, what they're asking, a customer's mood.
 - **Customers have moods.** Some are frantic, confused, cheapskates, or chatty: you'll hear it in what they say, and
   it shows a little in their patience.

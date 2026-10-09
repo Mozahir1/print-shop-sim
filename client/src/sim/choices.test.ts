@@ -297,17 +297,48 @@ describe("customer reactions", () => {
 });
 
 describe("late orders", () => {
-  it("an order bagged after it was due is late: heat, and the customer notices", () => {
+  it("an order bagged after it was due, with the customer standing there waiting for it, is late: heat, and they notice", () => {
     const sim = quiet();
     const s = sim.state;
-    const c = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20 }), timing: "back", needIn: 150 });
+    const c = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20 }), timing: "wait", needIn: 60 });
     talkTo(sim, c, "take");
     const job = s.jobs[0];
+    expect(c.state).toBe("waiting");
     runUntil(sim, () => s.time > job.dueAt); // you got to it too late
     make(sim, c);
     expect(job.late).toBe(true);
     expect(s.stats.lateOrders).toBe(1);
     expect(s.manager.heatBy.complaints).toBe(HEAT.late);
+  });
+
+  it("bagged before they get to the counter is on time, even past the time on it (they were in line behind others)", () => {
+    const sim = quiet();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20 }), timing: "back", needIn: 150 });
+    talkTo(sim, c, "take");
+    const job = s.jobs[0];
+    runUntil(sim, () => s.time >= job.dueAt);
+    returnCustomer(s, c); // back for it, behind whoever's ahead
+    runUntil(sim, () => s.time > job.dueAt + 5);
+    makeReady(sim, job);
+    expect(job.late).toBe(false);
+    expect(s.stats.lateOrders).toBe(0);
+    expect(s.failures.some((f) => f.kind === "late_order")).toBe(false);
+  });
+
+  it("someone back for an order that's ready who gives up in line walked out: the order wasn't late or unfinished", () => {
+    const sim = quiet();
+    const s = sim.state;
+    const c = spawnCustomer(s, sim.rng.dev, "large_job", { spec: plain({ copies: 20 }), timing: "back", needIn: 150 });
+    talkTo(sim, c, "take");
+    const job = s.jobs[0];
+    makeReady(sim, job);
+    runUntil(sim, () => s.time >= job.dueAt);
+    returnCustomer(s, c);
+    runUntil(sim, () => c.state === "gone", 200); // nobody calls them up
+    expect(job.late).toBe(false);
+    expect(s.failures.at(-1)).toMatchObject({ kind: "walked_out", jobId: job.id });
+    expect(s.failures.at(-1)!.text).toContain(`without order #${job.id}`);
   });
 
   it("an order due today and still not done at close counts against you", () => {

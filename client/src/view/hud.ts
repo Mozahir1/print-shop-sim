@@ -301,9 +301,16 @@ function rail(s: GameState): void {
   $("thought").hidden = !t;
   if (t) put("thought", esc(t));
   const list = notes(s);
+  // A page of notes at a time: as many as fit, from the one you paged to. (Back to the top when the notes change.)
+  const ids = list.map((n) => n.jobId).join(",");
+  if (ids !== last.noteIds) {
+    last.noteIds = ids;
+    ctl.notesFrom = 0;
+  }
+  const from = ctl.notesFrom < list.length ? ctl.notesFrom : 0;
   const html = list.length
     ? list
-        .slice(0, 4)
+        .slice(from, from + 4)
         .map((n) => {
           const fade = n.done && n.doneAt !== null ? Math.max(0.35, 1 - (s.time - n.doneAt) / NOTE_FADE) : 1;
           const open = ctl.note === n.jobId ? " open" : "";
@@ -312,16 +319,18 @@ function rail(s: GameState): void {
         .join("")
     : `<div class="note empty">No orders yet.</div>`;
   const recent = s.log.slice(-2).reverse().map((e) => `<div><time>${formatClock(e.time)}</time>${esc(e.text)}</div>`).join("");
-  const extra = `${r?.id ?? ""}|${t ?? ""}`; // (the request card and the thought take room from the notes)
+  const extra = `${r?.id ?? ""}|${t ?? ""}|${from}`; // (the request card and the thought take room from the notes)
   if (last.notes === html && last.recent === recent && last.railExtra === extra) return;
   last.railExtra = extra;
   put("notes", html);
   put("recent", recent);
-  // Drop notes from the bottom until the rest fit (nothing's ever cut off).
+  // Drop notes from the bottom until the rest fit (nothing's ever cut off). The rest are a tap away.
   const box = $("notes");
   const kids = [...box.children] as HTMLElement[];
   for (const k of kids) k.hidden = false;
   for (let i = kids.length - 1; i > 0 && box.scrollHeight > box.clientHeight + 1; i--) kids[i].hidden = true;
-  const more = kids.filter((k) => k.hidden).length + Math.max(0, list.length - 4);
-  put("more", more ? `+${more} more` : "");
+  const shown = kids.filter((k) => !k.hidden).length;
+  const after = list.length - from - shown;
+  const more = after > 0 ? `<button class="morebtn" data-act="moreNotes" data-from="${from + shown}">+${after} more ▸</button>` : from > 0 ? `<button class="morebtn" data-act="moreNotes" data-from="0">Back to the first notes ▴</button>` : "";
+  put("more", more);
 }

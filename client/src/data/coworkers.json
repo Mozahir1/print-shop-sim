@@ -2,9 +2,9 @@
   "coworkers": [
     {
       "id": "A",
-      "name": "A",
+      "name": "Corinne",
       "about": "Neurotic corporate believer. Competent and helpful; cares far too much.",
-      "lore": "",
+      "lore": "Four years here. Reads every email from corporate, twice, and replies to the surveys.",
       "capacity": 0.6,
       "speed": {
         "counter": 1,
@@ -420,9 +420,9 @@
     },
     {
       "id": "C",
-      "name": "C",
+      "name": "Jules",
       "about": "The talker. Fine at the job; exhausting to be near.",
-      "lore": "",
+      "lore": "Knows everyone in town, and what they did last weekend.",
       "capacity": 0.45,
       "speed": {
         "counter": 1.25,
@@ -530,12 +530,12 @@
         {
           "moment": "gossip",
           "about": "A",
-          "text": "A made a laminated vision board. For this job. It has a mission statement."
+          "text": "Corinne made a laminated vision board. For this job. It has a mission statement."
         },
         {
           "moment": "gossip",
           "about": "A",
-          "text": "A asked the manager for feedback. On purpose. Who does that?"
+          "text": "Corinne asked the manager for feedback. On purpose. Who does that?"
         },
         {
           "moment": "gossip",

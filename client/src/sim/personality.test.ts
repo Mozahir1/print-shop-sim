@@ -163,19 +163,26 @@ describe("Brody: the owner's son", () => {
     expect(createSim(5, { coworker: "A", day: 4 }).state.event?.by).toBeUndefined();
   });
 
-  it("goes missing for a bit: his customers come over to your line", () => {
+  it("goes missing for a bit: his customers wait at his register, get angry, and come over to your line", () => {
     const sim = day("B");
     const s = sim.state;
     const c = spawnCustomer(s, sim.rng.dev, "quick_copies", { spec: spec(), timing: "back", needIn: 300 });
     c.crew = true;
     s.coworker!.idleUntil = Infinity; // (before he gets to them)
     s.coworker!.missingAt = s.time;
-    s.coworker!.missingUntil = 15;
+    s.coworker!.missingUntil = 60;
     tick(sim, 1);
     expect(s.coworker!.at).toBe("missing");
-    expect(c.crew).toBe(false);
+    expect(c.crew).toBe(true); // still waiting for him
+    expect(todoList(s).some((i) => i.customerId === c.id)).toBe(false);
+    runUntil(sim, () => c.stage === "annoyed", 60);
+    expect(c.crew).toBe(true);
+    runUntil(sim, () => !c.crew, 60);
+    expect(c.state).toBe("line"); // fed up: over to yours, still annoyed
+    expect(c.stage).toBe("annoyed");
+    expect(c.mood).toBeLessThan(1);
     expect(todoList(s).some((i) => i.customerId === c.id)).toBe(true);
-    runUntil(sim, () => s.coworker!.at !== "missing", 20);
+    expect(s.log.some((l) => l.text.startsWith("Done waiting for Brody"))).toBe(true);
   });
 
   it("never gets in trouble: the manager's memo praises him", () => {

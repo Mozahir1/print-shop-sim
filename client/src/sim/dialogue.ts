@@ -19,7 +19,8 @@ export function requestLines(state: GameState, c: Customer): string[] {
   if (c.trait && !scene) lines.unshift(say(POOLS.customers, "trait", { trait: c.trait }, c.id)); // (how they come across)
   if (scene && scene !== "missing_order") return lines; // they're here about something else
   const spec = c.spec;
-  const vars = { copies: spec?.copies ?? 0, item: spec?.item ?? "", originals: spec?.originals ?? 0, needBy: c.needBy === null ? "" : formatClock(c.needBy), name: c.name };
+  const ref = c.kind === "package_pickup" ? `package #${c.packageId}` : `order #${c.jobId}`; // (what's on the bag or the box)
+  const vars = { copies: spec?.copies ?? 0, item: spec?.item ?? "", originals: spec?.originals ?? 0, needBy: c.needBy === null ? "" : formatClock(c.needBy), name: c.name, ref };
   const fields = scene ? ORDER.order_pickup : (ORDER[c.kind] ?? (isPrintKind(c.kind) ? ORDER.print : []));
   fields.forEach((f, i) => {
     const variants = LINES[f][keyOf(c, f)];

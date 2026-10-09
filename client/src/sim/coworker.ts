@@ -17,7 +17,7 @@
 //
 // Choices never consume randomness: everything that happens during the day is a keyed roll.
 import type { Customer, CoworkerState, CoworkerTask, CrewRequest, GameState, Job, RequestOutcome, Station } from "./types";
-import { CREW, DURATIONS, HEAT, RESPOND_MINUTES } from "./config";
+import { CREW, DURATIONS, HEAT, PATIENCE_STAGES, RESPOND_MINUTES } from "./config";
 import { coworkerDef, COWORKERS } from "./schedule";
 import { createJob, createShipment, isPrintKind } from "./customers";
 import { lastDueAt, quoteFor } from "./quote";
@@ -28,7 +28,7 @@ import { customerById, fill, jobById, log, packageById } from "./util";
 import { emit } from "./bus";
 import { keyedRoll, type Rng } from "./rng";
 import { pickLine, type Line } from "./lines";
-import { recordChoice, wear } from "./mood";
+import { recordChoice, resetPatience, wear } from "./mood";
 import { addHeat } from "./consequences";
 import { recordFailure } from "./failures";
 import { resolveEvent } from "./events";
@@ -101,10 +101,11 @@ export function crewLoad(state: GameState): number {
   }).length;
 }
 
-// Whether they've room for a new customer. (On break, someone can still come in and wait for them.)
+// Whether they've room for a new customer. Not while they're on break (nobody waits at an empty register for that);
+// while Brody's wandered off, people still walk up to his register, and wait, and get angry.
 export function crewTakesNew(state: GameState): boolean {
   const cw = state.coworker;
-  return !!cw && cw.at !== "gone" && cw.at !== "missing" && state.time < state.closeAt && crewLoad(state) < CREW.maxActive;
+  return !!cw && cw.at !== "gone" && cw.at !== "break" && state.time < state.closeAt && crewLoad(state) < CREW.maxActive;
 }
 
 // ---------- shared stations ----------
@@ -303,16 +304,11 @@ function nextPlan(state: GameState): Plan | null {
   const jobs = state.jobs.filter((j) => crewJob(state, j)).sort((a, b) => a.dueDay - b.dueDay || a.dueAt - b.dueAt);
   for (const j of jobs) {
     const wide = machineFor(j.spec) === "wide";
-    const p: Plan | null =
-      j.status === "new" || j.status === "entered" // (entered: carried over from yesterday, to send again)
-        ? plan({ kind: "enter", what: `Entering order #${j.id}`, station: "computer", jobId: j.id }, j.status === "new" ? steps("enter_order", "send_job") : steps("send_job"))
-        : j.status === "printed" && !wide
-          ? plan({ kind: "collect", what: `Collecting order #${j.id}`, station: "printer", jobId: j.id }, steps("collect"))
-          : j.status === "printed" && wide
-            ? plan({ kind: "finish", what: `Trimming order #${j.id}`, station: "finishing", jobId: j.id }, steps("trim", "roll", "bag"))
-            : j.status === "collected" || j.status === "finished"
-              ? plan({ kind: "finish", what: `Finishing order #${j.id}`, station: "finishing", jobId: j.id }, (j.status === "collected" ? finishMinutes(j.spec) : 0) + steps("bag"))
-              : null;
+    let p: Plan | null = null;
+    if (j.status === "new" || j.status === "entered") p = plan({ kind: "enter", what: `Entering order #${j.id}`, station: "computer", jobId: j.id }, j.status === "new" ? steps("enter_order", "send_job") : steps("send_job")); // (entered: carried over from yesterday, to send again)
+    else if (j.status === "printed" && !wide) p = plan({ kind: "collect", what: `Collecting order #${j.id}`, station: "printer", jobId: j.id }, steps("collect"));
+    else if (j.status === "printed") p = plan({ kind: "finish", what: `Trimming order #${j.id}`, station: "finishing", jobId: j.id }, steps("trim", "roll", "bag"));
+    else if (j.status === "collected" || j.status === "finished") p = plan({ kind: "finish", what: `Finishing order #${j.id}`, station: "finishing", jobId: j.id }, (j.status === "collected" ? finishMinutes(j.spec) : 0) + steps("bag"));
     if (p && !(SHARED.has(p.station) && youreAt(state, p.station))) return p;
   }
   return null;
@@ -454,20 +450,30 @@ function chatUp(state: GameState): void {
   log(state, `${cw.name} is chatting up ${c.name}.`);
 }
 
-// Brody wanders off for a bit. His customers in line come over to yours.
+// Brody wanders off for a bit. Whoever's at his register waits there for him (and loses patience: see runPatience),
+// and so does whoever walks up while he's gone. Fed up, they come over to your line (comeOver).
 function goMissing(state: GameState): void {
   const cw = state.coworker!;
   cw.at = "missing";
   cw.missingUntil = state.time + cw.missingUntil; // (it held how long)
   cw.missingAt = null;
   crewSays(state, "missing");
-  const moved = state.customers.filter((c) => c.crew && (c.state === "line" || c.state === "talking"));
-  for (const c of moved) {
-    c.crew = false; // yours now
-    c.state = "line";
-  }
-  if (moved.length) log(state, `${cw.name} went missing. ${moved.length === 1 ? `${moved[0].name} came` : `${moved.length} of his customers came`} over to your line.`);
+  log(state, `${cw.name} wandered off.`);
   think(state, "coworker_missing", { coworker: cw.id });
+}
+
+// Someone in your coworker's line has had enough of waiting there (they're slammed, or Brody's gone missing): they
+// come over to your line, still annoyed. (They give you a fair chance before they give up altogether.)
+export function comeOver(state: GameState, c: Customer): void {
+  const cw = state.coworker;
+  c.crew = false;
+  c.state = "line";
+  c.lineTicket = state.nextLineNo++;
+  const waited = c.waited;
+  resetPatience(state, c);
+  c.waited = Math.min(waited, c.giveUp * PATIENCE_STAGES.annoyed);
+  c.stage = "annoyed";
+  log(state, `Done waiting for ${cw?.name ?? "your coworker"}, ${c.name} came over to your line.`);
 }
 
 // ---------- each minute ----------
@@ -496,7 +502,8 @@ export function runCoworker(state: GameState, dt: number): void {
     cw.at = "counter";
     if (!crewSays(state, "back_break")) crewSays(state, "back");
   }
-  if (cw.breaks.length && state.time >= cw.breaks[0] && state.time < state.closeAt) {
+  // (Not with someone in their line: they finish with them first.)
+  if (cw.breaks.length && state.time >= cw.breaks[0] && state.time < state.closeAt && !state.customers.some((c) => c.crew && (c.state === "line" || c.state === "talking"))) {
     cw.breaks.shift();
     cw.at = "break";
     cw.breakUntil = state.time + def.breaks.minutes;

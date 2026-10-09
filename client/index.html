@@ -224,7 +224,9 @@
       ol.steps li.now { font-weight: 700; background: rgba(224,165,74,.35); border-radius: .2rem; margin: 0 -.3rem; padding: .1rem .3rem; }
       .notecard .btn { font-family: var(--ui); }
       .note.empty { background: transparent; box-shadow: none; color: #d8cdb4; font-family: var(--ui); }
-      #more { color: #e8dcc0; font-size: .8rem; font-weight: 700; }
+      #more:empty { display: none; }
+      .morebtn { pointer-events: auto; width: 100%; border: 1px dashed #8a7d66; border-radius: .2rem; background: #3a332a; color: #fff3a8; font: 700 .9rem/1.2 var(--ui); padding: .35rem .5rem; cursor: pointer; text-align: center; }
+      .morebtn:hover, .morebtn:focus-visible { background: #4a4135; outline: none; }
       #recent { border-top: 1px solid #5a5146; padding-top: .3rem; color: #e8dcc0; font-size: .8rem; }
       #recent div { line-height: 1.25; }
       #recent time { color: #bfb39a; margin-right: .4rem; font-variant-numeric: tabular-nums; }

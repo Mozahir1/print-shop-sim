@@ -617,8 +617,9 @@
     }
   },
   "notes": {
-    "new": "{item} for {name}, due {due}. Not in the computer yet.",
+    "new": "#{job} {item} for {name}, due {due}. Not in the computer yet.",
     "printing": "Printing. You can leave it.",
+    "pickup": "Ready. Ring up when they come back",
     "done": "Done"
   },
   "workflows": {

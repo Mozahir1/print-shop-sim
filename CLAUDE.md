@@ -132,6 +132,16 @@ whether a first-time human can understand and do it. See `SIM_SPEC.md`.
   walkout days A 3%, Brody 6%, C 9%; your work min/day (smart bot) A 138, Brody 161 (+17%), C 154. Human-pace test
   thresholds now 10% walkout days, 0.2 late/day (v9 adds work by design). Tests: `personality.test.ts`,
   `coworker.test.ts`. Screenshots in `playtest/v9/`. No Playwright playtest exists yet (spec v8 Phase 5).
+- Owner request (2026-10-09), v9.1: A and C are named (Corinne, Jules). Lateness: `checkLate` in sim.ts (late only
+  when the customer is waiting or talking for it, past due; a missing order at the counter counts; unfinished at close
+  counts); a walkout with a bagged order is `walked_out`, not `never_ready`. Coworker's line: patience wears (busy
+  rate; full rate while Brody's missing), fed up at "angry" they `comeOver` to yours (reset to annoyed). Breaks wait
+  for their line to clear, and no new crew customers on break (`crewTakesNew`); missing no longer moves customers.
+  Notes: ranked (needs you, on the shelf, done), `NOTE_FADE` 10, "+N more" pages (`ctl.notesFrom`, `moreNotes`).
+  Names: `uniqueName` (next initial along), order numbers on notes, bags, packages and in what pickups say (`{ref}`),
+  `tidy()` drops "R.." in log/fill. Tests: `crewline.test.ts`. Screenshots in `playtest/v9.1/`.
+  Tried and removed (owner, same day): passing work to the coworker (a customer, entering, or making an order). Passing
+  everything to Corinne had no downside, so it wasn't a choice.
 - Known for later phases: phone sizes are the same layout scaled down (about 11px text on an 844x390 phone, worse in
   portrait).
 - Art: placeholders only. The owner will draw custom pixel art later from `ART_CHECKLIST.md` (2x art grid, 500x266 per

@@ -1,5 +1,6 @@
 // Sticky notes: the MC writes one for every order you take. It says what you entered on the computer (not what they
-// actually asked for), and the next thing to do with it. Done orders get crossed off and fade.
+// actually asked for), and the next thing to do with it. The ones that need you come first (soonest due first), then
+// the ones waiting on the shelf for their customer. Done orders get crossed off and fade quickly.
 import type { GameState, Job, JobStatus, Media, Station, TaskType } from "./types";
 import { NOTE_TEXT, STEP } from "./workflow";
 import { FINISHING_LABEL, MACHINE_LABEL, MEDIA_LABEL, PAPER, machineFor } from "./orders";
@@ -14,7 +15,7 @@ export interface Note {
   doneAt: number | null;
 }
 
-export const NOTE_FADE = 45; // game minutes a crossed-off note stays up
+export const NOTE_FADE = 10; // game minutes a crossed-off note stays up
 
 
 export function notes(state: GameState): Note[] {
@@ -25,26 +26,32 @@ export function notes(state: GameState): Note[] {
     if (done && (j.closedAt === null || state.time - j.closedAt > NOTE_FADE)) continue;
     out.push({ jobId: j.id, text: noteText(state, j), hint: done ? NOTE_TEXT.done : hintFor(state, j), done, doneAt: j.closedAt });
   }
-  return out.sort((a, b) => Number(a.done) - Number(b.done));
+  const rank = (n: Note): number => {
+    const j = state.jobs.find((x) => x.id === n.jobId)!;
+    return n.done ? 2 : j.status === "bagged" ? 1 : 0;
+  };
+  return out.map((n, i) => ({ n, i, r: rank(n) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.n);
 }
 
-// "Resume x25, B&W, cardstock, 2-sided, staple, due 2:00 PM. Dana."
+// "#12 Resume x25, B&W, cardstock, 2-sided, staple, due 2:00 PM. Dana R." (The order number and initial tell apart two
+// orders for the same name: they're on the bag too.)
 export function noteText(state: GameState, j: Job): string {
-  const name = (customerById(state, j.customerId)?.name ?? "").split(" ")[0];
+  const name = customerById(state, j.customerId)?.name ?? "";
   const s = j.spec;
   const item = `${s.item[0].toUpperCase()}${s.item.slice(1)}`;
   const due = j.dueDay > state.day ? `tomorrow ${formatClock(j.dueAt)}` : formatClock(j.dueAt);
   // Until it's in the computer, the details are only in what they said.
-  if (j.status === "new") return fill(NOTE_TEXT.new, { item, name, due });
+  if (j.status === "new") return fill(NOTE_TEXT.new, { job: j.id, item, name, due });
   const parts = [`${item} x${s.copies}`, s.color === "color" ? "color" : "B&W"];
   if (s.media !== "business_card") parts.push(PAPER[s.media]);
   if (s.duplex) parts.push("2-sided");
   if (s.finishing !== "none") parts.push(s.finishing);
-  return `${parts.join(", ")}, due ${due}. ${name}.`;
+  return `#${j.id} ${parts.join(", ")}, due ${due}. ${name}${name.endsWith(".") ? "" : "."}`;
 }
 
 function hintFor(state: GameState, j: Job): string {
   if (j.status === "queued" || j.status === "printing") return NOTE_TEXT.printing;
+  if (j.status === "bagged" && customerById(state, j.customerId)?.state === "away") return NOTE_TEXT.pickup;
   return fill(STEP[nextStep(j)].hint, { finishing: FINISHING_LABEL[j.spec.finishing], machine: MACHINE_LABEL[machineFor(j.spec)] });
 }
 

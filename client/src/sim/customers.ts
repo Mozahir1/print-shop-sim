@@ -55,6 +55,20 @@ export function rollName(rng: Rng): string {
   return `${pick(rng, names.first)} ${pick(rng, names.last)}`;
 }
 
+// No two people around today with the same name and initial (on the shelf, in the store, or coming back for an
+// order): the next initial along instead. (No extra roll, so nothing else the day rolls changes.)
+export function uniqueName(state: GameState, name: string): string {
+  const taken = new Set([...state.customers.filter((c) => c.state !== "gone").map((c) => c.name), ...state.packages.filter((p) => p.kind === "held" && p.to && (p.status === "held" || p.status === "found")).map((p) => p.to!)]);
+  if (!taken.has(name)) return name;
+  const [first, last] = name.split(" ");
+  const i = Math.max(0, names.last.indexOf(last));
+  for (let k = 1; k < names.last.length; k++) {
+    const other = `${first} ${names.last[(i + k) % names.last.length]}`;
+    if (!taken.has(other)) return other;
+  }
+  return name;
+}
+
 export interface SpawnOptions {
   spec?: JobSpec;
   timing?: Timing;
@@ -74,7 +88,7 @@ export function shelve(state: GameState, rng: Rng, n: number): Package[] {
   const room = Math.max(0, SHIPPING.shelfMax - state.packages.filter((p) => p.kind === "held" && (p.status === "held" || p.status === "found")).length);
   const out: Package[] = [];
   for (let i = 0; i < Math.min(n, room); i++) {
-    const p: Package = { id: state.nextId++, customerId: 0, kind: "held", to: rollName(rng), weightLb: randInt(rng, 1, 10), service: null, box: null, priceCents: 0, status: "held", taped: false, paid: true, label: null };
+    const p: Package = { id: state.nextId++, customerId: 0, kind: "held", to: uniqueName(state, rollName(rng)), weightLb: randInt(rng, 1, 10), service: null, box: null, priceCents: 0, status: "held", taped: false, paid: true, label: null };
     state.packages.push(p);
     out.push(p);
   }
@@ -96,7 +110,7 @@ export function onTheShelf(state: GameState): Package[] {
 // shelf: one gets put there). Order pickups need an existing order: use returnCustomer() for those.
 export function spawnCustomer(state: GameState, rng: Rng, kind: Exclude<RequestKind, "order_pickup">, opts: SpawnOptions = {}): Customer {
   const pkg = kind === "package_pickup" ? (onTheShelf(state)[0] ?? shelve(state, rng, 1)[0]) : undefined;
-  const c = newCustomer(state, opts.name ?? pkg?.to ?? rollName(rng), kind);
+  const c = newCustomer(state, opts.name ?? pkg?.to ?? uniqueName(state, rollName(rng)), kind);
   c.state = "line";
   c.lineTicket = state.nextLineNo++;
   if (isPrintKind(kind)) {
@@ -234,7 +248,7 @@ export function morningTime(seed: number, key: number): number {
 // Online orders can't be turned away.
 export function placeWebOrder(state: GameState, rng: Rng, opts: SpawnOptions = {}): Job {
   const kind = rng() < 0.5 ? "quick_copies" : "large_job";
-  const c = newCustomer(state, opts.name ?? rollName(rng), "order_pickup");
+  const c = newCustomer(state, opts.name ?? uniqueName(state, rollName(rng)), "order_pickup");
   c.spec = opts.spec ?? rollSpec(rng, kind);
   c.timing = "back";
   state.customers.push(c);

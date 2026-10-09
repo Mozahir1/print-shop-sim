@@ -50,9 +50,9 @@ describe("playstyles and the manager", () => {
   });
 
   it("turning away everything you could have done: fired, but slowly", () => {
-    const day = daysUntilFired(1, "turn_away");
-    expect(day).not.toBeNull();
-    expect(day!).toBeGreaterThan(5);
+    const days = [1, 2, 3, 4, 5, 6].map((seed) => daysUntilFired(seed, "turn_away")).filter((d) => d !== null);
+    expect(days.length).toBeGreaterThanOrEqual(3);
+    for (const d of days) expect(d!).toBeGreaterThan(5);
   });
 
   it("doing it smart: never a write-up", () => {

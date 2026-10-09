@@ -98,7 +98,7 @@ describe("the order form and the notes", () => {
     expect(isChoice(step)).toBe(true);
     for (let i = 0; i < 5; i++) tick(sim, 1);
     expect(s.jobs[0].status).toBe("new");
-    expect(notes(s)[0]).toMatchObject({ text: `Resume for ${c.name.split(" ")[0]}, due ${formatClock(s.jobs[0].dueAt)}. Not in the computer yet.`, hint: "Enter it on the computer" });
+    expect(notes(s)[0]).toMatchObject({ text: `#${s.jobs[0].id} Resume for ${c.name}, due ${formatClock(s.jobs[0].dueAt)}. Not in the computer yet.`, hint: "Enter it on the computer" });
   });
 
   it("a note unfolds into every detail you entered, and every step, ticked off as you go", () => {
@@ -131,7 +131,7 @@ describe("the order form and the notes", () => {
     talkTo(sim, c, "take", { copies: 52, media: "letter" }); // misheard
     const job = s.jobs[0];
     const due = formatClock(job.dueAt);
-    expect(notes(s)[0].text).toBe(`Resume x52, B&W, letter, staple, due ${due}. Dana.`);
+    expect(notes(s)[0].text).toBe(`#${job.id} Resume x52, B&W, letter, staple, due ${due}. Dana Reyes.`);
     expect(job.asked.copies).toBe(25); // what they actually said
     expect(notes(s)[0].hint).toBe("Printing. You can leave it."); // sent on by itself
     while (job.status !== "printed") tick(sim, 1);
@@ -139,7 +139,7 @@ describe("the order form and the notes", () => {
     job.status = "collected";
     expect(notes(s)[0].hint).toBe(job.smudge === "found" ? "Reprint or use anyway" : "Staple");
     makeReady(sim, job);
-    expect(notes(s)[0].hint).toBe("Ring up");
+    expect(notes(s)[0].hint).toBe("Ready. Ring up when they come back");
   });
 
   it("a mistake on the form comes back at pickup: 'This isn't what I asked for', and they don't pay", () => {

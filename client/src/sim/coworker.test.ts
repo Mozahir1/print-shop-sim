@@ -82,7 +82,7 @@ describe("the coworker", () => {
     runUntil(sim, () => s.jobs.length > 0 && s.jobs[0].status === "bagged", 400);
     const job = s.jobs[0];
     expect(notes(s)).toEqual([]);
-    expect(canStart(s, { type: "collect", jobId: job.id })).toMatch(/A is taking care of that/);
+    expect(canStart(s, { type: "collect", jobId: job.id })).toMatch(/Corinne is taking care of that/);
     s.director.enabled = true; // (they come back for it)
     runUntil(sim, () => c.state === "gone", 400);
     expect(job.status).toBe("picked_up");
@@ -126,8 +126,8 @@ describe("shared machines", () => {
     expect(startTask(s, { type: "collect", jobId: job.id })).toBeNull();
     runUntil(sim, () => s.employee.task === null);
     s.coworker!.task = { kind: "finish", what: "Finishing order #99", station: "finishing", until: s.time + 4, total: 4 };
-    expect(inUse(s, "finishing")).toMatch(/In use: A, about 4 min/);
-    expect(canStart(s, { type: "finish", jobId: job.id })).toMatch(/In use: A/);
+    expect(inUse(s, "finishing")).toMatch(/In use: Corinne, about 4 min/);
+    expect(canStart(s, { type: "finish", jobId: job.id })).toMatch(/In use: Corinne/);
     expect(s.workflow?.kind).toBe("collect_finish"); // (it's a wait: the job's still yours)
     s.coworker!.task = null;
     expect(canStart(s, { type: "finish", jobId: job.id })).toBeNull();

@@ -40,6 +40,7 @@ export class CounterScene extends Station {
   // Your coworker's register, on the left: who they're helping, how many more are waiting for them, or where they went.
   private crewCust!: Phaser.GameObjects.Container;
   private crewShownId = -1;
+  private crewSaidAt: number | null = null;
   private crewNote!: Phaser.GameObjects.Text;
 
   constructor() {
@@ -135,7 +136,8 @@ export class CounterScene extends Station {
     const here = !!cw && cw.at === "counter";
     this.crew?.setVisible(here);
     if (cw) (this.crew?.getAt(1) as Phaser.GameObjects.Text | undefined)?.setText(cw.name);
-    const theirs = s.customers.filter((c) => c.crew && (c.state === "line" || c.state === "talking" || c.state === "waiting"));
+    // (On break, nobody waits at their register. Missing is different: people walk up, and wait, and get angry.)
+    const theirs = cw?.at === "break" ? [] : s.customers.filter((c) => c.crew && (c.state === "line" || c.state === "talking" || c.state === "waiting"));
     const task = cw?.task?.station === "counter" ? theirs.find((c) => c.id === cw.task!.customerId) : undefined;
     const shown = task ?? theirs.filter((c) => c.state === "line").sort((a, b) => a.lineTicket - b.lineTicket)[0] ?? theirs.find((c) => c.state === "waiting");
     if (shown && shown.id !== this.crewShownId) {
@@ -147,7 +149,12 @@ export class CounterScene extends Station {
       this.crewShownId = -1;
       this.tweens.add({ targets: this.crewCust, alpha: 0, duration: 400, onComplete: () => this.crewCust.setVisible(false) });
     }
-    if (shown) (this.crewCust.getAt(1) as Phaser.GameObjects.Sprite).setTexture(`customer/face_${shown.stage === "gone" ? "angry" : shown.stage}`);
+    if (shown) {
+      (this.crewCust.getAt(1) as Phaser.GameObjects.Sprite).setTexture(`customer/face_${shown.stage === "gone" ? "angry" : shown.stage}`);
+      // Fed up at an empty register: they say so ("Hello?").
+      if (shown.said && shown.saidAt !== this.crewSaidAt && (shown.stage === "annoyed" || shown.stage === "angry")) say(this, SPOT.crewCustomer[0], this.crewCust.y - 104, shown.said, shown.stage === "angry" ? "#b3261e" : "#8a5200", 2600);
+      this.crewSaidAt = shown.saidAt;
+    }
     const more = theirs.length - (shown ? 1 : 0);
     const away = cw && !here ? (cw.at === "break" ? `${cw.name} is on break` : cw.at === "missing" ? `${cw.name} is missing` : cw.at === "gone" ? `${cw.name} went home` : `${cw.name} is ${{ shelf: "at the pickup shelf", finishing: "at the finishing table", shipping: "at shipping", printer: "at the printer", computer: "at the computer", self_serve: "at self-serve", counter: "here" }[cw.at]}`) : "";
     const note = [away, more > 0 && cw ? `${more} more waiting for ${cw.name}` : ""].filter(Boolean).join("\n");
@@ -453,10 +460,9 @@ export class ShelfScene extends Station {
     const s = state();
     const fetched = new Set(s.customers.map((c) => c.fetched));
     const want = new Map<string, string>();
-    for (const j of s.jobs) if (j.status === "bagged" && !fetched.has(j.id)) want.set(`bag:${j.id}`, customerById(s, j.customerId)?.name.split(" ")[0] ?? "");
-    // (Packages by first name and initial: there can be a few on the shelf, from days back.)
-    const short = (name: string) => name.replace(/^(\S+)\s+(\S).*$/, "$1 $2.");
-    for (const p of s.packages) if (p.kind === "held" && p.status === "held") want.set(`package:${p.id}`, short(p.to ?? customerById(s, p.customerId)?.name ?? ""));
+    // (Name, initial, and number: two orders for the same name don't look the same.)
+    for (const j of s.jobs) if (j.status === "bagged" && !fetched.has(j.id)) want.set(`bag:${j.id}`, `${customerById(s, j.customerId)?.name ?? ""}\n#${j.id}`);
+    for (const p of s.packages) if (p.kind === "held" && p.status === "held") want.set(`package:${p.id}`, `${p.to ?? customerById(s, p.customerId)?.name ?? ""}\n#${p.id}`);
     // (Re-sorted by a coworker: the bags aren't where you left them. Take a second look.)
     if (s.shelfOrder) {
       const sorted = [...want].sort(([a], [b]) => (a.startsWith("bag:") && b.startsWith("bag:") ? keyedRoll(s.shelfOrder, a) - keyedRoll(s.shelfOrder, b) : 0));
@@ -475,9 +481,10 @@ export class ShelfScene extends Station {
       const [x0, y0, dx, dy, cols] = bag ? SPOT.shelfBags : SPOT.shelfPackages;
       const n = bag ? bags++ : pkgs++;
       const spr = sprite(this, bag ? "shelf/bag" : "shelf/package", 0, 0);
-      const tag = this.add.text(0, 8, name, { ...SMALL, backgroundColor: "#ffffff", padding: { x: 2, y: 0 } }).setOrigin(0.5);
+      const tag = this.add.text(0, 8, name, { ...SMALL, backgroundColor: "#ffffff", padding: { x: 2, y: 0 }, align: "center" }).setOrigin(0.5);
       const c = this.add.container(x0 + (n % cols) * dx, y0 + Math.floor(n / cols) * dy, [spr, tag]).setSize(48, 52).setDepth(20).setInteractive({ useHandCursor: true });
-      c.setData("tip", bag ? `Bag for ${name}` : `Package for ${name}`);
+      const [who, num] = name.split("\n");
+      c.setData("tip", bag ? `Bag for ${who}, order ${num}` : `Package for ${who}, ${num}`);
       this.items.set(k, c);
     }
   }

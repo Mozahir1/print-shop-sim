@@ -59,6 +59,7 @@ export const ctl = {
   followed: "", // the step the view last moved to
   confirming: null as { key: string; until: number } | null,
   note: null as number | null, // the sticky note you've unfolded (its order); the clock waits while you read it
+  notesFrom: 0, // the rail shows the notes a page at a time: the first one shown
   carry: null as Carry | null, // what you've picked up for the part you're on, until you put it where it goes
   app: "orders" as App, // the computer app on the monitor
   mail: null as number | null, // the email you've opened
@@ -502,6 +503,9 @@ export function act(el: HTMLElement): void {
     }
     case "closeNote":
       ctl.note = null;
+      return;
+    case "moreNotes":
+      ctl.notesFrom = Number(d.from);
       return;
     case "putBack":
       return putBack();

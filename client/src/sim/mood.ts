@@ -7,6 +7,7 @@ import { recordFailure } from "./failures";
 import { lostBusiness, onLeave } from "./consequences";
 import { fullServiceQuote } from "./orders";
 import { customerSay } from "./mc";
+import { comeOver } from "./coworker";
 
 export function moodOf(c: Customer): Mood {
   return c.mood >= 1 ? "happy" : c.mood <= -1 ? "angry" : "neutral";
@@ -41,12 +42,20 @@ export function recordChoice(state: GameState, type: ChoiceType, what: Choice["w
 
 // Customers in the store use up patience while nobody's helping them: in line, at the counter, and waiting for an
 // order once it's overdue (more slowly while you're busy with someone else: they can see it). Fine, annoyed ("Hello?"), angry ("Is anyone working here?"), then they leave.
+// Your coworker's line too: slowly while they're busy, and at the full rate at an empty register (Brody wandered off).
+// Fed up there, they come over to your line (comeOver).
 export function runPatience(state: GameState, dt: number): void {
   const helping = state.workflow?.customerId ?? state.employee.task?.customerId;
   const busy = state.workflow !== null || state.employee.task !== null;
+  const cw = state.coworker;
   for (const c of state.customers) {
     if (c.state !== "line" && c.state !== "talking" && c.state !== "waiting") continue;
-    if (helping === c.id || c.lingering || c.crew) continue; // a lingerer isn't going anywhere (and your coworker's helping theirs)
+    if (c.crew) {
+      if (c.state !== "line" || !cw || cw.at === "gone" || cw.task?.customerId === c.id) continue; // (being helped, or they'll be seen to after close)
+      wear(state, c, cw.at === "missing" ? dt : dt * BUSY_PATIENCE);
+      continue;
+    }
+    if (helping === c.id || c.lingering) continue; // a lingerer isn't going anywhere
     const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
     if (c.state === "waiting" && job && job.status !== "bagged" && !isOverdue(state, job)) continue; // it isn't due yet
     wear(state, c, busy ? dt * (c.kind === "business" ? BUSY_PATIENCE_BUSINESS : BUSY_PATIENCE) : dt); // they can see you're busy
@@ -65,6 +74,7 @@ export function wear(state: GameState, c: Customer, minutes: number): void {
     c.mood += MOOD.fedUp;
     customerSay(c, "angry", {}, state.time);
     log(state, `${c.name} is getting angry.`);
+    if (c.crew) return comeOver(state, c); // (done waiting at your coworker's register)
   }
   if (stage === "gone") walkOut(state, c);
 }
@@ -74,10 +84,11 @@ export function walkOut(state: GameState, c: Customer): void {
   c.mood = Math.min(c.mood, -1);
   const inLine: Record<string, string | number> = c.state === "line" ? { where: "line", minutes: Math.max(1, Math.round(state.time - c.arrivedAt)) } : {};
   const job = c.jobId !== null ? jobById(state, c.jobId) : undefined;
-  const open = job && job.status !== "picked_up" && job.status !== "canceled";
+  const open = job && job.status !== "picked_up" && job.status !== "canceled" && job.status !== "bagged"; // (bagged: it was ready, they just gave up waiting for you)
   leave(state, c, "left");
   if (c.kind === "business" && !job) return lostBusiness(state, c, fullServiceQuote(c.spec!, false).totalCents);
-  recordFailure(state, open ? "never_ready" : "walked_out", open ? { name: c.name, job: job.id } : { name: c.name, ...inLine }, { customerId: c.id, jobId: job?.id });
+  const vars: Record<string, string | number> = job && (open || job.status === "bagged") ? { name: c.name, job: job.id } : { name: c.name, ...inLine }; // ("...left without order #12")
+  recordFailure(state, open ? "never_ready" : "walked_out", vars, { customerId: c.id, jobId: job?.id });
 }
 
 // A customer leaves the store for good. Their mood at that moment is how the visit went.

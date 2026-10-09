@@ -50,7 +50,7 @@ export interface Job {
   orderedAt: number;
   dueDay: number; // the day it's promised for...
   dueAt: number; // ...and the time (sim seconds into that day)
-  late: boolean; // it wasn't ready by then (counted once)
+  late: boolean; // the customer had to wait for it past when it was promised (counted once; see checkLate)
   pickupAt: number; // when an away customer comes back for it, ready or not
   attempt: number; // prints so far (a reprint starts a new attempt)
   smudge: "none" | "found" | "accepted"; // smudged copies: found when collected; accepted = handed over anyway

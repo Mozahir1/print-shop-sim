@@ -924,6 +924,7 @@ function runStep(state: GameState, t: Task): void {
       if (c!.kind === "order_pickup" && theirs && theirs.status !== "bagged") {
         customerSay(c!, "request", { scene: "missing_order" }, state.time); // "Where's my order?"
         recordFailure(state, "missing_order", { name: c!.name, job: theirs.id }, { customerId: c!.id, jobId: theirs.id });
+        if (isOverdue(state, theirs)) onLate(state, theirs); // (they're standing here for it: that's late)
       } else if (c!.kind === "self_serve_help" && state.copier.status === "broken") {
         customerSay(c!, "request", { scene: "copier_broken" }, state.time);
         recordFailure(state, "copier_broken", { name: c!.name }, { customerId: c!.id });
@@ -1088,11 +1089,7 @@ function runStep(state: GameState, t: Task): void {
     case "bag":
       job!.status = "bagged";
       emit("bag_shelved", { jobId: job!.id });
-      if (isOverdue(state, job!) && !job!.late) {
-        onLate(state, job!);
-        const owner = customerById(state, job!.customerId);
-        recordFailure(state, "late_order", { name: owner?.name ?? "a customer", job: job!.id }, { customerId: owner?.id, jobId: job!.id });
-      }
+      checkLate(state, job!);
       log(state, `Order #${job!.id} is bagged and ready.`);
       return;
     case "help_self_serve":
@@ -1179,6 +1176,17 @@ function runStep(state: GameState, t: Task): void {
       truckGone(state);
       return;
   }
+}
+
+// An order's late when its customer is here for it, and it's past when it was promised, and it isn't ready. Done in
+// time for them is on time: someone coming back for it who's still in line (behind a few others) doesn't make it
+// late. (Not your coworker's: their orders aren't on you.) Counted once.
+export function checkLate(state: GameState, job: Job): void {
+  const owner = customerById(state, job.customerId);
+  if (job.late || !owner || owner.crew || !isOverdue(state, job)) return;
+  if (owner.state !== "waiting" && owner.state !== "talking") return; // (they aren't standing there waiting on it)
+  onLate(state, job);
+  recordFailure(state, "late_order", { name: owner.name, job: job.id }, { customerId: owner.id, jobId: job.id });
 }
 
 // Ringing someone up: card, you type the total; cash, they hand you a bill and you type the change. Whatever's
